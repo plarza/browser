@@ -86,7 +86,7 @@ enum SelfTest {
             try? await Task.sleep(for: .seconds(2))
             let page = browser.selectedTab?.webView
             let sections = try? await page?.evaluateJavaScript("document.querySelectorAll('h2').length", in: nil, contentWorld: .page) as? Int
-            check("⌘, opens about://settings", browser.selectedTab?.url?.absoluteString == "about://settings" && sections == 5,
+            check("⌘, opens about://settings", browser.selectedTab?.url?.absoluteString == "about://settings" && sections == 6,
                   "url=\(browser.selectedTab?.url?.absoluteString ?? "nil") sections=\(sections ?? -1)")
             _ = try? await page?.evaluateJavaScript("document.querySelector('#picks button').click()", in: nil, contentWorld: .page)
             try? await Task.sleep(for: .milliseconds(500))
@@ -168,6 +168,16 @@ enum SelfTest {
             key(down, in: window, modifiers: [.command, .shift])
             check("⇧⌘↓ on the last tab goes to the first", browser.selectedTab === browser.tabs.first, "")
 
+            // A blank tab shows the new tab page; a page replaces it.
+            let blankTab = browser.newTab(nil, focus: false)
+            try? await Task.sleep(for: .milliseconds(500))
+            let shownBlank = browser.newTabPageShownForTesting
+            blankTab.load(URL(string: "https://example.com/")!)
+            try? await Task.sleep(for: .seconds(2))
+            check("a blank tab shows the new tab page, and a page replaces it", shownBlank && !browser.newTabPageShownForTesting,
+                  "blank=\(shownBlank) after=\(browser.newTabPageShownForTesting)")
+            browser.close(blankTab)
+
             // New tabs go where Settings says.
             Preferences.shared.settings.newTabPosition = .top
             let atTop = browser.newTab(nil, focus: false)
@@ -207,6 +217,17 @@ enum SelfTest {
                 try? await Task.sleep(for: .seconds(1))
                 NSLog("Core self-test: SHOT history")
                 try? await Task.sleep(for: .seconds(4))
+                let empty = browser.newTab(nil, focus: false)
+                Preferences.shared.settings.newTabPage = .image
+                try? await Task.sleep(for: .seconds(1))
+                NSLog("Core self-test: SHOT newtab")
+                try? await Task.sleep(for: .seconds(4))
+                Preferences.shared.settings.newTabPage = .blank
+                try? await Task.sleep(for: .seconds(1))
+                NSLog("Core self-test: SHOT frosted")
+                try? await Task.sleep(for: .seconds(4))
+                Preferences.shared.settings.newTabPage = .image
+                browser.close(empty)
             }
             browser.showSettings(nil)
             try? await Task.sleep(for: .seconds(1))

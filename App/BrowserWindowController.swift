@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CoreKit
 import UniformTypeIdentifiers
 import WebKit
@@ -23,6 +24,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private var sidebarWidth: NSLayoutConstraint!
     private var sidebarLeading: NSLayoutConstraint!
     private var popover: NSPopover?
+    /// Behind a blank tab: the new tab page.
+    private let backdrop = NewTabBackdrop()
+    private var watching: Set<AnyCancellable> = []
     private static let widths: ClosedRange<CGFloat> = 200 ... 420
     private var width: CGFloat = {
         let saved = CGFloat(UserDefaults.standard.double(forKey: "sidebarWidth"))
@@ -38,7 +42,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        window.backgroundColor = .textBackgroundColor
+        // Clear, so a blank tab's frosted page can show the desktop through
+        // it; the sidebar and the page paint their own white.
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.minSize = NSSize(width: 640, height: 420)
         window.setFrameAutosaveName("Core")
         if window.frame.origin == .zero { window.center() }
@@ -46,9 +53,43 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         super.init(window: window)
         window.delegate = self
         layout()
+        watchNewTabPage()
         watchClicks()
         watchSwipes()
         watchMouseButtons()
+    }
+
+    private func watchNewTabPage() {
+        backdrop.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(backdrop, positioned: .below, relativeTo: progress)
+        NSLayoutConstraint.activate([
+            backdrop.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            backdrop.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            backdrop.topAnchor.constraint(equalTo: content.topAnchor),
+            backdrop.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        let prefs = Preferences.shared
+        prefs.$settings.combineLatest(prefs.$newTabImageVersion)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] settings, version in
+                MainActor.assumeIsolated { self?.backdrop.update(settings, imageVersion: version) }
+            }
+            .store(in: &watching)
+    }
+
+    /// The new tab page shows while the tab has nothing in it.
+    private func updateNewTabPage() {
+        let blank = selected.map { $0.url == nil && $0.pending == nil && !$0.isLoading } ?? false
+        selected?.webView.isHidden = blank
+        content.isClear = blank
+        guard backdrop.isHidden == blank else { return }
+        if blank { backdrop.alphaValue = 0; backdrop.isHidden = false }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            backdrop.animator().alphaValue = blank ? 1 : 0
+        } completionHandler: { [weak self] in
+            if !blank { self?.backdrop.isHidden = true }
+        }
     }
 
     /// A mouse's back and forward buttons do what ⌘[ and ⌘] do. WebKit
@@ -341,7 +382,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private func show(_ view: WKWebView) {
         guard view.superview !== content else { return }
         view.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(view, positioned: .below, relativeTo: progress)
+        content.addSubview(view, positioned: .below, relativeTo: backdrop)
         NSLayoutConstraint.activate([
             view.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             view.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -382,6 +423,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     private func refreshChrome() {
+        updateNewTabPage()
         guard let tab = selected else { return }
         if !address.isEditing { address.show(tab.url) }
         progress.set(tab.isLoading ? tab.progress : 1)
@@ -675,6 +717,7 @@ extension BrowserWindowController {
     var selectedWebViewForTesting: NSView { selected?.webView ?? content }
     var sidebarShownForTesting: Bool { sidebarShown }
     var selectedTab: Tab? { selected }
+    var newTabPageShownForTesting: Bool { !backdrop.isHidden && backdrop.alphaValue > 0.5 }
     func mouseButtonForTesting(_ number: Int) { mouseButton(number) }
     func swipeForTesting(_ phase: NSEvent.Phase, dx: CGFloat) { follow(phase, dx: dx, dy: 0) }
 }

@@ -13,6 +13,22 @@ public struct Settings: Codable, Equatable {
     public var filterLists: [String] = Settings.defaultFilterLists
     /// Where a new tab goes in the list.
     public var newTabPosition: TabPosition = .below
+    /// What a blank tab shows: a picture, a colour, or the desktop, frosted.
+    public var newTabPage: NewTabPage = .image
+    public var newTabColor: String = "#2E4B76"
+
+    public enum NewTabPage: String, Codable, CaseIterable {
+        case image, color, blank
+    }
+
+    /// A picture someone chose for blank tabs, kept beside the settings.
+    /// Without one, Core's own.
+    public static var newTabImage: URL { Store.directory.appendingPathComponent("newtab-image") }
+
+    /// The picture blank tabs show now: the chosen one, else Core's own.
+    public static var newTabImageInUse: URL? {
+        FileManager.default.fileExists(atPath: newTabImage.path) ? newTabImage : Bundle.main.url(forResource: "morning", withExtension: "webp")
+    }
 
     public enum TabPosition: String, Codable, CaseIterable {
         case below, top, bottom
@@ -38,6 +54,8 @@ public struct Settings: Codable, Equatable {
         whitelist = try c.decodeIfPresent([String].self, forKey: .whitelist) ?? []
         filterLists = try c.decodeIfPresent([String].self, forKey: .filterLists) ?? Settings.defaultFilterLists
         newTabPosition = try c.decodeIfPresent(TabPosition.self, forKey: .newTabPosition) ?? .below
+        newTabPage = try c.decodeIfPresent(NewTabPage.self, forKey: .newTabPage) ?? .image
+        newTabColor = try c.decodeIfPresent(String.self, forKey: .newTabColor) ?? "#2E4B76"
     }
 }
 
@@ -85,6 +103,10 @@ public final class Preferences: ObservableObject {
     private init() {
         settings = Store.read(Settings.self, "settings.json") ?? Settings()
     }
+
+    /// The picture file changed under the same setting.
+    @Published public private(set) var newTabImageVersion = 0
+    public func newTabImageChanged() { newTabImageVersion += 1 }
 }
 
 /// The domains whose jar survives. Each gets a data store of its own on

@@ -347,10 +347,13 @@ final class PageArea: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Clear under a blank tab's new tab page, white under pages.
+    var isClear = false { didSet { if isClear != oldValue { needsDisplay = true } } }
+
     override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+            layer?.backgroundColor = isClear ? NSColor.clear.cgColor : NSColor.textBackgroundColor.cgColor
         }
     }
 
@@ -360,6 +363,60 @@ final class PageArea: NSView {
         fade.duration = 0.16
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
         layer?.add(fade, forKey: "crossfade")
+    }
+}
+
+/// What a blank tab shows behind nothing: the chosen picture filling the
+/// page, a colour, or the desktop, frosted through the window.
+@MainActor
+final class NewTabBackdrop: NSView {
+    private let picture = CALayer()
+    private let frost = NSVisualEffectView()
+    private var shownImage: URL?
+    private var shownVersion = -1
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        picture.contentsGravity = .resizeAspectFill
+        picture.masksToBounds = true
+        layer?.addSublayer(picture)
+        frost.material = .underWindowBackground
+        frost.blendingMode = .behindWindow
+        frost.state = .active
+        frost.autoresizingMask = [.width, .height]
+        addSubview(frost)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func update(_ settings: Settings, imageVersion: Int) {
+        frost.isHidden = settings.newTabPage != .blank
+        picture.isHidden = settings.newTabPage != .image
+        layer?.backgroundColor = settings.newTabPage == .color ? NSColor(hex: settings.newTabColor).cgColor : NSColor.clear.cgColor
+        let image = Settings.newTabImageInUse
+        if settings.newTabPage == .image, image != shownImage || imageVersion != shownVersion {
+            shownImage = image
+            shownVersion = imageVersion
+            picture.contents = image.flatMap(NSImage.init(contentsOf:))
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        picture.frame = bounds
+        frost.frame = bounds
+        CATransaction.commit()
+    }
+}
+
+extension NSColor {
+    /// "#RRGGBB"; anything else is black.
+    convenience init(hex: String) {
+        let value = UInt32(hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")), radix: 16) ?? 0
+        self.init(srgbRed: CGFloat(value >> 16 & 0xFF) / 255, green: CGFloat(value >> 8 & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
     }
 }
 

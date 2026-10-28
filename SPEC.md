@@ -94,7 +94,7 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 ## Settings (the whole list)
 
-Settings is a page, **about://settings** (⌘,), with: where new tabs open (below the current tab, at the top, or at the bottom),
+Settings is a page, **about://settings** (⌘,), with: where new tabs open (below the current tab, at the top, or at the bottom); what a blank tab shows (a picture, the default or one chosen in Finder; a colour; or blank, the desktop frosted through the window);
 
 1. Search engine (URL template)
 2. Cookie whitelist (domains)

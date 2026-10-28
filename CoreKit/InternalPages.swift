@@ -54,6 +54,32 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
         case ("settings", "/tabs"):
             Preferences.shared.settings.newTabPosition = Settings.TabPosition(rawValue: value("v")) ?? .below
             json(task, url, state())
+        case ("settings", "/newtab"):
+            Preferences.shared.settings.newTabPage = Settings.NewTabPage(rawValue: value("v")) ?? .image
+            json(task, url, state())
+        case ("settings", "/newtab-color"):
+            Preferences.shared.settings.newTabColor = value("v")
+            json(task, url, state())
+        case ("settings", "/newtab-image"):
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.image]
+            let finish: (NSApplication.ModalResponse) -> Void = { response in
+                if response == .OK, let picked = panel.url {
+                    try? FileManager.default.removeItem(at: Settings.newTabImage)
+                    try? FileManager.default.copyItem(at: picked, to: Settings.newTabImage)
+                    Preferences.shared.settings.newTabPage = .image
+                    Preferences.shared.newTabImageChanged()
+                }
+                self.json(task, url, self.state())
+            }
+            if let window = webView.window { panel.beginSheetModal(for: window, completionHandler: finish) } else { finish(panel.runModal()) }
+        case ("settings", "/newtab-default"):
+            try? FileManager.default.removeItem(at: Settings.newTabImage)
+            Preferences.shared.newTabImageChanged()
+            json(task, url, state())
+        case ("settings", "/newtab-preview"):
+            let data = Settings.newTabImageInUse.flatMap { try? Data(contentsOf: $0) } ?? Data()
+            respond(task, url, "image/webp", data)
         case ("settings", "/lists-default"):
             Preferences.shared.settings.filterLists = Settings.defaultFilterLists
             json(task, url, state())
@@ -93,6 +119,9 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
         let whitelist: [String]
         let filterLists: [String]
         let newTabPosition: String
+        let newTabPage: String
+        let newTabColor: String
+        let customImage: Bool
         let rules: Int
         let trouble: String?
         let extensions: [Extensions.Installed]
@@ -103,6 +132,8 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
         return State(
             searchTemplate: settings.searchTemplate, whitelist: settings.whitelist, filterLists: settings.filterLists,
             newTabPosition: settings.newTabPosition.rawValue,
+            newTabPage: settings.newTabPage.rawValue, newTabColor: settings.newTabColor,
+            customImage: FileManager.default.fileExists(atPath: Settings.newTabImage.path),
             rules: Blocker.shared.ruleCount, trouble: Blocker.shared.trouble ?? Extensions.shared.trouble,
             extensions: Extensions.shared.installed
         )
@@ -115,7 +146,7 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
     private func respond(_ task: any WKURLSchemeTask, _ url: URL, _ type: String, _ data: Data) {
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [
             "Content-Type": "\(type); charset=utf-8",
-            "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src core:",
+            "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: core:; connect-src core:",
         ])!
         task.didReceive(response)
         task.didReceive(data)
@@ -127,11 +158,12 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
     /// One look for every control on Core's pages, the address field's: a
     /// 28-point white capsule with a hairline edge, and the system focus ring.
     static let style = """
-    :root { color-scheme: light dark; --dim: #86868b; --edge: #0000001a; --hover: #0000000a; --mark: #ffd60a66; --ring: #0a84ff59; }
-    @media (prefers-color-scheme: dark) { :root { --dim: #98989d; --edge: #ffffff26; --hover: #ffffff12; --mark: #ffd60a44; } }
+    :root { color-scheme: light dark; --dim: #86868b; --edge: #0000001a; --hover: #0000000a; --mark: #ffd60a66; --ring: #0a84ff59; --on: #1d1d1f; --on-text: #ffffff; }
+    @media (prefers-color-scheme: dark) { :root { --dim: #98989d; --edge: #ffffff26; --hover: #ffffff12; --mark: #ffd60a44; --on: #f5f5f7; --on-text: #1d1d1f; } }
     body { margin: 0; background: Canvas; color: CanvasText; font: 13px/1.4 -apple-system, system-ui; -webkit-font-smoothing: antialiased; }
     main { max-width: 680px; margin: 0 auto; padding: 32px 24px 64px; }
     a { color: inherit; text-decoration: none; }
+    [hidden] { display: none !important; }
     input, button, textarea { -webkit-appearance: none; appearance: none; box-sizing: border-box; font: 13px -apple-system, system-ui; color: inherit; background: Canvas; border: 1px solid var(--edge); outline: none; transition: background .15s, box-shadow .15s, border-color .15s; }
     input, button { height: 28px; border-radius: 14px; padding: 0 14px; }
     textarea { border-radius: 10px; padding: 8px 12px; }
@@ -222,8 +254,11 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
     .row input { flex: 1; }
     .dim { color: var(--dim); font-size: 12px; }
     .segments { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--edge); border-radius: 14px; height: 28px; box-sizing: border-box; }
-    .segments button { border: 0; height: 22px; border-radius: 11px; padding: 0 12px; }
-    .segments button.on { background: CanvasText; color: Canvas; }
+    .segments button { border: 0; height: 22px; border-radius: 11px; padding: 0 12px; transition: none; }
+    .segments button.on, .segments button.on:hover { background: var(--on); color: var(--on-text); }
+    #preview { width: 112px; height: 63px; object-fit: cover; border-radius: 8px; border: 1px solid var(--edge); }
+    .swatch { width: 28px; height: 28px; border-radius: 14px; overflow: hidden; border: 1px solid var(--edge); position: relative; }
+    .swatch input { position: absolute; inset: -8px; width: 44px; height: 44px; padding: 0; border: 0; cursor: default; }
     .spacer { flex: 1; }
     ul { list-style: none; padding: 0; margin: 8px 0 0; }
     li { display: flex; align-items: center; padding: 4px 0; }
@@ -239,6 +274,12 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
     <section>
       <h2>New Tabs Open</h2>
       <div class=segments id=tabs><button data-v=below>Below Current Tab</button><button data-v=top>At the Top</button><button data-v=bottom>At the Bottom</button></div>
+    </section>
+    <section>
+      <h2>New Tab Page</h2>
+      <div class=segments id=newtab><button data-v=image>Image</button><button data-v=color>Color</button><button data-v=blank>Blank</button></div>
+      <div class=row id=imagerow><img id=preview alt=""><button id=pick>Choose Image…</button><button id=reset>Use Default</button></div>
+      <div class=row id=colorrow><label class=swatch><input type=color id=color></label><span class=dim id=hex></span></div>
     </section>
     <section>
       <h2>Keep Cookies For</h2>
@@ -272,6 +313,12 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
       kept = s.whitelist;
       if (document.activeElement !== $('whitelist')) $('whitelist').value = s.whitelist.join('\\n');
       if (document.activeElement !== $('lists')) $('lists').value = s.filterLists.join('\\n');
+      [...$('newtab').children].forEach(b => b.classList.toggle('on', b.dataset.v === s.newTabPage));
+      $('imagerow').hidden = s.newTabPage !== 'image';
+      $('colorrow').hidden = s.newTabPage !== 'color';
+      $('reset').hidden = !s.customImage;
+      if (document.activeElement !== $('color')) $('color').value = s.newTabColor;
+      $('hex').textContent = s.newTabColor.toUpperCase();
       [...$('tabs').children].forEach(b => b.classList.toggle('on', b.dataset.v === s.newTabPosition));
       $('rules').textContent = s.rules ? s.rules.toLocaleString() + ' rules' : '';
       $('trouble').textContent = s.trouble || '';
@@ -280,6 +327,16 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
     }
     $('picks').innerHTML = engines.map(([name, , icon]) => '<button><img src="' + icon + '" alt="">' + name + '</button>').join('');
     [...$('picks').children].forEach((b, i) => b.onclick = () => { $('search').value = engines[i][1]; call('search', engines[i][1]); });
+    $('newtab').onclick = async e => { if (e.target.dataset.v) show(await call('newtab', e.target.dataset.v)); };
+    const refreshPreview = () => $('preview').src = 'core://settings/newtab-preview?' + Date.now();
+    $('pick').onclick = async () => { show(await call('newtab-image')); refreshPreview(); };
+    $('reset').onclick = async () => {
+      if (!confirm('Go back to the default image?')) return;
+      show(await call('newtab-default'));
+      refreshPreview();
+    };
+    $('color').oninput = async () => { $('hex').textContent = $('color').value.toUpperCase(); await call('newtab-color', $('color').value); };
+    refreshPreview();
     $('tabs').onclick = async e => { if (e.target.dataset.v) show(await call('tabs', e.target.dataset.v)); };
     $('search').onchange = () => call('search', $('search').value);
     let kept = [];
