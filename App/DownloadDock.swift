@@ -3,13 +3,10 @@ import CoreKit
 
 /// This session's downloads at the foot of the sidebar, in the tabs' own
 /// row style, newest at the top; each row's background fills as it
-/// downloads. Clicking a finished one shows it in Finder and takes it off.
+/// downloads. Clicking a finished one shows it in Finder and takes it off;
+/// it goes by itself after a minute.
 @MainActor
 final class DownloadDock: NSView {
-    /// The styles to choose between; one stays.
-    enum Style: String { case plain, percent, twoLine }
-    static var style: Style { Style(rawValue: UserDefaults.standard.string(forKey: "downloadStyle") ?? "") ?? .percent }
-
     static let limit = 3
     private let stack = NSStackView()
     private var rows: [ObjectIdentifier: DownloadTile] = [:]
@@ -46,7 +43,7 @@ final class DownloadDock: NSView {
         for (i, item) in items.enumerated() {
             let key = ObjectIdentifier(item)
             let row = rows[key] ?? {
-                let row = DownloadTile(item: item, style: DownloadDock.style)
+                let row = DownloadTile(item: item)
                 row.onShowAll = { [weak self] in self?.onShowAll() }
                 rows[key] = row
                 return row
@@ -61,21 +58,22 @@ final class DownloadDock: NSView {
     }
 }
 
-/// One download, drawn like a tab.
+
+/// One download, drawn like a tab: its total size on the right, an x to
+/// cancel while hovering, and a minus to take it off once it's done.
 @MainActor
 final class DownloadTile: NSView {
     let item: Downloads.Item
-    let style: DownloadDock.Style
     var onShowAll: () -> Void = {}
     private let icon = NSImageView()
     private let name = NSTextField(labelWithString: "")
-    private let detail = NSTextField(labelWithString: "")
+    private let size = NSTextField(labelWithString: "")
+    private let button = NSButton()
     private let fill = CAGradientLayer()
-    private var hovering = false { didSet { needsDisplay = true } }
+    private var hovering = false { didSet { refresh() } }
 
-    init(item: Downloads.Item, style: DownloadDock.Style) {
+    init(item: Downloads.Item) {
         self.item = item
-        self.style = style
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 10
@@ -87,63 +85,75 @@ final class DownloadTile: NSView {
         icon.image = NSWorkspace.shared.icon(for: .init(filenameExtension: item.file.pathExtension) ?? .data)
         name.font = .systemFont(ofSize: 13)
         name.lineBreakMode = .byTruncatingMiddle
-        detail.font = .monospacedDigitSystemFont(ofSize: style == .twoLine ? 11 : 12, weight: .regular)
-        detail.textColor = .secondaryLabelColor
-        detail.alignment = style == .twoLine ? .left : .right
-        detail.lineBreakMode = .byTruncatingTail
-        detail.setContentCompressionResistancePriority(.required, for: .horizontal)
         name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        for v in [icon, name, detail] as [NSView] {
+        size.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        size.textColor = .secondaryLabelColor
+        size.alignment = .right
+        size.setContentCompressionResistancePriority(.required, for: .horizontal)
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.contentTintColor = .secondaryLabelColor
+        button.target = self
+        button.action = #selector(pressed)
+        for v in [icon, name, size, button] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             addSubview(v)
         }
-        var constraints = [
-            heightAnchor.constraint(equalToConstant: style == .twoLine ? 42 : 34),
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: 34),
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: style == .twoLine ? 24 : 18),
-            icon.heightAnchor.constraint(equalTo: icon.widthAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 18),
+            icon.heightAnchor.constraint(equalToConstant: 18),
             name.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 9),
-        ]
-        switch style {
-        case .plain:
-            detail.isHidden = true
-            constraints += [name.centerYAnchor.constraint(equalTo: centerYAnchor),
-                            name.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10)]
-        case .percent:
-            constraints += [name.centerYAnchor.constraint(equalTo: centerYAnchor),
-                            detail.centerYAnchor.constraint(equalTo: centerYAnchor),
-                            detail.leadingAnchor.constraint(greaterThanOrEqualTo: name.trailingAnchor, constant: 8),
-                            detail.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10)]
-        case .twoLine:
-            constraints += [name.bottomAnchor.constraint(equalTo: centerYAnchor, constant: 1),
-                            name.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
-                            detail.topAnchor.constraint(equalTo: centerYAnchor, constant: 1),
-                            detail.leadingAnchor.constraint(equalTo: name.leadingAnchor),
-                            detail.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10)]
-        }
-        NSLayoutConstraint.activate(constraints)
+            name.centerYAnchor.constraint(equalTo: centerYAnchor),
+            size.centerYAnchor.constraint(equalTo: centerYAnchor),
+            size.leadingAnchor.constraint(greaterThanOrEqualTo: name.trailingAnchor, constant: 8),
+            size.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            button.centerYAnchor.constraint(equalTo: centerYAnchor),
+            button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            button.widthAnchor.constraint(equalToConstant: 22),
+            button.heightAnchor.constraint(equalToConstant: 22),
+            button.leadingAnchor.constraint(greaterThanOrEqualTo: name.trailingAnchor, constant: 6),
+        ])
         menu = NSMenu()
         menu?.delegate = self
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// What the right-hand side shows now: the size, an x, or a minus.
+    var accessory: String {
+        if item.state != .active { return "minus" }
+        return hovering ? "xmark" : "size"
+    }
+
     func refresh() {
         name.stringValue = item.name
         name.textColor = item.state == .failed ? .secondaryLabelColor : .labelColor
-        let size = { (n: Int64) in ByteCountFormatter.string(fromByteCount: n, countStyle: .file) }
-        switch (style, item.state) {
-        case (_, .failed): detail.stringValue = "Stopped"
-        case (.twoLine, .active): detail.stringValue = item.expected > 0 ? "\(size(item.received)) of \(size(item.expected))" : size(item.received)
-        case (_, .active): detail.stringValue = item.fraction.map { "\(Int(($0 * 100).rounded(.down)))%" } ?? size(item.received)
-        case (.twoLine, .finished): detail.stringValue = "\(size(item.received)) · Show in Finder"
-        case (_, .finished): detail.stringValue = size(item.received)
+        let total = item.expected > 0 ? item.expected : item.received
+        size.stringValue = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
+        let symbol = accessory
+        size.isHidden = symbol != "size"
+        button.isHidden = symbol == "size"
+        if symbol != "size" {
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: symbol == "xmark" ? "Cancel Download" : "Remove from Sidebar")?
+                .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+            button.toolTip = symbol == "xmark" ? "Cancel Download" : "Remove from Sidebar"
         }
         toolTip = item.state == .finished ? "Show in Finder" : item.name
         needsLayout = true
         needsDisplay = true
     }
+
+    @objc private func pressed() {
+        if item.state == .active { Downloads.shared.cancel(item) } else { Downloads.shared.dismiss(item) }
+    }
+
+    #if DEBUG
+    func hoverForTesting(_ on: Bool) { hovering = on }
+    func pressForTesting() { pressed() }
+    #endif
 
     override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {
@@ -177,14 +187,9 @@ final class DownloadTile: NSView {
 
     override func mouseUp(with event: NSEvent) {
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
-        switch item.state {
-        case .finished:
+        if item.state == .finished {
             NSWorkspace.shared.activateFileViewerSelecting([item.file])
             Downloads.shared.dismiss(item)
-        case .failed:
-            Downloads.shared.dismiss(item)
-        case .active:
-            break
         }
     }
 

@@ -32,6 +32,7 @@ public final class Favicons {
     }()
 
     public func icon(for url: URL?) -> NSImage? {
+        if InternalPage.page(url) != nil { return Favicons.core }
         guard let host = url?.host?.lowercased() else { return nil }
         if let icon = icons[host] { return icon }
         if let data = try? Data(contentsOf: file(for: host)), let image = NSImage(data: data), image.isValid {
@@ -40,6 +41,23 @@ public final class Favicons {
         }
         return nil
     }
+
+    /// Core's own pages: the logo in grey, a white C on a grey squircle.
+    public static let core: NSImage? = {
+        guard let url = Bundle.main.url(forResource: "C", withExtension: "svg"), let glyph = NSImage(contentsOf: url) else { return nil }
+        return NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+            NSColor(white: 0.56, alpha: 1).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 14.5, yRadius: 14.5).fill()
+            let white = NSImage(size: rect.size, flipped: false) { inner in
+                glyph.draw(in: inner)
+                NSColor.white.set()
+                inner.fill(using: .sourceAtop)
+                return true
+            }
+            white.draw(in: rect)
+            return true
+        }
+    }()
 
     static var folder: URL { Store.directory.appendingPathComponent("Favicons", isDirectory: true) }
 

@@ -837,6 +837,7 @@ extension BrowserWindowController {
     var selectedTab: Tab? { selected }
     var pageShownForTesting: String? { pageHost.isHidden ? nil : hostedPage }
     var pageHostForTesting: NSView { pageHost }
+    var downloadTilesForTesting: [DownloadTile] { ((downloads.subviews.first as? NSStackView)?.arrangedSubviews ?? []).compactMap { $0 as? DownloadTile } }
     var downloadRowsForTesting: Int { downloads.isHidden ? 0 : downloads.subviews.first?.subviews.count ?? 0 }
     var fillsForTesting: Bool { fills && sidebar.isFrosted && !backdrop.isHidden && backdrop.frame.minX == 0 && backdrop.frame.width > content.frame.width }
     var tabTableForTesting: NSTableView? { tabList.documentView as? NSTableView }

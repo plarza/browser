@@ -347,6 +347,7 @@ enum SelfTest {
             }
             // A download goes where the save panel says, is listed, and shows
             // in the sidebar; ⌥⌘L opens about://downloads.
+            Downloads.autoDismiss = 4
             let downloader = browser.newTab(URL(string: "https://example.com/")!)
             try? await Task.sleep(for: .seconds(3))
             _ = try? await downloader.webView.evaluateJavaScript(
@@ -359,23 +360,32 @@ enum SelfTest {
                   "name=\(got?.name ?? "none") state=\(got?.state.rawValue ?? "none") rows=\(browser.downloadRowsForTesting)")
             key("l", in: window, modifiers: [.command, .option])
             try? await Task.sleep(for: .seconds(1))
+            try? await Task.sleep(for: .seconds(4))
+            check("a done download leaves the sidebar by itself", browser.downloadRowsForTesting == 0, "rows=\(browser.downloadRowsForTesting)")
+            Downloads.autoDismiss = 60
             check("⌥⌘L opens about://downloads", browser.pageShownForTesting == "downloads", "page=\(browser.pageShownForTesting ?? "none")")
             await shot("downloads", browser)
             browser.close(downloader)
 
-            // The three styles for the sidebar's downloads, for choosing.
-            for style in ["plain", "percent", "twoLine"] {
-                UserDefaults.standard.set(style, forKey: "downloadStyle")
-                Downloads.shared.dismissAllForTesting()
-                Downloads.shared.addForTesting(name: "Quarterly Report.pdf", received: 2_400_000, expected: 2_400_000, state: .finished)
-                Downloads.shared.addForTesting(name: "ubuntu-26.04-desktop-arm64.iso", received: 1_900_000_000, expected: 6_100_000_000, state: .active)
-                Downloads.shared.addForTesting(name: "photos-export.zip", received: 412_000_000, expected: 580_000_000, state: .active)
-                browser.select(browser.tabs[0])
-                try? await Task.sleep(for: .milliseconds(600))
-                await shot("downloads-\(style)", browser)
-            }
+            // Sidebar downloads: the total size, an x on hover while
+            // downloading, a minus once done that takes the row off.
             Downloads.shared.dismissAllForTesting()
-            UserDefaults.standard.removeObject(forKey: "downloadStyle")
+            Downloads.shared.addForTesting(name: "Quarterly Report.pdf", received: 2_400_000, expected: 2_400_000, state: .finished)
+            Downloads.shared.addForTesting(name: "ubuntu-26.04-desktop-arm64.iso", received: 1_900_000_000, expected: 6_100_000_000, state: .active)
+            Downloads.shared.addForTesting(name: "photos-export.zip", received: 412_000_000, expected: 580_000_000, state: .active)
+            browser.select(browser.tabs[0])
+            try? await Task.sleep(for: .milliseconds(600))
+            let tiles = browser.downloadTilesForTesting
+            tiles.first?.hoverForTesting(true)
+            check("a downloading row shows its size, and an x while hovered; a done one a minus",
+                  tiles.count == 3 && tiles[0].accessory == "xmark" && tiles[1].accessory == "size" && tiles[2].accessory == "minus",
+                  "accessories=\(tiles.map(\.accessory))")
+            await shot("downloads-sidebar", browser)
+            tiles.first?.hoverForTesting(false)
+            tiles.last?.pressForTesting()
+            try? await Task.sleep(for: .milliseconds(300))
+            check("the minus takes a done download off the sidebar", browser.downloadRowsForTesting == 2, "rows=\(browser.downloadRowsForTesting)")
+            Downloads.shared.dismissAllForTesting()
 
             // ⇧⌘/ is Core's help page, not macOS's Help menu search.
             browser.select(browser.tabs[0])
@@ -394,6 +404,7 @@ enum SelfTest {
             check("about://help lists the shortcuts", browser.pageShownForTesting == "help" && shortcuts.contains("Persist Tab ⌘I") && shortcuts.contains("Web Inspector ⇧⌘I") && !shortcuts.contains("Minimize"),
                   "page=\(browser.pageShownForTesting ?? "none") shortcuts=\(shortcuts.replacingOccurrences(of: "\n", with: " | "))")
             await shot("help", browser)
+            check("Core's pages show the grey logo as their icon", Favicons.core != nil && Favicons.shared.icon(for: URL(string: "about://help")) === Favicons.core, "")
 
             // Icons of sites in History are kept on disk; clearing History
             // deletes them.

@@ -89,7 +89,8 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 ## Downloads
 
 - Every download opens the save panel at `~/Downloads`; Cancel stops it. Files keep their quarantine flag.
-- This session's downloads sit at the foot of the sidebar in the tabs' row style, newest first, each row's background filling as it downloads. Clicking a finished one shows it in Finder.
+- This session's downloads sit at the foot of the sidebar in the tabs' row style, newest first, each row's background filling as it downloads, its total size on the right. Hovering a download in progress turns the size into an x that cancels it; a finished one has a minus that takes it off, and goes by itself after a minute. Clicking a finished one shows it in Finder.
+- Core's own pages (about://history, downloads, settings, help) show the logo in grey as their icon.
 - **about://downloads** (⌥⌘L) lists every download until it is cleared.
 
 ## Settings (the whole list)

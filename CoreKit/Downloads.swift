@@ -102,12 +102,20 @@ public final class Downloads: NSObject, WKDownloadDelegate {
         watching[key] = nil
         guard let item = pending.removeValue(forKey: key) else { return }
         item.state = state
+        // Off the sidebar a minute later; still in about://downloads.
+        Task { [weak self, weak item] in
+            try? await Task.sleep(for: .seconds(Downloads.autoDismiss))
+            if let item { self?.dismiss(item) }
+        }
         if state == .finished, let size = try? item.file.resourceValues(forKeys: [.fileSizeKey]).fileSize {
             item.received = Int64(size)
             item.expected = Int64(size)
         }
         changed()
     }
+
+    /// Seconds a finished download stays in the sidebar.
+    public static var autoDismiss: Double = 60
 
     public func cancel(_ item: Item) {
         item.download?.cancel { _ in }
