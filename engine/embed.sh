@@ -1,10 +1,10 @@
 #!/bin/bash
-# Puts Azote's WebKit inside Azote.app: the frameworks, the two libraries
+# Puts Browser's WebKit inside Browser.app: the frameworks, the two libraries
 # they load beside themselves, and WebKit's XPC services as real folders
 # (the build leaves them as symlinks). The launcher (engine/launcher.c)
 # points dyld here.
 #
-#   engine/embed.sh <WebKitBuild/Release> <Azote.app> <signing identity, or ->
+#   engine/embed.sh <WebKitBuild/Release> <Browser.app> <signing identity, or ->
 set -euo pipefail
 ENGINE="$1"
 APP="$2"
@@ -41,7 +41,7 @@ done < <(find "$XPC" -maxdepth 1 -type l -name '*.xpc')
 
 # Every piece is re-signed inside out (WebKit's build leaves some seals
 # stale). A release uses the Developer ID and the hardened runtime, and the
-# XPC services keep their entitlements minus JIT (Azote has none) and the
+# XPC services keep their entitlements minus JIT (Browser has none) and the
 # debugger's, plus leave to read the dyld path the launcher sets. A local
 # build signs ad hoc and keeps the build's entitlements.
 if [ "$IDENTITY" = "-" ]; then
@@ -57,7 +57,7 @@ for service in "$XPC"/*.xpc; do
   codesign -d --entitlements - --xml "$service" 2>/dev/null > "$ents.in" || true
   cp "$ents.in" "$ents"
   if [ "$IDENTITY" != "-" ]; then
-    # Minus JIT (Azote has none), the debugger's and Apple-private ones;
+    # Minus JIT (Browser has none), the debugger's and Apple-private ones;
     # plus leave to read the dyld path the launcher sets.
     pb=/usr/libexec/PlistBuddy
     [ -s "$ents" ] || $pb -c "Save" "$ents" >/dev/null

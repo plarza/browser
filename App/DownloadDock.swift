@@ -1,5 +1,5 @@
 import AppKit
-import AzoteKit
+import BrowserKit
 
 /// This session's downloads at the foot of the sidebar, in the tabs' own
 /// row style, newest at the top; each row's background fills as it

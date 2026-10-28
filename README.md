@@ -1,6 +1,6 @@
-<p align="center"><img src="release/icon.png" width="128" alt="Azote"></p>
+<p align="center"><img src="release/icon.png" width="128" alt="Browser"></p>
 
-# Azote
+# Browser
 
 A private macOS browser on its own build of WebKit.
 
@@ -33,7 +33,7 @@ Applied to upstream WebKit (`engine/patches/`).
 - Favicons are read from the page through WebKit's isolated script world, fetched without cookies, and kept on disk only for sites in History.
 - History keeps addresses, titles and visit counts, for address-bar completion and `about://history`.
 - Safari web extensions from apps in Applications turn on in Settings and run on WebKit's extension engine; their own storage is kept.
-- No telemetry and no update checks. The only request Azote makes by itself is the daily filter-list fetch.
+- No telemetry and no update checks. The only request Browser makes by itself is the daily filter-list fetch.
 - No proxy or Tor: use a VPN.
 
 Keyboard shortcuts are at `about://help` (⇧⌘/).
@@ -44,19 +44,19 @@ Requires Apple Silicon, macOS 26, Xcode 27 and about 60 GB of disk.
 
 ```bash
 engine/build.sh          # WebKit at engine/WEBKIT_COMMIT + engine/patches, ~1 h first time
-./build.sh               # build/Azote.app with the engine embedded
+./build.sh               # build/Browser.app with the engine embedded
 ./build.sh debug         # debug build
-./build.sh release ship  # Developer ID sign + notarize -> build/release/Azote-<version>.dmg
+./build.sh release ship  # Developer ID sign + notarize -> build/release/Browser-<version>.dmg
 ```
 
-Every build requires Azote’s patched engine. Missing or unpatched frameworks stop the build; both the launcher and the executable refuse to start without them, including debug builds. `AZOTE_ENGINE` can name an existing patched runtime’s framework directory, for example `AZOTE_ENGINE=/Applications/Azote.app/Contents/Frameworks ./build.sh` when rebuilding from an installed patched app.
+Every build requires Browser’s patched engine. Missing or unpatched frameworks stop the build; both the launcher and the executable refuse to start without them, including debug builds. `BROWSER_ENGINE` can name an existing patched runtime’s framework directory, for example `BROWSER_ENGINE=/Applications/Browser.app/Contents/Frameworks ./build.sh` when rebuilding from an installed patched app.
 
 `engine/build.sh rebase` moves to the latest WebKit commit.
 
 `ship` needs a Developer ID Application certificate and one-time notary setup:
 
 ```bash
-xcrun notarytool store-credentials azote
+xcrun notarytool store-credentials browser
 ```
 
 Pushing a `v*` tag runs the same build on the Forgejo runner (`.forgejo/workflows/release.yml`). `release/runner.sh <token>` registers this Mac as that runner. Updates are manual.
@@ -66,23 +66,23 @@ Pushing a `v*` tag runs the same build on the Forgejo runner (`.forgejo/workflow
 The engine launch/build checks run without opening a browser:
 
 ```bash
-python3 Tests/engine.py build/Azote.app
+python3 Tests/engine.py build/Browser.app
 ```
 
 The UI self-test only works in debug builds:
 
 ```bash
-build/Azote.app/Contents/MacOS/Azote -azoteStore /tmp/azote-test -azoteSelfTest YES
+build/Browser.app/Contents/MacOS/Browser -browserStore /tmp/browser-test -browserSelfTest YES
 ```
 
-It logs PASS/FAIL per check. `-azoteStore` uses a separate data folder; `-azoteShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). `-azoteProbe <url> -azoteProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS.
+It logs PASS/FAIL per check. `-browserStore` uses a separate data folder; `-browserShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). `-browserProbe <url> -browserProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS.
 
 ## Layout
 
 | Folder | Contents |
 |---|---|
 | `engine/` | WebKit commit, patches, build/embed scripts, launcher |
-| `AzoteKit/` | Tabs, identities, blocker, bangs, history, extensions |
+| `BrowserKit/` | Tabs, identities, blocker, bangs, history, extensions |
 | `App/` | Window, sidebar, settings |
 | `Tests/` | End-to-end app self-test |
 | `release/` | Info.plist, entitlements, icon, notarization, runner setup |

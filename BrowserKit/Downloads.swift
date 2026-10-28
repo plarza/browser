@@ -8,7 +8,7 @@ import WebKit
 @MainActor
 public final class Downloads: NSObject, WKDownloadDelegate {
     public static let shared = Downloads()
-    public static let changed = Notification.Name("AzoteDownloadsChanged")
+    public static let changed = Notification.Name("BrowserDownloadsChanged")
 
     public final class Item: Identifiable {
         public enum State: String, Codable { case active, finished, failed }

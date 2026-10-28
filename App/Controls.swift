@@ -1,5 +1,5 @@
 import AppKit
-import AzoteKit
+import BrowserKit
 
 /// The one field: AppKit's search field, as Safari's is. It shows the host
 /// while you're not editing, and the whole address, all selected, when you

@@ -7,7 +7,7 @@ index 2eb4b831b9..bf0a32da6c 100644
  }
  
 -static inline webrtc::PeerConnectionInterface::IceTransportsType LEGACY_NODELETE iceTransportPolicyfromConfiguration(const MediaEndpointConfiguration& configuration)
-+// Azote: relay only, whatever the page asked for. Host and server-reflexive
++// Browser: relay only, whatever the page asked for. Host and server-reflexive
 +// candidates are never gathered, so neither the LAN address nor the public
 +// one (the one a VPN is there to hide) reaches the page or the peer.
 +static inline webrtc::PeerConnectionInterface::IceTransportsType LEGACY_NODELETE iceTransportPolicyfromConfiguration(const MediaEndpointConfiguration&)
@@ -34,11 +34,11 @@ index ca37fbe30b..f443050e71 100644
  
      void setAdvancedPrivacyProtections(OptionSet<AdvancedPrivacyProtections> policy) { m_advancedPrivacyProtections = policy; }
 -    OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections() const { return m_advancedPrivacyProtections; }
-+    OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections() const { return m_advancedPrivacyProtections | azoteAlwaysOnProtections(); }
++    OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections() const { return m_advancedPrivacyProtections | browserAlwaysOnProtections(); }
  
      void setOriginatorAdvancedPrivacyProtections(OptionSet<AdvancedPrivacyProtections> policy) { m_originatorAdvancedPrivacyProtections = policy; }
 -    OptionSet<AdvancedPrivacyProtections> navigationalAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections.value_or(m_advancedPrivacyProtections); }
-+    OptionSet<AdvancedPrivacyProtections> navigationalAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections.value_or(m_advancedPrivacyProtections) | azoteAlwaysOnProtections(); }
++    OptionSet<AdvancedPrivacyProtections> navigationalAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections.value_or(m_advancedPrivacyProtections) | browserAlwaysOnProtections(); }
      std::optional<OptionSet<AdvancedPrivacyProtections>> originatorAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections; }
  
      void setGlobalPrivacyControlEnabled(std::optional<bool> enabled) { m_globalPrivacyControlEnabled = enabled; }
@@ -53,22 +53,22 @@ index 60a9887a1a..035aa41fc9 100644
 -    return m_noiseInjectionHashSalts.ensure(domain, [] {
 -        return cryptographicallyRandomNumber<uint64_t>();
 +    return m_noiseInjectionHashSalts.ensure(domain, [&] {
-+        if (!m_azoteFingerprintSeed)
++        if (!m_browserFingerprintSeed)
 +            return cryptographicallyRandomNumber<uint64_t>();
 +        // splitmix64 over the seed and the site: stable for this identity,
 +        // unrelated across sites and across identities.
-+        uint64_t z = m_azoteFingerprintSeed ^ (static_cast<uint64_t>(domain.string().hash()) * 0x9E3779B97F4A7C15ull);
++        uint64_t z = m_browserFingerprintSeed ^ (static_cast<uint64_t>(domain.string().hash()) * 0x9E3779B97F4A7C15ull);
 +        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
 +        z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
 +        return z ^ (z >> 31);
      }).iterator->value;
  }
  
-+void Page::setAzoteFingerprintSeed(uint64_t seed)
++void Page::setBrowserFingerprintSeed(uint64_t seed)
 +{
-+    if (seed == m_azoteFingerprintSeed)
++    if (seed == m_browserFingerprintSeed)
 +        return;
-+    m_azoteFingerprintSeed = seed;
++    m_browserFingerprintSeed = seed;
 +    m_noiseInjectionHashSalts.clear();
 +}
 +
@@ -83,10 +83,10 @@ index 751267b4b0..ecbb836b9f 100644
      WEBCORE_EXPORT void setVisitedLinkStore(Ref<VisitedLinkStore>&&);
  
      std::optional<uint64_t> noiseInjectionHashSaltForDomain(const RegistrableDomain&);
-+    // Azote: every site's noise salt derives from this, so one identity keeps
++    // Browser: every site's noise salt derives from this, so one identity keeps
 +    // one fingerprint and the next identity gets a different one.
-+    WEBCORE_EXPORT void setAzoteFingerprintSeed(uint64_t);
-+    uint64_t azoteFingerprintSeed() const { return m_azoteFingerprintSeed; }
++    WEBCORE_EXPORT void setBrowserFingerprintSeed(uint64_t);
++    uint64_t browserFingerprintSeed() const { return m_browserFingerprintSeed; }
  
      WEBCORE_EXPORT PAL::SessionID LEGACY_NODELETE sessionID() const;
      WEBCORE_EXPORT void setSessionID(PAL::SessionID);
@@ -94,7 +94,7 @@ index 751267b4b0..ecbb836b9f 100644
      const Ref<HistoryItemClient> m_historyItemClient;
  
      HashMap<RegistrableDomain, uint64_t> m_noiseInjectionHashSalts;
-+    uint64_t m_azoteFingerprintSeed { 0 };
++    uint64_t m_browserFingerprintSeed { 0 };
  
  #if PLATFORM(IOS_FAMILY)
      String m_sceneIdentifier;
@@ -115,9 +115,9 @@ index d1c33ac6e3..eb1b6e70b5 100644
      OverrideHardwareConcurrency = 1 << 12,
  };
  
-+// Azote: on for every page and every frame, whatever the embedder asked for.
++// Browser: on for every page and every frame, whatever the embedder asked for.
 +// There is no way to turn them off.
-+inline OptionSet<AdvancedPrivacyProtections> azoteAlwaysOnProtections()
++inline OptionSet<AdvancedPrivacyProtections> browserAlwaysOnProtections()
 +{
 +    return {
 +        AdvancedPrivacyProtections::BaselineProtections,
@@ -141,7 +141,7 @@ index 97c41013cb..11c1716211 100644
 +            JSC::Options::useWasm() = false;
 +        });
 +    } else if (isWebContentProcess) {
-+        // Azote: every page runs on JavaScriptCore's interpreters only, with
++        // Browser: every page runs on JavaScriptCore's interpreters only, with
 +        // no WebAssembly, decided here before JSC starts.
 +        JSC::Options::initialize([] {
 +            JSC::ExecutableAllocator::disableJIT();
@@ -165,10 +165,10 @@ index 9d9ea6035f..aa8283bd3f 100644
      documentLoader.setModalContainerObservationPolicy(websitePolicies.modalContainerObservationPolicy);
      documentLoader.setColorSchemePreference(websitePolicies.colorSchemePreference);
      documentLoader.setAdvancedPrivacyProtections(websitePolicies.advancedPrivacyProtections);
-+    if (websitePolicies.azoteFingerprintSeed) {
++    if (websitePolicies.browserFingerprintSeed) {
 +        if (RefPtr frame = documentLoader.frame()) {
 +            if (RefPtr page = frame->page())
-+                page->setAzoteFingerprintSeed(websitePolicies.azoteFingerprintSeed);
++                page->setBrowserFingerprintSeed(websitePolicies.browserFingerprintSeed);
 +        }
 +    }
      if (!documentLoader.originatorAdvancedPrivacyProtections())
@@ -182,7 +182,7 @@ index 3474c0a851..ae2f5c6411 100644
      String customNavigatorPlatform;
      String applicationNameForDesktopUserAgent;
      OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections;
-+    uint64_t azoteFingerprintSeed { 0 };
++    uint64_t browserFingerprintSeed { 0 };
      OptionSet<WebsiteAutoplayQuirk> allowedAutoplayQuirks;
      WebCore::ContentExtensionEnablement contentExtensionEnablement { WebCore::ContentExtensionDefaultEnablement::Enabled, { } };
  #if ENABLE(TOUCH_EVENTS)
@@ -194,7 +194,7 @@ index ff5de21ac6..33a8208124 100644
      String customNavigatorPlatform;
      String applicationNameForDesktopUserAgent;
      OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections;
-+    uint64_t azoteFingerprintSeed;
++    uint64_t browserFingerprintSeed;
      OptionSet<WebKit::WebsiteAutoplayQuirk> allowedAutoplayQuirks;
      WebCore::ContentExtensionEnablement contentExtensionEnablement;
  #if ENABLE(TOUCH_EVENTS)
@@ -206,8 +206,8 @@ index bded93d545..446811021c 100644
  
      OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections() const { return m_data.advancedPrivacyProtections; }
      void setAdvancedPrivacyProtections(OptionSet<WebCore::AdvancedPrivacyProtections> policy) { m_data.advancedPrivacyProtections = policy; }
-+    uint64_t azoteFingerprintSeed() const { return m_data.azoteFingerprintSeed; }
-+    void setAzoteFingerprintSeed(uint64_t seed) { m_data.azoteFingerprintSeed = seed; }
++    uint64_t browserFingerprintSeed() const { return m_data.browserFingerprintSeed; }
++    void setBrowserFingerprintSeed(uint64_t seed) { m_data.browserFingerprintSeed = seed; }
  
      bool idempotentModeAutosizingOnlyHonorsPercentages() const { return m_data.idempotentModeAutosizingOnlyHonorsPercentages; }
      void setIdempotentModeAutosizingOnlyHonorsPercentages(bool idempotentModeAutosizingOnlyHonorsPercentages) { m_data.idempotentModeAutosizingOnlyHonorsPercentages = idempotentModeAutosizingOnlyHonorsPercentages; }
@@ -219,14 +219,14 @@ index 78a8c405b1..c1a49ce3dd 100644
      return WebKit::upgradeToHTTPSPolicy(_websitePolicies->httpsByDefaultMode());
  }
  
-+- (NSNumber *)_azoteFingerprintSeed
++- (NSNumber *)_browserFingerprintSeed
 +{
-+    return @(_websitePolicies->azoteFingerprintSeed());
++    return @(_websitePolicies->browserFingerprintSeed());
 +}
 +
-+- (void)_setAzoteFingerprintSeed:(NSNumber *)seed
++- (void)_setBrowserFingerprintSeed:(NSNumber *)seed
 +{
-+    _websitePolicies->setAzoteFingerprintSeed(seed.unsignedLongLongValue);
++    _websitePolicies->setBrowserFingerprintSeed(seed.unsignedLongLongValue);
 +}
 +
  - (BOOL)_networkConnectionIntegrityEnabled
@@ -240,8 +240,8 @@ index ca4c970162..04a1f0378c 100644
  @property (nonatomic, setter=_setColorSchemePreference:) _WKWebsiteColorSchemePreference _colorSchemePreference;
  
  @property (nonatomic, setter=_setNetworkConnectionIntegrityEnabled:) BOOL _networkConnectionIntegrityEnabled WK_API_AVAILABLE(macos(13.3), ios(16.4));
-+// Azote: the identity's fingerprint seed; 0 means a random salt per page.
-+@property (nonatomic, copy, setter=_setAzoteFingerprintSeed:) NSNumber *_azoteFingerprintSeed;
++// Browser: the identity's fingerprint seed; 0 means a random salt per page.
++@property (nonatomic, copy, setter=_setBrowserFingerprintSeed:) NSNumber *_browserFingerprintSeed;
  @property (nonatomic, setter=_setNetworkConnectionIntegrityPolicy:) _WKWebsiteNetworkConnectionIntegrityPolicy _networkConnectionIntegrityPolicy WK_API_AVAILABLE(macos(13.3), ios(16.4));
  
  @property (nonatomic, copy, setter=_setVisibilityAdjustmentSelectorsIncludingShadowHosts:) NSArray<NSArray<NSSet<NSString *> *> *> *_visibilityAdjustmentSelectorsIncludingShadowHosts WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
@@ -253,7 +253,7 @@ index 40987671f9..e61189f73a 100644
      });
  }
  
-+static Vector<String> azoteLanguages()
++static Vector<String> browserLanguages()
 +{
 +    return { "en-US"_s };
 +}
@@ -273,9 +273,9 @@ index 40987671f9..e61189f73a 100644
 -        overrideUserPreferredLanguages(parameters.overrideLanguages);
 -    } else
 -        LOG(Language, "Web process initialization is not setting overrideLanguages");
-+    // Azote: every page is in UTC and speaks en-US, whatever the Mac says.
++    // Browser: every page is in UTC and speaks en-US, whatever the Mac says.
 +    setTimeZoneOverride("UTC"_s);
-+    overrideUserPreferredLanguages(azoteLanguages());
++    overrideUserPreferredLanguages(browserLanguages());
  
      m_textCheckerState = parameters.textCheckerState;
  
@@ -286,7 +286,7 @@ index 40987671f9..e61189f73a 100644
 -    LOG_WITH_STREAM(Language, stream << "The web process's userPreferredLanguagesChanged: " << languages);
 -    overrideUserPreferredLanguages(languages);
 +    UNUSED_PARAM(languages);
-+    overrideUserPreferredLanguages(azoteLanguages());
++    overrideUserPreferredLanguages(browserLanguages());
  }
  
  void WebProcess::fullKeyboardAccessModeChanged(bool fullKeyboardAccessEnabled)

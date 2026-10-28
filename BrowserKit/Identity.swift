@@ -63,7 +63,7 @@ public final class Identity {
     }
 
     /// Jars on disk that nothing refers to any more (a Persist tab that was
-    /// open when Azote stopped without saving, say) are deleted.
+    /// open when Browser stopped without saving, say) are deleted.
     public static func removeOrphans(keeping kept: Set<UUID>) async {
         var keep = kept.union(Preferences.shared.settings.whitelist.map(Whitelist.storeID(for:)))
         keep.formUnion(Extensions.storeIDs)

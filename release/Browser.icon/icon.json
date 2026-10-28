@@ -6,8 +6,8 @@
     {
       "layers": [
         {
-          "image-name": "A.svg",
-          "name": "A",
+          "image-name": "B.svg",
+          "name": "B",
           "glass": true
         }
       ],

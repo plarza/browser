@@ -17,7 +17,7 @@ public protocol ExtensionHost: AnyObject {
 
 /// Safari web extensions, from the apps installed on this Mac, on WebKit's
 /// own extension engine (the one Safari uses). They are the one thing in
-/// Azote that keeps data on purpose: an extension's own storage (a password
+/// Browser that keeps data on purpose: an extension's own storage (a password
 /// manager's vault) lives in a store of its own that no website ever loads
 /// into, and stays when the extension is turned off.
 ///
@@ -94,7 +94,7 @@ public final class Extensions: NSObject {
             // A stable identifier: what the extension stored comes back.
             context.uniqueIdentifier = id
             context.isInspectable = false
-            // Azote's regular tabs use ephemeral (WebKit private) stores.
+            // Browser's regular tabs use ephemeral (WebKit private) stores.
             context.hasAccessToPrivateData = true
             // Turning it on was the consent: it gets what it asked for.
             for permission in ext.requestedPermissions { context.setPermissionStatus(.grantedExplicitly, for: permission) }
@@ -151,18 +151,18 @@ public final class Extensions: NSObject {
     }
     public func didActivate(_ tab: Tab, previous: Tab?) { controller.didActivateTab(tab, previousActiveTab: previous) }
     public func didMove(_ tab: Tab, from index: Int) {
-        controller.didMoveTab(tab, from: index, in: AzoteWindow.shared)
+        controller.didMoveTab(tab, from: index, in: ExtensionWindow.shared)
     }
     public func windowOpened() {
-        controller.didOpenWindow(AzoteWindow.shared)
-        controller.didFocusWindow(AzoteWindow.shared)
+        controller.didOpenWindow(ExtensionWindow.shared)
+        controller.didFocusWindow(ExtensionWindow.shared)
     }
 }
 
-/// Azote has one window; extensions see it as this.
+/// Browser has one window; extensions see it as this.
 @MainActor
-final class AzoteWindow: NSObject, WKWebExtensionWindow {
-    static let shared = AzoteWindow()
+final class ExtensionWindow: NSObject, WKWebExtensionWindow {
+    static let shared = ExtensionWindow()
 
     func tabs(for context: WKWebExtensionContext) -> [any WKWebExtensionTab] { Extensions.shared.host?.extensionTabs ?? [] }
     func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? { Extensions.shared.host?.extensionActiveTab }
@@ -174,7 +174,7 @@ final class AzoteWindow: NSObject, WKWebExtensionWindow {
 }
 
 extension Tab: WKWebExtensionTab {
-    public func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? { AzoteWindow.shared }
+    public func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? { ExtensionWindow.shared }
     public func indexInWindow(for context: WKWebExtensionContext) -> Int {
         Extensions.shared.host?.extensionTabs.firstIndex { $0 === self } ?? NSNotFound
     }
@@ -194,11 +194,11 @@ extension Tab: WKWebExtensionTab {
 
 extension Extensions: WKWebExtensionControllerDelegate {
     public func webExtensionController(_ controller: WKWebExtensionController, openWindowsFor extensionContext: WKWebExtensionContext) -> [any WKWebExtensionWindow] {
-        [AzoteWindow.shared]
+        [ExtensionWindow.shared]
     }
 
     public func webExtensionController(_ controller: WKWebExtensionController, focusedWindowFor extensionContext: WKWebExtensionContext) -> (any WKWebExtensionWindow)? {
-        AzoteWindow.shared
+        ExtensionWindow.shared
     }
 
     public func webExtensionController(_ controller: WKWebExtensionController, openNewTabUsing configuration: WKWebExtension.TabConfiguration, for extensionContext: WKWebExtensionContext) async throws -> (any WKWebExtensionTab)? {
@@ -209,7 +209,7 @@ extension Extensions: WKWebExtensionControllerDelegate {
         // One window: a new "window" is a new tab (a password manager's
         // pop-out vault, say).
         if let url = configuration.tabURLs.first { _ = host?.extensionOpen(url, active: true) }
-        return AzoteWindow.shared
+        return ExtensionWindow.shared
     }
 
     public func webExtensionController(_ controller: WKWebExtensionController, openOptionsPageFor extensionContext: WKWebExtensionContext) async throws {

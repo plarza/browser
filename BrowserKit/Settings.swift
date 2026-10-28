@@ -37,10 +37,10 @@ public struct Settings: Codable, Equatable {
     }
 
     /// A picture someone chose for blank tabs, kept beside the settings.
-    /// Without one, Azote's own.
+    /// Without one, Browser's own.
     public static var newTabImage: URL { Store.directory.appendingPathComponent("newtab-image") }
 
-    /// The picture blank tabs show now: the chosen one, else Azote's own.
+    /// The picture blank tabs show now: the chosen one, else Browser's own.
     public static var newTabImageInUse: URL? {
         FileManager.default.fileExists(atPath: newTabImage.path) ? newTabImage : Bundle.main.url(forResource: "morning", withExtension: "webp")
     }
@@ -64,11 +64,11 @@ public struct Settings: Codable, Equatable {
     public init() {}
 }
 
-/// Where Azote keeps the little it keeps.
+/// Where Browser keeps the little it keeps.
 public enum Store {
     public static var directory: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("Azote", isDirectory: true)
+        return base.appendingPathComponent("Browser", isDirectory: true)
     }()
 
     static func url(_ name: String) -> URL {
@@ -141,7 +141,7 @@ public enum Whitelist {
     }
 
     static func storeID(for domain: String) -> UUID {
-        var bytes = Array(SHA256.hash(data: Data(("azote.jar." + domain).utf8)).prefix(16))
+        var bytes = Array(SHA256.hash(data: Data(("browser.jar." + domain).utf8)).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x50
         bytes[8] = (bytes[8] & 0x3F) | 0x80
         return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],

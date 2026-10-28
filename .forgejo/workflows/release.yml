@@ -24,7 +24,7 @@ jobs:
           API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
         run: |
           id=$(curl -sf -X POST -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
-            -d "{\"tag_name\": \"$TAG\", \"name\": \"Azote $TAG\"}" "$API/releases" | jq -r .id)
+            -d "{\"tag_name\": \"$TAG\", \"name\": \"Browser $TAG\"}" "$API/releases" | jq -r .id)
           for f in build/release/*; do
             curl -sf -X POST -H "Authorization: token $TOKEN" -F "attachment=@$f" "$API/releases/$id/assets?name=$(basename "$f")" >/dev/null
           done

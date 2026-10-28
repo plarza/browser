@@ -1,8 +1,8 @@
 import AppKit
-import AzoteKit
+import BrowserKit
 import SwiftUI
 
-/// Azote's own pages, as native views in the tab: about://settings,
+/// Browser's own pages, as native views in the tab: about://settings,
 /// about://history and about://help.
 @MainActor
 enum Pages {
@@ -140,7 +140,7 @@ struct SiteIcon: View {
 }
 
 /// The address field's own control, AppKit's search field, for searching
-/// a page of Azote's.
+/// a page of Browser's.
 struct SearchField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
@@ -180,7 +180,7 @@ struct SearchField: NSViewRepresentable {
 
 // MARK: Settings
 
-/// The search engines offered with one click; their icons ship with Azote.
+/// The search engines offered with one click; their icons ship with Browser.
 struct SearchEngine: Identifiable {
     let name: String
     let template: String
@@ -447,7 +447,7 @@ extension NSColor {
 struct HelpPage: View {
     private let rows = NSApp.mainMenu.map(Menus.shortcuts(in:)) ?? []
 
-    /// Azote's own pages: typed into the address field, or by their keys.
+    /// Browser's own pages: typed into the address field, or by their keys.
     static let pages = [
         ("History", "about://history", "⌘H"),
         ("Downloads", "about://downloads", "⌘J"),
@@ -475,7 +475,7 @@ struct HelpPage: View {
             if groups.last?.0 == row[0] { groups[groups.count - 1].1.append(row) } else { groups.append((row[0], [row])) }
         }
         Form {
-            Section("Azote Pages") {
+            Section("Browser Pages") {
                 ForEach(HelpPage.pages, id: \.0) { page in
                     LabeledContent(page.0) {
                         HStack(spacing: 10) {

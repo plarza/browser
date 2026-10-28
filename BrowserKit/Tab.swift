@@ -102,7 +102,7 @@ public final class Tab: NSObject {
     public private(set) var isLoading = false
     public private(set) var progress = 0.0
 
-    /// Azote's own back and forward: WebKit's list belongs to one web view,
+    /// Browser's own back and forward: WebKit's list belongs to one web view,
     /// and a wipe throws the web view away.
     public private(set) var entries: [URL] = []
     public private(set) var index = -1
@@ -118,7 +118,7 @@ public final class Tab: NSObject {
     private var own: Identity
 
     private var observations: [NSKeyValueObservation] = []
-    /// The next main-frame decision is a load Azote started itself.
+    /// The next main-frame decision is a load Browser started itself.
     private var expecting = false
     /// Between a provisional start and its commit or failure: a decision
     /// here is a server redirect, which stays in the same identity.
@@ -284,7 +284,7 @@ public final class Tab: NSObject {
         update(.title) { $0.title = "" }
     }
 
-    /// One of Azote's own pages, shown by the shell in place of the web view.
+    /// One of Browser's own pages, shown by the shell in place of the web view.
     public private(set) var internalPage: String?
 
     private func showInternal(_ page: String, direction: Direction) {
@@ -407,7 +407,7 @@ public final class Tab: NSObject {
         guard let url = action.request.url else { return .cancel }
         let scheme = url.scheme?.lowercased() ?? ""
 
-        if scheme == "azote-allow-http", url.absoluteString.hasPrefix("azote-allow-http:\(interstitialToken)?"),
+        if scheme == "browser-allow-http", url.absoluteString.hasPrefix("browser-allow-http:\(interstitialToken)?"),
            let target = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                .queryItems?.first(where: { $0.name == "u" })?.value.flatMap(URL.init(string:)) {
             httpAllowed = target
@@ -471,18 +471,18 @@ public final class Tab: NSObject {
 
     private func showInterstitial(for url: URL) {
         var parts = URLComponents()
-        parts.scheme = "azote-allow-http"
+        parts.scheme = "browser-allow-http"
         parts.path = interstitialToken
         parts.queryItems = [URLQueryItem(name: "u", value: url.absoluteString)]
         showNotice("Not secure", "\(Tab.escape(url.host ?? url.absoluteString)) has no secure connection", """
-        <p>Azote tried <code>https://</code> and it did not work. Over plain HTTP anyone between you and the site can read and change the page.</p>
+        <p>Browser tried <code>https://</code> and it did not work. Over plain HTTP anyone between you and the site can read and change the page.</p>
         <a class=button href="\(Tab.escape(parts.url?.absoluteString ?? ""))">Continue over HTTP, this once</a>
         """)
         update { $0.url = url }
     }
 
     private func showCrashed() {
-        showNotice("Crashed", "\(Tab.escape(url?.host ?? "This page")) keeps crashing", "<p>Azote stopped reloading it. Press ⌘R to try again.</p>")
+        showNotice("Crashed", "\(Tab.escape(url?.host ?? "This page")) keeps crashing", "<p>Browser stopped reloading it. Press ⌘R to try again.</p>")
     }
 
     private func showNotice(_ title: String, _ heading: String, _ body: String) {

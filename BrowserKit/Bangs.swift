@@ -1,7 +1,7 @@
 import Foundation
 
 /// Bangs: `!w octopus` or `octopus !w` goes straight to that site's search.
-/// Azote's own table, matched here; nothing is fetched to resolve one, and a
+/// Browser's own table, matched here; nothing is fetched to resolve one, and a
 /// bang works with or without a search engine set. `%s` is where the words
 /// go; a bang on its own goes to the site's front page.
 public enum Bangs {

@@ -1,6 +1,6 @@
-// Azote.app's front door. Points dyld (and, through __XPC_, WebKit's own
+// Browser.app's front door. Points dyld (and, through __XPC_, WebKit's own
 // XPC services) at the WebKit inside the bundle, then becomes the app.
-// Missing frameworks are a hard failure; AzoteApp also verifies the loaded
+// Missing frameworks are a hard failure; BrowserApp also verifies the loaded
 // engine before it can create a browser window.
 #include <libgen.h>
 #include <limits.h>
@@ -21,10 +21,10 @@ int main(int argc, char *argv[])
 
     char frameworks[PATH_MAX], app[PATH_MAX];
     snprintf(frameworks, sizeof(frameworks), "%s/../Frameworks", macos);
-    snprintf(app, sizeof(app), "%s/AzoteApp", macos);
+    snprintf(app, sizeof(app), "%s/BrowserApp", macos);
     char resolved[PATH_MAX];
     if (!realpath(frameworks, resolved)) {
-        fprintf(stderr, "Azote cannot start: its bundled engine is missing.\n");
+        fprintf(stderr, "Browser cannot start: its bundled engine is missing.\n");
         return 78;
     }
 
@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
         char binary[PATH_MAX];
         snprintf(binary, sizeof(binary), "%s/%s.framework/Versions/A/%s", resolved, required[i], required[i]);
         if (access(binary, R_OK) != 0) {
-            fprintf(stderr, "Azote cannot start: its bundled %s framework is missing.\n", required[i]);
+            fprintf(stderr, "Browser cannot start: its bundled %s framework is missing.\n", required[i]);
             return 78;
         }
     }
@@ -46,6 +46,6 @@ int main(int argc, char *argv[])
 
     argv[0] = app;
     execv(app, argv);
-    perror("Azote: exec");
+    perror("Browser: exec");
     return 1;
 }

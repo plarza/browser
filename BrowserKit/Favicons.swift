@@ -13,7 +13,7 @@ import WebKit
 @MainActor
 public final class Favicons {
     public static let shared = Favicons()
-    public static let changed = Notification.Name("AzoteFaviconChanged")
+    public static let changed = Notification.Name("BrowserFaviconChanged")
 
     private var icons: [String: NSImage] = [:]
     private var loading: Set<String> = []
@@ -32,7 +32,7 @@ public final class Favicons {
     }()
 
     public func icon(for url: URL?) -> NSImage? {
-        if InternalPage.page(url) != nil { return Favicons.azote }
+        if InternalPage.page(url) != nil { return Favicons.browser }
         guard let host = url?.host?.lowercased() else { return nil }
         if let icon = icons[host] { return icon }
         if let data = try? Data(contentsOf: file(for: host)), let image = NSImage(data: data), image.isValid {
@@ -42,9 +42,9 @@ public final class Favicons {
         return nil
     }
 
-    /// Azote's own pages use the grey glyph on a transparent background.
-    public static let azote: NSImage? = {
-        guard let url = Bundle.main.url(forResource: "A", withExtension: "svg"), let glyph = NSImage(contentsOf: url) else { return nil }
+    /// Browser's own pages use the grey glyph on a transparent background.
+    public static let browser: NSImage? = {
+        guard let url = Bundle.main.url(forResource: "B", withExtension: "svg"), let glyph = NSImage(contentsOf: url) else { return nil }
         return NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
             glyph.draw(in: rect)
             NSColor(white: 0.56, alpha: 1).setFill()
@@ -57,7 +57,7 @@ public final class Favicons {
 
     /// Named by a hash of the host, so a listing of the folder isn't a list of sites.
     public func file(for host: String) -> URL {
-        let name = SHA256.hash(data: Data(("azote.icon." + host).utf8)).map { String(format: "%02x", $0) }.joined()
+        let name = SHA256.hash(data: Data(("browser.icon." + host).utf8)).map { String(format: "%02x", $0) }.joined()
         return Favicons.folder.appendingPathComponent(name)
     }
 

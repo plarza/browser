@@ -2,22 +2,22 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleName</key><string>Azote</string>
-	<key>CFBundleDisplayName</key><string>Azote</string>
-	<key>CFBundleIdentifier</key><string>network.aza.azote</string>
-	<key>CFBundleExecutable</key><string>Azote</string>
+	<key>CFBundleName</key><string>Browser</string>
+	<key>CFBundleDisplayName</key><string>Browser</string>
+	<key>CFBundleIdentifier</key><string>network.aza.browser</string>
+	<key>CFBundleExecutable</key><string>Browser</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>VERSION</string>
 	<key>CFBundleVersion</key><string>BUILD</string>
-	<key>CFBundleIconFile</key><string>Azote</string>
-	<key>CFBundleIconName</key><string>Azote</string>
+	<key>CFBundleIconFile</key><string>Browser</string>
+	<key>CFBundleIconName</key><string>Browser</string>
 	<key>LSMinimumSystemVersion</key><string>26.0</string>
 	<key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
 	<key>NSHighResolutionCapable</key><true/>
 	<key>NSPrincipalClass</key><string>NSApplication</string>
 	<key>LSFileQuarantineEnabled</key><true/>
-	<key>NSCameraUsageDescription</key><string>A page asked to use your camera. Azote asks you each time.</string>
-	<key>NSMicrophoneUsageDescription</key><string>A page asked to use your microphone. Azote asks you each time.</string>
+	<key>NSCameraUsageDescription</key><string>A page asked to use your camera. Browser asks you each time.</string>
+	<key>NSMicrophoneUsageDescription</key><string>A page asked to use your microphone. Browser asks you each time.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

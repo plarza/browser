@@ -1,5 +1,5 @@
 import AppKit
-import AzoteKit
+import BrowserKit
 import WebKit
 
 /// Extensions' buttons, beside the traffic lights: as many as fit, left to

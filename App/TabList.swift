@@ -1,5 +1,5 @@
 import AppKit
-import AzoteKit
+import BrowserKit
 
 /// The tabs, down the left. No pinned tabs; a Persist tab is sky blue.
 @MainActor

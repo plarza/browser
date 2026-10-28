@@ -1,11 +1,11 @@
 import AppKit
 import Darwin
-import AzoteKit
+import BrowserKit
 
 // No AppKit window, store, extension or network request before this check.
 MainActor.assumeIsolated { Engine.requirePatched() }
 if CommandLine.arguments.contains("--check-engine") {
-    print("Azote's patched WebKit verified.")
+    print("Browser's patched WebKit verified.")
     exit(EXIT_SUCCESS)
 }
 
@@ -16,8 +16,8 @@ UserDefaults.standard.set("en_US", forKey: "AppleLocale")
 
 #if DEBUG
 // Debug builds only: a separate store, so a test instance never touches the
-// tabs, history or settings of the Azote someone is using.
-if let path = UserDefaults.standard.string(forKey: "azoteStore") {
+// tabs, history or settings of the Browser someone is using.
+if let path = UserDefaults.standard.string(forKey: "browserStore") {
     Store.directory = URL(fileURLWithPath: path, isDirectory: true)
 }
 #endif
