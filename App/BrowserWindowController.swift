@@ -13,11 +13,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private let sidebar = NSVisualEffectView()
     private let address = AddressField()
     private let tabList = TabListView()
+    private let actionBar = ActionBar()
     private let content = NSView()
     private let progress = ProgressLine()
     private let notice = NSTextField(labelWithString: "")
     private let findBar = FindBar()
     private var sidebarWidth: NSLayoutConstraint!
+    private var popover: NSPopover?
     private static let width: CGFloat = 240
 
     init() {
@@ -75,12 +77,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         notice.isHidden = Engine.isPatched
         notice.stringValue = "System WebKit: fingerprint protection is not active in this build."
 
-        for view in [sidebar, content, address, tabList, newTab, notice, progress, findBar] as [NSView] {
+        actionBar.onClick = { [weak self] action, button in self?.perform(action, from: button) }
+
+        for view in [sidebar, content, address, actionBar, tabList, newTab, notice, progress, findBar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
         root.addSubview(sidebar)
         root.addSubview(content)
         sidebar.addSubview(address)
+        sidebar.addSubview(actionBar)
         sidebar.addSubview(tabList)
         sidebar.addSubview(newTab)
         sidebar.addSubview(notice)
@@ -107,7 +112,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             address.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
             address.heightAnchor.constraint(equalToConstant: 28),
 
-            tabList.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 10),
+            actionBar.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 6),
+            actionBar.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
+            actionBar.trailingAnchor.constraint(lessThanOrEqualTo: sidebar.trailingAnchor, constant: -10),
+
+            tabList.topAnchor.constraint(equalTo: actionBar.bottomAnchor, constant: 6),
             tabList.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 6),
             tabList.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -6),
             tabList.bottomAnchor.constraint(equalTo: notice.topAnchor, constant: -6),
@@ -156,6 +165,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         } else {
             tabs.append(tab)
         }
+        Extensions.shared.didOpen(tab)
         if let url { tab.load(url) }
         tabList.reload(tabs, selected: shouldSelect ? tab : selected)
         if shouldSelect { select(tab) }
@@ -171,8 +181,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     func select(_ tab: Tab) {
         guard tabs.contains(where: { $0 === tab }) else { return }
+        let previous = selected
         if selected !== tab { selected?.webView.removeFromSuperview() }
         selected = tab
+        if previous !== tab { Extensions.shared.didActivate(tab, previous: previous) }
+        actionBar.reload()
         show(tab.webView)
         tabList.reload(tabs, selected: tab)
         refreshChrome()
@@ -198,6 +211,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         for popup in tab.popups { close(popup) }
         tab.close()
         tabs.removeAll { $0 === tab }
+        Extensions.shared.didClose(tab)
         if selected === tab {
             selected = nil
             if tabs.isEmpty {
@@ -358,10 +372,18 @@ extension BrowserWindowController: TabDelegate {
     func tab(_ tab: Tab, didOpenPopup popup: Tab) {
         if let i = tabs.firstIndex(where: { $0 === tab }) { tabs.insert(popup, at: i + 1) } else { tabs.append(popup) }
         popup.delegate = self
+        Extensions.shared.didOpen(popup)
         select(popup)
     }
 
     func tabWantsToClose(_ tab: Tab) { close(tab) }
+
+    // MARK: Extension actions
+
+    private func perform(_ action: WKWebExtension.Action, from button: NSView) {
+        actionBar.anchor = button
+        Extensions.shared.perform(action)
+    }
 
     func tab(_ tab: Tab, allowCapture type: WKMediaCaptureType, for origin: String) async -> Bool {
         let what: String = switch type {
@@ -401,5 +423,46 @@ extension BrowserWindowController: TabDelegate {
         guard let window else { return nil }
         let response = await panel.beginSheetModal(for: window)
         return response == .OK ? panel.urls : nil
+    }
+}
+
+extension BrowserWindowController: ExtensionHost {
+    var extensionTabs: [Tab] { tabs }
+    var extensionActiveTab: Tab? { selected }
+    var extensionWindowFrame: CGRect { window?.frame ?? .zero }
+
+    func extensionOpen(_ url: URL?, active: Bool) -> Tab {
+        newTab(url, select: active)
+    }
+
+    func extensionSelect(_ tab: Tab) { select(tab) }
+    func extensionClose(_ tab: Tab) { close(tab) }
+    func extensionActionsChanged() { actionBar.reload() }
+
+    func extensionPresent(_ action: WKWebExtension.Action) {
+        guard let web = action.popupWebView else { return }
+        popover?.close()
+        let controller = NSViewController()
+        controller.view = web
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = controller
+        popover.contentSize = NSSize(width: max(web.frame.width, 360), height: max(web.frame.height, 480))
+        popover.delegate = PopoverCloser.shared
+        PopoverCloser.shared.action = action
+        let anchor = actionBar.anchor ?? actionBar
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxX)
+        self.popover = popover
+    }
+}
+
+/// Tells the extension its popup went away, so it can tidy up.
+@MainActor
+final class PopoverCloser: NSObject, NSPopoverDelegate {
+    static let shared = PopoverCloser()
+    var action: WKWebExtension.Action?
+    func popoverDidClose(_ notification: Notification) {
+        action?.closePopup()
+        action = nil
     }
 }

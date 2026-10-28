@@ -89,12 +89,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary).font(.caption)
             }
 
-            Section {
-                Text("Extensions arrive with the next build: WebKit's extension engine, installed from a Chrome Web Store link, as in Search.")
-                    .foregroundStyle(.secondary).font(.caption)
-            } header: {
-                Text("Extensions")
-            }
+            ExtensionsSection()
         }
         .formStyle(.grouped)
         .onAppear {
@@ -114,5 +109,62 @@ private struct BlockerStatus: View {
                 let blocker = Blocker.shared
                 text = blocker.trouble ?? (blocker.ruleCount > 0 ? "\(blocker.ruleCount.formatted()) rules" : "")
             }
+    }
+}
+
+private struct ExtensionsSection: View {
+    @State private var link = ""
+    @State private var busy = false
+    @State private var installed = Extensions.shared.installed
+    @State private var trouble: String?
+
+    var body: some View {
+        Section {
+            HStack {
+                TextField("Chrome Web Store link or id", text: $link)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(install)
+                Button(busy ? "Installing…" : "Install", action: install).disabled(busy || link.isEmpty)
+                Button("Folder…") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true
+                    panel.canChooseFiles = false
+                    guard panel.runModal() == .OK, let url = panel.url else { return }
+                    run { await Extensions.shared.installFolder(url) }
+                }
+            }
+            ForEach(installed, id: \.id) { item in
+                HStack {
+                    Text(item.name)
+                    Spacer()
+                    Button("Remove") { run { await Extensions.shared.remove(item.id) } }
+                        .buttonStyle(.link)
+                }
+            }
+            if let trouble { Text(trouble).foregroundStyle(.red).font(.caption) }
+        } header: {
+            Text("Extensions")
+        } footer: {
+            Text("An extension keeps its own data (a password vault, say). Its content scripts can change pages in ways sites can see.")
+                .foregroundStyle(.secondary).font(.caption)
+        }
+    }
+
+    private func install() {
+        let text = link
+        run {
+            await Extensions.shared.install(from: text)
+            if Extensions.shared.trouble == nil { link = "" }
+        }
+    }
+
+    private func run(_ work: @escaping @MainActor () async -> Void) {
+        busy = true
+        Task { @MainActor in
+            await work()
+            busy = false
+            installed = Extensions.shared.installed
+            trouble = Extensions.shared.trouble
+        }
     }
 }

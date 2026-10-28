@@ -11,6 +11,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Blocker.shared.start()
         Updater.shared.start()
         browser = BrowserWindowController()
+        Extensions.shared.host = browser
+        Extensions.shared.windowOpened()
+        Extensions.shared.start()
+        #if DEBUG
+        // Debug builds only: `-coreInstall <store id>`, for testing from a script.
+        if let id = UserDefaults.standard.string(forKey: "coreInstall") {
+            Task { await Extensions.shared.install(from: id); NSLog("Core: install \(id): \(Extensions.shared.trouble ?? "ok")") }
+        }
+        #endif
         browser.restore()
         browser.showWindow(nil)
         NSApp.activate()

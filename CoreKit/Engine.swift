@@ -30,6 +30,7 @@ public enum Engine {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = identity.store
         config.userContentController = content
+        config.webExtensionController = Extensions.shared.controller
         config.applicationNameForUserAgent = applicationName
         config.limitsNavigationsToAppBoundDomains = false
         config.upgradeKnownHostsToHTTPS = true

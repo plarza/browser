@@ -112,16 +112,16 @@ public final class Tab: NSObject {
         webView.uiDelegate = self
         observations = [
             webView.observe(\.title) { [weak self] view, _ in
-                MainActor.assumeIsolated { self?.update { $0.title = view.title ?? "" } }
+                MainActor.assumeIsolated { self?.update(.title) { $0.title = view.title ?? "" } }
             },
             webView.observe(\.url) { [weak self] view, _ in
                 MainActor.assumeIsolated {
                     guard let self, let url = view.url, url.scheme == "http" || url.scheme == "https" else { return }
-                    self.update { $0.url = url }
+                    self.update(.URL) { $0.url = url }
                 }
             },
             webView.observe(\.isLoading) { [weak self] view, _ in
-                MainActor.assumeIsolated { self?.update { $0.isLoading = view.isLoading } }
+                MainActor.assumeIsolated { self?.update(.loading) { $0.isLoading = view.isLoading } }
             },
             webView.observe(\.estimatedProgress) { [weak self] view, _ in
                 MainActor.assumeIsolated { self?.update { $0.progress = view.estimatedProgress } }
@@ -129,9 +129,10 @@ public final class Tab: NSObject {
         ]
     }
 
-    private func update(_ change: (Tab) -> Void) {
+    private func update(_ properties: WKWebExtension.TabChangedProperties = [], _ change: (Tab) -> Void) {
         change(self)
         delegate?.tabDidChange(self)
+        if !properties.isEmpty { Extensions.shared.didChange(self, properties) }
     }
 
     // MARK: Navigating
