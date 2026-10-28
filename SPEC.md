@@ -105,3 +105,10 @@ The same as Search, wherever the feature exists in Core, plus ⌘I for Persist, 
 - **Releases.** Pushing a tag builds the engine and the app, signs them with the Developer ID, notarizes them, and uploads the DMG to Forgejo Releases.
 - **Updates** are manual: install the new DMG from the release. Core never checks for updates itself.
 - **Telemetry.** None. The only request Core makes on its own is the daily filter-list fetch.
+
+## Known gaps
+
+Things CreepJS still sees, measured on 2026-10-28 by loading it, wiping, and loading it again:
+
+- **WebGL pixels and images** come out with the same hash in every identity, so they can link sessions across wipes. To do: patch the engine to add per-seed noise to WebGL `readPixels` and canvas readback of WebGL contexts, the same way canvas 2D and audio already get it.
+- **Fonts, speech voices and media device kinds** (microphone, webcam) are the same in every identity. They match what Safari shows on most Macs, so they are left alone for now.
