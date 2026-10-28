@@ -21,7 +21,7 @@ Applied to upstream WebKit (`engine/patches/`).
 - Each tab gets its own data store and network session (cookies, all storage, HTTP cache, HSTS, TLS sessions, connections) and its own web process.
 - Every reload and navigation, back and forward included, throws that identity away and loads into a new one.
 - Persist (⌘I) keeps a tab's identity until the tab closes, across relaunches.
-- Domains on the cookie list keep one jar on disk, shared by all tabs, with one fixed fingerprint seed.
+- Domains on the cookie whitelist keep one jar on disk, shared by all tabs, with one fixed fingerprint seed.
 - `window.open` popups (sign-in, 3-D Secure) share their opener's identity and close with it; links opened in a new tab start fresh.
 - The user agent is Safari's for the installed macOS.
 - HTTPS-only: plain HTTP is upgraded, with a one-load fallback page if the site has no HTTPS. Loopback (`localhost`) is left alone.
@@ -34,7 +34,7 @@ Applied to upstream WebKit (`engine/patches/`).
 - History keeps addresses, titles and visit counts, for address-bar completion and `about://history`.
 - Safari web extensions from apps in Applications turn on in Settings and run on WebKit's extension engine; their own storage is kept.
 - No telemetry and no update checks. The only request Browser makes by itself is the daily filter-list fetch.
-- No proxy or Tor: use a VPN.
+- No proxy or Tor: use a VPN. iCloud Private Relay is never used, even when it's on for the Mac.
 
 Keyboard shortcuts are at `about://help` (⇧⌘/).
 
@@ -75,7 +75,7 @@ The UI self-test only works in debug builds:
 build/Browser.app/Contents/MacOS/Browser -browserStore /tmp/browser-test -browserSelfTest YES
 ```
 
-It logs PASS/FAIL per check and ends with a count. Every page it loads comes from a web server inside the test, on this Mac, so it needs no internet; each step waits for what it expects rather than a set time, and works with Browser in the background. `-browserStore` uses a separate data folder; `-browserShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). `-browserProbe <url> -browserProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS.
+It logs PASS/FAIL per check, ends with a count and quits, exiting non-zero if any check failed. Every page it loads comes from a web server inside the test, on this Mac, so it needs no internet; each step waits for what it expects rather than a set time, and works with Browser in the background. `-browserStore` uses a separate data folder; `-browserShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). `-browserProbe <url> -browserProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS.
 
 ## Layout
 

@@ -6,7 +6,7 @@ import WebKit
 /// WebKit's client world, which the page can't see or detect, and fetched
 /// with no cookies, no cache on disk and Safari's user agent: what any
 /// browser asks for a favicon. An icon is kept on disk only for a site that
-/// is already in History or on the cookie list, so the disk says nothing
+/// is already in History or on the whitelist, so the disk says nothing
 /// those don't; removing the site from History removes its icon, and
 /// clearing History clears them all. A kept icon is never fetched again,
 /// which is one request fewer for a site to see.

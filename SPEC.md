@@ -46,7 +46,7 @@ Browser has one user, so there is no crowd of Browser users to hide in. It hides
 
 ## Network
 
-- No proxy or Tor is built in. The user brings their own VPN.
+- No proxy or Tor is built in. The user brings their own VPN. The engine never sends a request through iCloud Private Relay (Safari's "hide IP address" protection is forced off), so every request leaves by the same route and the same address.
 - **HTTPS-only.** Every load is upgraded to HTTPS, except to this Mac itself (`localhost`, `127.0.0.1`, `::1`), which never leaves the machine. If the upgrade fails, an interstitial offers to continue over HTTP for that one load in that tab.
 - **Third-party cookies** are never allowed. Referer is trimmed to the origin when the request crosses sites.
 - **Tracking parameters** (`utm_*`, `fbclid`, `gclid`, `mc_eid` and similar) are stripped from every navigation.
@@ -79,7 +79,7 @@ Browser has one user, so there is no crowd of Browser users to hide in. It hides
 
 ## Extensions
 
-- Only Safari web extensions run: Browser finds them inside the apps in /Applications and ~/Applications and loads them, unmodified, on WebKit's WKWebExtension engine. Settings lists them with a switch each. Their pages load from `safari-web-extension://`, as in Safari, at an address fixed per extension, so what they store survives a relaunch. Bitwarden is the expected password manager. Browser has no built-in password store.
+- Only Safari web extensions run: Browser finds them inside the apps in /Applications and ~/Applications and loads them, unmodified, on WebKit's WKWebExtension engine. Settings lists them with a switch each. Their pages load from `safari-web-extension://`, as in Safari, at an address fixed per extension, so what they store survives a relaunch. Each extension's id is Safari's, the bundle id with its signing team (`me.proton.pass.catalyst.safari-extension (2SB5Z68H26)`), because sites that message an extension (`externally_connectable`, as Proton's sign-in does) address it by that id. Bitwarden is the expected password manager. Browser has no built-in password store.
 - Extension content scripts can change pages in ways that are visible, so turning an extension on is a fingerprinting trade-off the user chooses to make. Enabled extensions can access Browser’s ephemeral tabs within their requested site permissions.
 - Extension buttons can be dragged into a new order, which is saved. Popups fit their contents, with an opaque background unless the extension supplies its own.
 

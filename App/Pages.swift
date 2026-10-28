@@ -3,7 +3,7 @@ import BrowserKit
 import SwiftUI
 
 /// Browser's own pages, as native views in the tab: about://settings,
-/// about://history and about://help.
+/// about://history, about://downloads and about://help.
 @MainActor
 enum Pages {
     static func view(_ page: String, open: @escaping (URL) -> Void) -> AnyView {
@@ -270,7 +270,7 @@ struct SettingsPage: View {
                 }
             }
 
-            Section("Keep Cookies For") {
+            Section("Cookie Whitelist") {
                 RowList(items: prefs.settings.whitelist, placeholder: "Add domain", icon: { URL(string: "https://\($0)") },
                         removal: { "Delete the cookies and data kept for \($0)?" },
                         normalise: { Whitelist.normalise([$0]).first }) { prefs.settings.whitelist = $0 }

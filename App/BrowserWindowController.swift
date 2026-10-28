@@ -16,11 +16,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private(set) var selected: Tab?
     private var closed: [URL] = []
 
-    private let sidebar = Surface()
-    fileprivate let address = AddressField()
-    private let tabList = TabListView()
+    let sidebar = Surface()
+    let address = AddressField()
+    let tabList = TabListView()
     private let actionBar = ActionBar()
-    fileprivate let content = Surface()
+    let content = Surface()
     private let progress = ProgressLine()
     private let findBar = FindBar()
     private let divider = SidebarDivider()
@@ -28,12 +28,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private var sidebarLeading: NSLayoutConstraint!
     private var popover: NSPopover?
     /// Behind a blank tab: the new tab page.
-    private let backdrop = NewTabBackdrop()
-    private let downloads = DownloadDock()
+    let backdrop = NewTabBackdrop()
+    let downloads = DownloadDock()
     fileprivate let shade = SidebarShadow()
     /// Browser's own pages, native, where the web view would be.
-    private let pageHost = NSHostingView(rootView: AnyView(EmptyView()))
-    private var hostedPage: String?
+    let pageHost = NSHostingView(rootView: AnyView(EmptyView()))
+    private(set) var hostedPage: String?
     private var watching: Set<AnyCancellable> = []
     private static let widths: ClosedRange<CGFloat> = 200 ... 420
     private var width: CGFloat = {
@@ -109,7 +109,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     private var backdropLeading: (page: NSLayoutConstraint, window: NSLayoutConstraint)!
-    private var fills = false
+    private(set) var fills = false
 
     /// The new tab page's picture under the whole window, seen through a
     /// frosted sidebar.
@@ -172,7 +172,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         })
     }
 
-    fileprivate func mouseButton(_ number: Int) {
+    func mouseButton(_ number: Int) {
         if number == 3 { selected?.goBack() } else { selected?.goForward() }
     }
 
@@ -200,7 +200,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         })
     }
 
-    fileprivate func follow(_ phase: NSEvent.Phase, dx: CGFloat, dy: CGFloat) {
+    func follow(_ phase: NSEvent.Phase, dx: CGFloat, dy: CGFloat) {
         guard let tab = selected else { return }
         switch phase {
         case .began:
@@ -591,7 +591,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     @objc func zoomIn(_ sender: Any?) { selected.map { $0.webView.pageZoom = min(3, $0.webView.pageZoom + 0.1) } }
     @objc func zoomOut(_ sender: Any?) { selected.map { $0.webView.pageZoom = max(0.3, $0.webView.pageZoom - 0.1) } }
     @objc func togglePersist(_ sender: Any?) { selected?.persist.toggle() }
-    fileprivate private(set) var sidebarShown = true
+    private(set) var sidebarShown = true
 
     /// ⌘S. Hidden, the page has the whole window, traffic lights and all.
     @objc func toggleBrowserSidebar(_ sender: Any?) {
@@ -780,24 +780,6 @@ extension BrowserWindowController: ExtensionHost {
         self.popover = popover
     }
 }
-
-#if DEBUG
-extension BrowserWindowController {
-    var addressFieldForTesting: AddressField { address }
-    var selectedWebViewForTesting: NSView { selected?.webView ?? content }
-    var sidebarShownForTesting: Bool { sidebarShown }
-    var selectedTab: Tab? { selected }
-    var pageShownForTesting: String? { pageHost.isHidden ? nil : hostedPage }
-    var pageHostForTesting: NSView { pageHost }
-    var downloadTilesForTesting: [DownloadTile] { ((downloads.subviews.first as? NSStackView)?.arrangedSubviews ?? []).compactMap { $0 as? DownloadTile } }
-    var downloadRowsForTesting: Int { downloads.isHidden ? 0 : downloads.subviews.first?.subviews.count ?? 0 }
-    var fillsForTesting: Bool { fills && sidebar.isClear && !backdrop.isHidden && backdrop.frame.minX == 0 && backdrop.frame.width > content.frame.width }
-    var tabTableForTesting: NSTableView? { tabList.documentView as? NSTableView }
-    var newTabPageShownForTesting: Bool { !backdrop.isHidden && backdrop.alphaValue > 0.5 }
-    func mouseButtonForTesting(_ number: Int) { mouseButton(number) }
-    func swipeForTesting(_ phase: NSEvent.Phase, dx: CGFloat) { follow(phase, dx: dx, dy: 0) }
-}
-#endif
 
 /// Browser's shortcuts come before the page's: WKWebView takes every ⌘-key
 /// it is offered (⌘S, ⌘L…) and hands back only some of them.

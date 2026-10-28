@@ -1,4 +1,5 @@
 import AppKit
+import Security
 import WebKit
 
 /// What the shell does for extensions: it owns the window and the tabs.
@@ -32,10 +33,14 @@ public final class Extensions: NSObject {
     public private(set) var contexts: [WKWebExtensionContext] = []
     public private(set) var trouble: String?
 
-    /// A Safari web extension found inside an app, named by its bundle id.
+    /// A Safari web extension found inside an app. Its id is Safari's:
+    /// the bundle id and the signing team, `com.example.ext (TEAMID)`.
+    /// Sites name extensions by it (`externally_connectable`), so Proton's
+    /// sign-in page reaches Proton Pass only under this exact id.
     public struct Found: Identifiable {
         public let id: String
         public let name: String
+        let bundleID: String
         let bundle: Bundle
     }
 
@@ -68,6 +73,12 @@ public final class Extensions: NSObject {
 
     public func start() {
         found = Extensions.scan()
+        // Lists saved before ids carried the team name each by bundle id.
+        let upgraded = enabled.map { id in found.first { $0.bundleID == id }?.id ?? id }
+        if upgraded != enabled {
+            enabled = upgraded
+            Store.write(enabled, "extensions.json")
+        }
         Task {
             for id in enabled { await load(id) }
             host?.extensionActionsChanged()
@@ -85,10 +96,21 @@ public final class Extensions: NSObject {
             .compactMap(Bundle.init(url:))
             .compactMap { bundle in
                 let point = (bundle.object(forInfoDictionaryKey: "NSExtension") as? [String: Any])?["NSExtensionPointIdentifier"] as? String
-                guard point == "com.apple.Safari.web-extension", let id = bundle.bundleIdentifier else { return nil }
+                guard point == "com.apple.Safari.web-extension", let bundleID = bundle.bundleIdentifier else { return nil }
                 let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") ?? bundle.object(forInfoDictionaryKey: "CFBundleName")
-                return Found(id: id, name: name as? String ?? id, bundle: bundle)
+                let id = team(of: bundle.bundleURL).map { "\(bundleID) (\($0))" } ?? bundleID
+                return Found(id: id, name: name as? String ?? bundleID, bundleID: bundleID, bundle: bundle)
             }
+    }
+
+    /// The team that signed the bundle, as its code signature names it.
+    static func team(of url: URL) -> String? {
+        var code: SecStaticCode?
+        var info: CFDictionary?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code,
+              SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess
+        else { return nil }
+        return (info as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String
     }
 
     private func load(_ id: String) async {
@@ -99,7 +121,7 @@ public final class Extensions: NSObject {
             // A stable identifier and origin: what the extension stored,
             // in its storage and in its pages', comes back next launch.
             context.uniqueIdentifier = id
-            context.baseURL = URL(string: "\(Extensions.scheme)://\(UUID(hashing: "browser.extension." + id).uuidString.lowercased())/")!
+            context.baseURL = URL(string: "\(Extensions.scheme)://\(UUID(hashing: "browser.extension." + item.bundleID).uuidString.lowercased())/")!
             context.isInspectable = false
             // Browser's regular tabs use ephemeral (WebKit private) stores.
             context.hasAccessToPrivateData = true

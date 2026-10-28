@@ -1,5 +1,5 @@
 diff --git a/Source/WebCore/Modules/mediastream/libwebrtc/LibWebRTCPeerConnectionBackend.cpp b/Source/WebCore/Modules/mediastream/libwebrtc/LibWebRTCPeerConnectionBackend.cpp
-index 2eb4b831b9..bf0a32da6c 100644
+index 2eb4b831b94..b6b3e3d0359 100644
 --- a/Source/WebCore/Modules/mediastream/libwebrtc/LibWebRTCPeerConnectionBackend.cpp
 +++ b/Source/WebCore/Modules/mediastream/libwebrtc/LibWebRTCPeerConnectionBackend.cpp
 @@ -140,17 +140,12 @@ static inline webrtc::PeerConnectionInterface::RtcpMuxPolicy LEGACY_NODELETE rtc
@@ -26,7 +26,7 @@ index 2eb4b831b9..bf0a32da6c 100644
  
  webrtc::PeerConnectionInterface::RTCConfiguration configurationFromMediaEndpointConfiguration(MediaEndpointConfiguration&& configuration)
 diff --git a/Source/WebCore/loader/DocumentLoader.h b/Source/WebCore/loader/DocumentLoader.h
-index ca37fbe30b..f443050e71 100644
+index ca37fbe30bd..2a0cc127138 100644
 --- a/Source/WebCore/loader/DocumentLoader.h
 +++ b/Source/WebCore/loader/DocumentLoader.h
 @@ -478,10 +478,10 @@ public:
@@ -34,16 +34,16 @@ index ca37fbe30b..f443050e71 100644
  
      void setAdvancedPrivacyProtections(OptionSet<AdvancedPrivacyProtections> policy) { m_advancedPrivacyProtections = policy; }
 -    OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections() const { return m_advancedPrivacyProtections; }
-+    OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections() const { return m_advancedPrivacyProtections | browserAlwaysOnProtections(); }
++    OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections() const { return browserProtections(m_advancedPrivacyProtections); }
  
      void setOriginatorAdvancedPrivacyProtections(OptionSet<AdvancedPrivacyProtections> policy) { m_originatorAdvancedPrivacyProtections = policy; }
 -    OptionSet<AdvancedPrivacyProtections> navigationalAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections.value_or(m_advancedPrivacyProtections); }
-+    OptionSet<AdvancedPrivacyProtections> navigationalAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections.value_or(m_advancedPrivacyProtections) | browserAlwaysOnProtections(); }
++    OptionSet<AdvancedPrivacyProtections> navigationalAdvancedPrivacyProtections() const { return browserProtections(m_originatorAdvancedPrivacyProtections.value_or(m_advancedPrivacyProtections)); }
      std::optional<OptionSet<AdvancedPrivacyProtections>> originatorAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections; }
  
      void setGlobalPrivacyControlEnabled(std::optional<bool> enabled) { m_globalPrivacyControlEnabled = enabled; }
 diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
-index 60a9887a1a..035aa41fc9 100644
+index 60a9887a1a0..695540b72a9 100644
 --- a/Source/WebCore/page/Page.cpp
 +++ b/Source/WebCore/page/Page.cpp
 @@ -4360,11 +4360,26 @@ std::optional<uint64_t> Page::noiseInjectionHashSaltForDomain(const RegistrableD
@@ -76,7 +76,7 @@ index 60a9887a1a..035aa41fc9 100644
  {
      return m_sessionID;
 diff --git a/Source/WebCore/page/Page.h b/Source/WebCore/page/Page.h
-index 751267b4b0..ecbb836b9f 100644
+index 751267b4b0e..544d24ccfa2 100644
 --- a/Source/WebCore/page/Page.h
 +++ b/Source/WebCore/page/Page.h
 @@ -1067,6 +1067,10 @@ public:
@@ -99,7 +99,7 @@ index 751267b4b0..ecbb836b9f 100644
  #if PLATFORM(IOS_FAMILY)
      String m_sceneIdentifier;
 diff --git a/Source/WebCore/platform/network/AdvancedPrivacyProtections.h b/Source/WebCore/platform/network/AdvancedPrivacyProtections.h
-index d1c33ac6e3..eb1b6e70b5 100644
+index d1c33ac6e34..4e7680228e4 100644
 --- a/Source/WebCore/platform/network/AdvancedPrivacyProtections.h
 +++ b/Source/WebCore/platform/network/AdvancedPrivacyProtections.h
 @@ -25,6 +25,8 @@
@@ -111,27 +111,45 @@ index d1c33ac6e3..eb1b6e70b5 100644
  namespace WebCore {
  
  // FIXME: WebSearchContent is only used for debugging, and is unrelated to these other privacy protections;
-@@ -45,4 +47,18 @@ enum class AdvancedPrivacyProtections : uint16_t {
+@@ -45,4 +47,21 @@ enum class AdvancedPrivacyProtections : uint16_t {
      OverrideHardwareConcurrency = 1 << 12,
  };
  
 +// Browser: on for every page and every frame, whatever the embedder asked for.
-+// There is no way to turn them off.
-+inline OptionSet<AdvancedPrivacyProtections> browserAlwaysOnProtections()
++// There is no way to turn them off. EnhancedNetworkPrivacy (iCloud Private
++// Relay) is always off: Browser's traffic goes only where the system's
++// network, VPN included, sends it.
++inline OptionSet<AdvancedPrivacyProtections> browserProtections(OptionSet<AdvancedPrivacyProtections> requested)
 +{
-+    return {
++    OptionSet<AdvancedPrivacyProtections> protections = requested | OptionSet<AdvancedPrivacyProtections> {
 +        AdvancedPrivacyProtections::BaselineProtections,
 +        AdvancedPrivacyProtections::FingerprintingProtections,
-+        AdvancedPrivacyProtections::EnhancedNetworkPrivacy,
 +        AdvancedPrivacyProtections::LinkDecorationFiltering,
 +        AdvancedPrivacyProtections::ScriptTrackingPrivacy,
 +        AdvancedPrivacyProtections::OverrideHardwareConcurrency,
 +    };
++    protections.remove(AdvancedPrivacyProtections::EnhancedNetworkPrivacy);
++    return protections;
 +}
 +
  }
+diff --git a/Source/WebKit/NetworkProcess/cocoa/NetworkDataTaskCocoa.mm b/Source/WebKit/NetworkProcess/cocoa/NetworkDataTaskCocoa.mm
+index ff78543e3be..f9220a4e96c 100644
+--- a/Source/WebKit/NetworkProcess/cocoa/NetworkDataTaskCocoa.mm
++++ b/Source/WebKit/NetworkProcess/cocoa/NetworkDataTaskCocoa.mm
+@@ -88,8 +88,8 @@ inline static bool shouldBlockTrackersForThirdPartyCloaking(NSURLRequest *reques
+ void enableAdvancedPrivacyProtections(NSMutableURLRequest *request, OptionSet<WebCore::AdvancedPrivacyProtections> policy)
+ {
+ #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
+-    if (policy.contains(WebCore::AdvancedPrivacyProtections::EnhancedNetworkPrivacy))
+-        request._useEnhancedPrivacyMode = YES;
++    // Browser: never iCloud Private Relay, whatever the policy says.
++    request._useEnhancedPrivacyMode = NO;
+ 
+     if (policy.contains(WebCore::AdvancedPrivacyProtections::BaselineProtections) && shouldBlockTrackersForThirdPartyCloaking(request))
+         request._blockTrackers = YES;
 diff --git a/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm b/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm
-index 97c41013cb..11c1716211 100644
+index 97c41013cba..f4116b538ca 100644
 --- a/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm
 +++ b/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm
 @@ -222,6 +222,14 @@ void setJSCOptions(xpc_object_t initializerMessage, EnableLockdownMode enableLoc
@@ -150,7 +168,7 @@ index 97c41013cb..11c1716211 100644
      }
      // FIXME (276012): Remove this XPC bootstrap message when it's no longer necessary. See rdar://130669638 for more context.
 diff --git a/Source/WebKit/Shared/WebsitePoliciesData.cpp b/Source/WebKit/Shared/WebsitePoliciesData.cpp
-index 9d9ea6035f..aa8283bd3f 100644
+index 9d9ea6035f1..bbe4d09f973 100644
 --- a/Source/WebKit/Shared/WebsitePoliciesData.cpp
 +++ b/Source/WebKit/Shared/WebsitePoliciesData.cpp
 @@ -29,6 +29,7 @@
@@ -175,7 +193,7 @@ index 9d9ea6035f..aa8283bd3f 100644
          documentLoader.setOriginatorAdvancedPrivacyProtections(websitePolicies.advancedPrivacyProtections);
      documentLoader.setGlobalPrivacyControlEnabled(websitePolicies.globalPrivacyControlEnabled);
 diff --git a/Source/WebKit/Shared/WebsitePoliciesData.h b/Source/WebKit/Shared/WebsitePoliciesData.h
-index 3474c0a851..ae2f5c6411 100644
+index 3474c0a8515..e723c40c37d 100644
 --- a/Source/WebKit/Shared/WebsitePoliciesData.h
 +++ b/Source/WebKit/Shared/WebsitePoliciesData.h
 @@ -67,6 +67,7 @@ public:
@@ -187,7 +205,7 @@ index 3474c0a851..ae2f5c6411 100644
      WebCore::ContentExtensionEnablement contentExtensionEnablement { WebCore::ContentExtensionDefaultEnablement::Enabled, { } };
  #if ENABLE(TOUCH_EVENTS)
 diff --git a/Source/WebKit/Shared/WebsitePoliciesData.serialization.in b/Source/WebKit/Shared/WebsitePoliciesData.serialization.in
-index ff5de21ac6..33a8208124 100644
+index ff5de21ac64..76613c1f55e 100644
 --- a/Source/WebKit/Shared/WebsitePoliciesData.serialization.in
 +++ b/Source/WebKit/Shared/WebsitePoliciesData.serialization.in
 @@ -65,6 +65,7 @@ struct WebKit::WebsitePoliciesData {
@@ -199,7 +217,7 @@ index ff5de21ac6..33a8208124 100644
      WebCore::ContentExtensionEnablement contentExtensionEnablement;
  #if ENABLE(TOUCH_EVENTS)
 diff --git a/Source/WebKit/UIProcess/API/APIWebsitePolicies.h b/Source/WebKit/UIProcess/API/APIWebsitePolicies.h
-index bded93d545..446811021c 100644
+index bded93d545e..547ffea1721 100644
 --- a/Source/WebKit/UIProcess/API/APIWebsitePolicies.h
 +++ b/Source/WebKit/UIProcess/API/APIWebsitePolicies.h
 @@ -131,6 +131,8 @@ public:
@@ -212,7 +230,7 @@ index bded93d545..446811021c 100644
      bool idempotentModeAutosizingOnlyHonorsPercentages() const { return m_data.idempotentModeAutosizingOnlyHonorsPercentages; }
      void setIdempotentModeAutosizingOnlyHonorsPercentages(bool idempotentModeAutosizingOnlyHonorsPercentages) { m_data.idempotentModeAutosizingOnlyHonorsPercentages = idempotentModeAutosizingOnlyHonorsPercentages; }
 diff --git a/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferences.mm b/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferences.mm
-index 78a8c405b1..c1a49ce3dd 100644
+index 78a8c405b14..3d3025be677 100644
 --- a/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferences.mm
 +++ b/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferences.mm
 @@ -661,6 +661,16 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
@@ -233,7 +251,7 @@ index 78a8c405b1..c1a49ce3dd 100644
  {
      return _websitePolicies->advancedPrivacyProtections().containsAll({
 diff --git a/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferencesPrivate.h b/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferencesPrivate.h
-index ca4c970162..04a1f0378c 100644
+index ca4c9701629..fdd482c412e 100644
 --- a/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferencesPrivate.h
 +++ b/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferencesPrivate.h
 @@ -120,6 +120,8 @@ typedef NS_OPTIONS(NSUInteger, _WKWebsiteNetworkConnectionIntegrityPolicy) {
@@ -246,7 +264,7 @@ index ca4c970162..04a1f0378c 100644
  
  @property (nonatomic, copy, setter=_setVisibilityAdjustmentSelectorsIncludingShadowHosts:) NSArray<NSArray<NSSet<NSString *> *> *> *_visibilityAdjustmentSelectorsIncludingShadowHosts WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
 diff --git a/Source/WebKit/WebProcess/WebProcess.cpp b/Source/WebKit/WebProcess/WebProcess.cpp
-index 40987671f9..e61189f73a 100644
+index 40987671f9e..e27e493a3d6 100644
 --- a/Source/WebKit/WebProcess/WebProcess.cpp
 +++ b/Source/WebKit/WebProcess/WebProcess.cpp
 @@ -437,6 +437,11 @@ WebProcess::WebProcess()

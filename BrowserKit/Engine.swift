@@ -68,12 +68,9 @@ public enum Engine {
         return config
     }
 
-    /// Safari's Private Browsing protections: canvas, audio and screen
-    /// noise, network privacy and link decoration filtering are forced on
-    /// in the engine. Every navigation also carries its identity's seed.
-    ///
-    /// The seed goes with every navigation; the engine derives each site's
-    /// canvas, audio and WebGL noise and its reported hardware from it.
+    /// The identity's seed, sent with every navigation: the engine derives
+    /// each site's canvas, audio and WebGL noise and its reported hardware
+    /// from it.
     static func harden(_ preferences: WKWebpagePreferences, seed: UInt64) {
         preferences.perform(NSSelectorFromString("_setBrowserFingerprintSeed:"), with: NSNumber(value: seed))
     }

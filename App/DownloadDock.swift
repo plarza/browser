@@ -63,7 +63,7 @@ final class DownloadTile: NSView {
     private let size = NSTextField(labelWithString: "")
     private let button = NSButton()
     private let fill = CAGradientLayer()
-    private var hovering = false { didSet { refresh() } }
+    var hovering = false { didSet { refresh() } }
 
     init(item: Downloads.Item) {
         self.item = item
@@ -139,14 +139,9 @@ final class DownloadTile: NSView {
         needsDisplay = true
     }
 
-    @objc private func pressed() {
+    @objc func pressed() {
         if item.state == .active { Downloads.shared.cancel(item) } else { Downloads.shared.dismiss(item) }
     }
-
-    #if DEBUG
-    func hoverForTesting(_ on: Bool) { hovering = on }
-    func pressForTesting() { pressed() }
-    #endif
 
     override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {

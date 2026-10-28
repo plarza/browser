@@ -1,6 +1,7 @@
 import Foundation
 
-/// Browser's own pages: about://history, about://settings and about://help.
+/// Browser's own pages: about://history, about://downloads, about://settings
+/// and about://help.
 /// They are native views the shell shows in the tab; the tab only keeps
 /// their address, for the field and for back and forward.
 public enum InternalPage {

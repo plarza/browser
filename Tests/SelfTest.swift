@@ -50,6 +50,7 @@ enum SelfTest {
                 }
             }
             NSLog("Browser self-test: done, \(passed) passed, \(failed) failed")
+            exit(failed == 0 ? EXIT_SUCCESS : EXIT_FAILURE)
         }
     }
 
@@ -62,7 +63,7 @@ enum SelfTest {
         Downloads.shared.dismissAllForTesting()
         // Nothing the last case started still running into this one.
         await until("icon fetches to finish") { !Favicons.shared.isFetching }
-        if !browser.sidebarShownForTesting { browser.toggleBrowserSidebar(nil) }
+        if !browser.sidebarShown { browser.toggleBrowserSidebar(nil) }
         window.makeFirstResponder(nil)
     }
 
@@ -79,26 +80,26 @@ enum SelfTest {
         return [
             ("address field", {
                 _ = await open(page)
-                let field = browser.addressFieldForTesting
+                let field = browser.address
                 click(field, in: window)
                 let editor = { window.firstResponder as? NSTextView }
                 await expect("click selects the whole address", {
                     editor().map { $0.string == page.absoluteString && $0.selectedRange() == NSRange(location: 0, length: ($0.string as NSString).length) } == true
                 }, "text=\(editor()?.string ?? "nil") selection=\(editor()?.selectedRange() ?? NSRange())")
-                click(browser.selectedWebViewForTesting, in: window)
+                click(browser.selectedView, in: window)
                 await expect("click on the page leaves the field", { !(window.firstResponder is NSTextView) && !field.isEditing })
                 await key("l", in: window)
                 await expect("⌘L selects the whole address", {
                     editor().map { $0.selectedRange().length == ($0.string as NSString).length && $0.string == page.absoluteString } == true
                 })
-                click(browser.selectedWebViewForTesting, in: window)
+                click(browser.selectedView, in: window)
                 await expect("click on the page after ⌘L leaves the field", { !(window.firstResponder is NSTextView) })
             }),
             ("sidebar", {
                 await key("s", in: window)
-                check("⌘S hides the sidebar", !browser.sidebarShownForTesting, "")
+                check("⌘S hides the sidebar", !browser.sidebarShown, "")
                 await key("s", in: window)
-                check("⌘S shows it again", browser.sidebarShownForTesting, "")
+                check("⌘S shows it again", browser.sidebarShown, "")
             }),
             ("site icon", {
                 let tab = await open(page)
@@ -113,8 +114,8 @@ enum SelfTest {
                 await key("h", in: window)
                 let history = HistoryModel.shared
                 await expect("⌘H opens History with entries", {
-                    browser.selectedTab?.url?.absoluteString == "about://history" && browser.pageShownForTesting == "history" && !history.results.isEmpty
-                }, "url=\(browser.selectedTab?.url?.absoluteString ?? "nil") rows=\(history.results.count)")
+                    browser.selected?.url?.absoluteString == "about://history" && browser.shownPage == "history" && !history.results.isEmpty
+                }, "url=\(browser.selected?.url?.absoluteString ?? "nil") rows=\(history.results.count)")
                 history.query = "webkit localhost"
                 check("History search finds the page by title and address", history.results.first?.title == "WebKit Test Page",
                       "first=\(history.results.first?.title ?? "none")")
@@ -163,19 +164,19 @@ enum SelfTest {
             ("whitelist", { await whitelist(browser, one) }),
             ("settings", {
                 await key(",", in: window)
-                check("⌘, opens about://settings", browser.selectedTab?.url?.absoluteString == "about://settings" && browser.pageShownForTesting == "settings",
-                      "page=\(browser.pageShownForTesting ?? "none")")
+                check("⌘, opens about://settings", browser.selected?.url?.absoluteString == "about://settings" && browser.shownPage == "settings",
+                      "page=\(browser.shownPage ?? "none")")
                 func fields(_ v: NSView) -> [NSTextField] { (v as? NSTextField).map { [$0] } ?? [] + v.subviews.flatMap(fields) }
                 var adder: NSTextField?
                 // A row as wide as the form, not a label beside a sliver of field.
                 await expect("Settings' Add domain row is a full-width field", {
-                    adder = fields(browser.pageHostForTesting).first { $0.placeholderString == "Add domain" || $0.placeholderAttributedString?.string == "Add domain" }
+                    adder = fields(browser.pageHost).first { $0.placeholderString == "Add domain" || $0.placeholderAttributedString?.string == "Add domain" }
                     return adder.map { $0.isEditable && $0.frame.width > 200 } == true
                 })
                 if let adder {
                     click(adder, in: window)
                     await expect("clicking Settings' add field types in it", { (window.firstResponder as? NSTextView)?.delegate === adder })
-                    click(browser.pageHostForTesting, in: window, at: NSPoint(x: 6, y: browser.pageHostForTesting.bounds.midY))
+                    click(browser.pageHost, in: window, at: NSPoint(x: 6, y: browser.pageHost.bounds.midY))
                     await expect("clicking off it lets go of it", { !(window.firstResponder is NSTextView) })
                 }
                 SearchEngine.all[0].choose()
@@ -189,25 +190,25 @@ enum SelfTest {
                 await go(tab, two) { tab.load(two) }
                 // The gesture's phases, as the scroll monitor passes them on.
                 await go(tab, one) {
-                    browser.swipeForTesting(.began, dx: 20)
-                    for _ in 0 ..< 8 { browser.swipeForTesting(.changed, dx: 25) }
-                    browser.swipeForTesting(.ended, dx: 0)
+                    browser.follow(.began, dx: 20, dy: 0)
+                    for _ in 0 ..< 8 { browser.follow(.changed, dx: 25, dy: 0) }
+                    browser.follow(.ended, dx: 0, dy: 0)
                 }
                 check("a two-finger swipe right goes back", tab.url == one, "url=\(tab.url?.absoluteString ?? "nil")")
                 // Going forward would swap the web view at once; it stays.
                 let view = tab.webView
-                browser.swipeForTesting(.began, dx: -20)
-                browser.swipeForTesting(.changed, dx: -30)
-                browser.swipeForTesting(.ended, dx: 0)
+                browser.follow(.began, dx: -20, dy: 0)
+                browser.follow(.changed, dx: -30, dy: 0)
+                browser.follow(.ended, dx: 0, dy: 0)
                 check("a short swipe left doesn't go forward", tab.webView === view && tab.url == one, "url=\(tab.url?.absoluteString ?? "nil")")
-                await go(tab, two) { browser.mouseButtonForTesting(4) }
+                await go(tab, two) { browser.mouseButton(4) }
                 check("the mouse's forward button goes forward", tab.url == two, "url=\(tab.url?.absoluteString ?? "nil")")
-                await go(tab, one) { browser.mouseButtonForTesting(3) }
+                await go(tab, one) { browser.mouseButton(3) }
                 check("the mouse's back button goes back", tab.url == one, "url=\(tab.url?.absoluteString ?? "nil")")
             }),
             ("typing in the address field", {
                 _ = await open(page)
-                let field = browser.addressFieldForTesting
+                let field = browser.address
                 field.focus()
                 let editor = window.fieldEditor(true, for: field) as? NSTextView
                 editor?.selectAll(nil)
@@ -239,10 +240,10 @@ enum SelfTest {
                 inspector?.perform(NSSelectorFromString("close"))
             }),
             ("Back to the new tab page", {
-                let tab = browser.selectedTab!
+                let tab = browser.selected!
                 await go(tab, one) { tab.load(one) }
                 tab.goBack()
-                check("Back from a blank tab's first page shows the new tab page", tab.url == nil && browser.newTabPageShownForTesting && tab.canGoForward,
+                check("Back from a blank tab's first page shows the new tab page", tab.url == nil && browser.newTabPageShown && tab.canGoForward,
                       "url=\(tab.url?.absoluteString ?? "nil")")
                 let after = server.url("/page/after")
                 await go(tab, after) { tab.load(server.url("/redirect")) }
@@ -255,27 +256,27 @@ enum SelfTest {
                 }
                 await go(tab, search) { tab.load(search) }
                 tab.goBack()
-                check("Back after a search from a blank tab reaches the new tab page", tab.url == nil && browser.newTabPageShownForTesting,
+                check("Back after a search from a blank tab reaches the new tab page", tab.url == nil && browser.newTabPageShown,
                       "url=\(tab.url?.absoluteString ?? "nil")")
             }),
             ("tab list", {
                 _ = await open(one)
                 _ = await open(two)
-                guard let table = browser.tabTableForTesting else { return check("the tab list is a table", false, "") }
+                guard let table = browser.tabTable else { return check("the tab list is a table", false, "") }
                 await expect("the tab list shows three rows", { table.numberOfRows == 3 })
                 table.layoutSubtreeIfNeeded()
-                let moving = browser.tabs[0], keep = browser.selectedTab
+                let moving = browser.tabs[0], keep = browser.selected
                 drag(table, rows: 2.2, in: window)
-                check("dragging a tab moves it, keeping the selection", browser.tabs[2] === moving && browser.selectedTab === keep,
+                check("dragging a tab moves it, keeping the selection", browser.tabs[2] === moving && browser.selected === keep,
                       "index=\(browser.tabs.firstIndex { $0 === moving } ?? -1)")
                 check("a dragged tab stays visible while it moves", ink(TabTable.lastLift) > 20, "ink=\(ink(TabTable.lastLift))")
                 let up = String(Character(UnicodeScalar(NSUpArrowFunctionKey)!))
                 let down = String(Character(UnicodeScalar(NSDownArrowFunctionKey)!))
                 browser.select(browser.tabs[0])
                 await key(up, in: window, modifiers: [.command, .shift])
-                check("⇧⌘↑ on the first tab goes to the last", browser.selectedTab === browser.tabs.last, "")
+                check("⇧⌘↑ on the first tab goes to the last", browser.selected === browser.tabs.last, "")
                 await key(down, in: window, modifiers: [.command, .shift])
-                check("⇧⌘↓ on the last tab goes to the first", browser.selectedTab === browser.tabs.first, "")
+                check("⇧⌘↓ on the last tab goes to the first", browser.selected === browser.tabs.first, "")
                 Preferences.shared.settings.newTabPosition = .top
                 let atTop = browser.newTab(nil, focus: false)
                 Preferences.shared.settings.newTabPosition = .bottom
@@ -287,18 +288,18 @@ enum SelfTest {
                       browser.tabs.first === atTop && browser.tabs.last === atBottom && browser.tabs[2] === below, "")
             }),
             ("new tab page", {
-                check("a blank tab shows the new tab page", browser.newTabPageShownForTesting, "")
+                check("a blank tab shows the new tab page", browser.newTabPageShown, "")
                 await shot("newtab", browser)
                 Preferences.shared.settings.newTabPage = .blank
                 await shot("frosted", browser)
                 Preferences.shared.settings.newTabPage = .image
-                let tab = browser.selectedTab!
+                let tab = browser.selected!
                 await go(tab, one) { tab.load(one) }
-                check("a page replaces the new tab page", !browser.newTabPageShownForTesting, "")
+                check("a page replaces the new tab page", !browser.newTabPageShown, "")
                 await shot("page", browser)
                 browser.newTab(nil, focus: false)
                 Preferences.shared.settings.fill = true
-                await expect("Fill puts the picture behind a frosted sidebar", { browser.fillsForTesting })
+                await expect("Fill puts the picture behind a frosted sidebar", { browser.fillsWindow })
                 await shot("fill-newtab", browser)
             }),
             ("filter lists", {
@@ -321,24 +322,24 @@ enum SelfTest {
                     return got?.name == "browser-test.txt" && got?.state == .finished && got.map { FileManager.default.fileExists(atPath: $0.file.path) } == true
                 }, "items=\(Downloads.shared.items.map(\.name))")
                 await key("j", in: window)
-                check("⌘J opens about://downloads", browser.pageShownForTesting == "downloads", "page=\(browser.pageShownForTesting ?? "none")")
-                await expect("a done download leaves the sidebar by itself", { browser.downloadRowsForTesting == 0 })
+                check("⌘J opens about://downloads", browser.shownPage == "downloads", "page=\(browser.shownPage ?? "none")")
+                await expect("a done download leaves the sidebar by itself", { browser.downloadRows == 0 })
                 await shot("downloads", browser)
             }),
             ("download rows", {
                 Downloads.shared.addForTesting(name: "Quarterly Report.pdf", received: 2_400_000, expected: 2_400_000, state: .finished)
                 Downloads.shared.addForTesting(name: "ubuntu-26.04-desktop-arm64.iso", received: 1_900_000_000, expected: 6_100_000_000, state: .active)
                 Downloads.shared.addForTesting(name: "photos-export.zip", received: 412_000_000, expected: 580_000_000, state: .active)
-                await expect("the sidebar lists three downloads", { browser.downloadTilesForTesting.count == 3 })
-                let tiles = browser.downloadTilesForTesting
-                tiles.first?.hoverForTesting(true)
+                await expect("the sidebar lists three downloads", { browser.downloadTiles.count == 3 })
+                let tiles = browser.downloadTiles
+                tiles.first?.hovering = true
                 check("a downloading row shows its size, and an x while hovered; a done one a minus",
                       tiles.count == 3 && tiles[0].accessory == "xmark" && tiles[1].accessory == "size" && tiles[2].accessory == "minus",
                       "accessories=\(tiles.map(\.accessory))")
                 await shot("downloads-sidebar", browser)
-                tiles.first?.hoverForTesting(false)
-                tiles.last?.pressForTesting()
-                await expect("the minus takes a done download off the sidebar", { browser.downloadRowsForTesting == 2 })
+                tiles.first?.hovering = false
+                tiles.last?.pressed()
+                await expect("the minus takes a done download off the sidebar", { browser.downloadRows == 2 })
             }),
             ("help", {
                 // ⇧⌘/ is Browser's help page, not macOS's Help menu search:
@@ -346,7 +347,7 @@ enum SelfTest {
                 NSApp.sendEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: ProcessInfo.processInfo.systemUptime,
                                                  windowNumber: window.windowNumber, context: nil, characters: "?", charactersIgnoringModifiers: "/",
                                                  isARepeat: false, keyCode: 44)!)
-                check("⇧⌘/ opens about://help", browser.pageShownForTesting == "help", "page=\(browser.pageShownForTesting ?? "none")")
+                check("⇧⌘/ opens about://help", browser.shownPage == "help", "page=\(browser.shownPage ?? "none")")
                 let shortcuts = (NSApp.mainMenu.map(Menus.shortcuts(in:)) ?? []).map { $0.joined(separator: " ") }.joined(separator: "\n")
                 check("about://help lists the shortcuts", shortcuts.contains("Persist Tab ⌘I") && shortcuts.contains("Web Inspector ⇧⌘I") && !shortcuts.contains("Minimize"),
                       "shortcuts=\(shortcuts.replacingOccurrences(of: "\n", with: " | "))")
@@ -358,7 +359,7 @@ enum SelfTest {
 
     /// The wipe and Persist, with a cookie and localStorage.
     private static func wipeAndPersist(_ browser: BrowserWindowController, _ site: URL) async {
-        let tab = browser.selectedTab!
+        let tab = browser.selected!
         await go(tab, site) { tab.load(site) }
         await plant(tab)
         let planted = await read(tab)
@@ -387,7 +388,7 @@ enum SelfTest {
     /// A whitelisted site keeps one jar for all its tabs, until it comes off the list.
     private static func whitelist(_ browser: BrowserWindowController, _ site: URL) async {
         Preferences.shared.settings.whitelist = ["localhost"]
-        let tab = browser.selectedTab!
+        let tab = browser.selected!
         await go(tab, site) { tab.load(site) }
         await plant(tab)
         await go(tab, site) { tab.reload() }
@@ -603,5 +604,16 @@ enum SelfTest {
         }
     }
 
+}
+
+/// What the checks read off the window, worked out from its parts.
+extension BrowserWindowController {
+    var selectedView: NSView { selected?.webView ?? content }
+    var shownPage: String? { pageHost.isHidden ? nil : hostedPage }
+    var downloadTiles: [DownloadTile] { ((downloads.subviews.first as? NSStackView)?.arrangedSubviews ?? []).compactMap { $0 as? DownloadTile } }
+    var downloadRows: Int { downloads.isHidden ? 0 : downloads.subviews.first?.subviews.count ?? 0 }
+    var fillsWindow: Bool { fills && sidebar.isClear && !backdrop.isHidden && backdrop.frame.minX == 0 && backdrop.frame.width > content.frame.width }
+    var tabTable: NSTableView? { tabList.documentView as? NSTableView }
+    var newTabPageShown: Bool { !backdrop.isHidden && backdrop.alphaValue > 0.5 }
 }
 #endif
