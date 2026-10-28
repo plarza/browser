@@ -137,7 +137,25 @@ public final class Tab: NSObject {
 
     // MARK: Navigating
 
-    public func load(_ url: URL) { navigate(URLRequest(url: url), direction: .new) }
+    public func load(_ url: URL) {
+        pending = nil
+        navigate(URLRequest(url: url), direction: .new)
+    }
+
+    /// A tab restored at launch: its address is known, nothing is loaded
+    /// (no process, no request) until it is first shown.
+    public private(set) var pending: URL?
+
+    public func restore(_ url: URL) {
+        pending = url
+        self.url = url
+        title = url.host ?? ""
+    }
+
+    /// Loads a restored tab's address, if it has one waiting.
+    public func wake() {
+        if let pending { load(pending) }
+    }
 
     public func reload() {
         guard index >= 0 else { return }

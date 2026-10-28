@@ -142,12 +142,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     func restore() {
         let saved = OpenTabs.restore()
-        for url in saved.urls { newTab(url, select: false) }
+        for url in saved.urls { newTab(nil, select: false, focus: false).restore(url) }
         if tabs.isEmpty {
             newTab(nil)
         } else {
             select(tabs[min(max(saved.selected, 0), tabs.count - 1)])
         }
+        saveTabs()
     }
 
     func saveTabs() {
@@ -157,7 +158,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @discardableResult
-    func newTab(_ url: URL?, after: Tab? = nil, select shouldSelect: Bool = true) -> Tab {
+    func newTab(_ url: URL?, after: Tab? = nil, select shouldSelect: Bool = true, focus: Bool = true) -> Tab {
         let tab = Tab(delegate: self)
         let anchor = after ?? selected
         if let anchor, let i = tabs.firstIndex(where: { $0 === anchor }) {
@@ -169,7 +170,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         if let url { tab.load(url) }
         tabList.reload(tabs, selected: shouldSelect ? tab : selected)
         if shouldSelect { select(tab) }
-        if url == nil { focusAddress(nil) }
+        if url == nil, focus { focusAddress(nil) }
         saveTabs()
         return tab
     }
@@ -184,12 +185,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         let previous = selected
         if selected !== tab { selected?.webView.removeFromSuperview() }
         selected = tab
+        tab.wake()
         if previous !== tab { Extensions.shared.didActivate(tab, previous: previous) }
         actionBar.reload()
         show(tab.webView)
         tabList.reload(tabs, selected: tab)
         refreshChrome()
-        if tab.url == nil { focusAddress(nil) } else { focusPage() }
+        if tab.url == nil && tab.pending == nil { focusAddress(nil) } else { focusPage() }
         hideFind()
     }
 
