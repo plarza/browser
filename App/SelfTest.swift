@@ -126,15 +126,15 @@ enum SelfTest {
             field.focus()
             let typing = window.fieldEditor(true, for: field) as? NSTextView
             typing?.selectAll(nil)
-            for ch in "en.wik" { typing?.insertText(String(ch), replacementRange: typing?.selectedRange() ?? NSRange()) }
+            await type("en.wik", in: window)
             let filled = typing?.string ?? ""
             let filledSelection = typing?.selectedRange() ?? NSRange()
             check("typing fills in the rest of a visited site's name", filled == "en.wikipedia.org" && filledSelection == NSRange(location: 6, length: 10),
                   "text=\(filled) selection=\(filledSelection)")
-            typing?.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+            await type("\u{7f}", in: window)
             check("Delete removes what was filled in", typing?.string == "en.wik", "text=\(typing?.string ?? "nil")")
             typing?.selectAll(nil)
-            for ch in "webkit" { typing?.insertText(String(ch), replacementRange: typing?.selectedRange() ?? NSRange()) }
+            await type("webkit", in: window)
             let listed = field.suggestions.visits
             check("history suggestions match by title", field.suggestions.isShown && listed.first?.title.contains("WebKit") == true,
                   "shown=\(field.suggestions.isShown) first=\(listed.first?.title ?? "none")")
@@ -198,7 +198,7 @@ enum SelfTest {
                 let field = browser.addressFieldForTesting
                 field.focus()
                 let editor = window.fieldEditor(true, for: field) as? NSTextView
-                for ch in "wik" { editor?.insertText(String(ch), replacementRange: editor?.selectedRange() ?? NSRange()) }
+                await type("wik", in: window)
                 try? await Task.sleep(for: .milliseconds(500))
                 NSLog("Core self-test: SHOT suggest")
                 try? await Task.sleep(for: .seconds(4))
@@ -303,6 +303,22 @@ enum SelfTest {
     }
 
     /// A trackpad swipe: horizontal scroll events with gesture phases.
+    /// Real key presses, one at a time, through the window as typing is.
+    static func type(_ text: String, in window: NSWindow) async {
+        for ch in text {
+            let c = String(ch)
+            let code: UInt16 = c == "\u{7f}" ? 51 : 0
+            for kind in [NSEvent.EventType.keyDown, .keyUp] {
+                let e = NSEvent.keyEvent(with: kind, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                         windowNumber: window.windowNumber, context: nil, characters: c, charactersIgnoringModifiers: c,
+                                         isARepeat: false, keyCode: code)!
+                window.sendEvent(e)
+            }
+            try? await Task.sleep(for: .milliseconds(60))
+        }
+        try? await Task.sleep(for: .milliseconds(200))
+    }
+
     static func key(_ character: String, in window: NSWindow, modifiers: NSEvent.ModifierFlags = .command) {
         let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
                                     windowNumber: window.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character,

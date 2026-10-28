@@ -50,6 +50,7 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
     override func becomeFirstResponder() -> Bool {
         beginEditing()
         guard super.becomeFirstResponder() else { return false }
+        quietEditor()
         selectEverything()
         return true
     }
@@ -59,6 +60,15 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
         beginEditing()
         if currentEditor() == nil { window?.makeFirstResponder(self) }
         selectEverything()
+    }
+
+    /// The system's own grey word predictions would fight the fill-in.
+    private func quietEditor() {
+        guard let editor = currentEditor() as? NSTextView else { return }
+        editor.inlinePredictionType = .no
+        editor.isAutomaticTextCompletionEnabled = false
+        editor.isAutomaticSpellingCorrectionEnabled = false
+        editor.isAutomaticTextReplacementEnabled = false
     }
 
     func selectEverything() {
@@ -102,14 +112,22 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         guard let editor = currentEditor() as? NSTextView else { return }
         let typed = editor.string
-        let atEnd = editor.selectedRange().location == (typed as NSString).length
-        if !deleting, atEnd, let fill = History.shared.autofill(typed), fill.lowercased().hasPrefix(typed.lowercased()) {
-            let rest = String(fill.dropFirst(typed.count))
-            editor.string = typed + rest
-            editor.setSelectedRange(NSRange(location: (typed as NSString).length, length: (rest as NSString).length))
-        }
+        let wasDeleting = deleting
         deleting = false
         suggestions.show(History.shared.suggest(typed))
+        // After AppKit has finished with the keystroke: done here, the text
+        // system puts the caret back after the typed character, and the
+        // filled-in part ends up unselected.
+        DispatchQueue.main.async { [weak self, weak editor] in
+            guard let self, let editor, self.currentEditor() === editor, editor.string == typed, !wasDeleting,
+                  editor.selectedRange() == NSRange(location: (typed as NSString).length, length: 0),
+                  let fill = History.shared.autofill(typed), fill.lowercased().hasPrefix(typed.lowercased())
+            else { return }
+            let rest = String(fill.dropFirst(typed.count))
+            let start = (typed as NSString).length
+            editor.textStorage?.replaceCharacters(in: NSRange(location: start, length: 0), with: rest)
+            editor.setSelectedRange(NSRange(location: start, length: (rest as NSString).length))
+        }
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {

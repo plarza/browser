@@ -25,7 +25,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Framewor
 cp "$BIN" "$APP/Contents/MacOS/CoreApp"
 clang -O2 -mmacosx-version-min=26.0 -o "$APP/Contents/MacOS/Core" engine/launcher.c
 sed -e "s/VERSION/$VERSION/" -e "s/BUILD/$BUILD/" release/Info.plist > "$APP/Contents/Info.plist"
-[ -f release/AppIcon.icns ] && cp release/AppIcon.icns "$APP/Contents/Resources/"
+# The icon: release/Core.icon (Icon Composer's format, a plain glyph on a
+# fill), which actool renders into the Liquid Glass icon and an .icns.
+xcrun actool release/Core.icon --compile "$APP/Contents/Resources" --app-icon Core --platform macosx \
+  --minimum-deployment-target 26.0 --output-partial-info-plist "$APP/Contents/icon.plist" >/dev/null
+rm "$APP/Contents/icon.plist"
 
 IDENTITY="-"
 RUNTIME=()

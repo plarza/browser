@@ -1,7 +1,7 @@
 import AppKit
 import CoreKit
 
-/// The tabs, down the left. No pinned tabs; a Persist tab glows blue.
+/// The tabs, down the left. No pinned tabs; a Persist tab is sky blue.
 @MainActor
 final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegate {
     var onSelect: (Tab) -> Void = { _ in }
@@ -196,21 +196,40 @@ final class TabCell: NSTableCellView {
 
     override var wantsUpdateLayer: Bool { true }
 
+    /// A Persist tab is sky blue, lightening towards the bottom, and deeper
+    /// when selected.
+    private let sky = CAGradientLayer()
+
     override func updateLayer() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            let glow = NSColor.systemBlue
-            let fill: NSColor = isPersist
-                ? glow.withAlphaComponent(isSelected ? 0.16 : hovering ? 0.11 : 0.08)
+            let fill: NSColor = isPersist ? .clear
                 : isSelected ? NSColor.labelColor.withAlphaComponent(0.07)
                 : hovering ? NSColor.labelColor.withAlphaComponent(0.035) : NSColor.labelColor.withAlphaComponent(0)
             Motion.set(layer, "backgroundColor", fill.cgColor)
-            layer?.shadowColor = glow.cgColor
-            layer?.shadowRadius = 8
-            layer?.shadowOffset = .zero
-            Motion.set(layer, "shadowOpacity", Float(isPersist ? 0.55 : 0), duration: 0.3)
-            Motion.set(layer, "borderColor", glow.withAlphaComponent(isPersist ? 0.35 : 0).cgColor, duration: 0.3)
-            layer?.borderWidth = 0.5
+            if sky.superlayer == nil {
+                sky.startPoint = CGPoint(x: 0.5, y: 1)
+                sky.endPoint = CGPoint(x: 0.5, y: 0)
+                sky.cornerRadius = 10
+                sky.cornerCurve = .continuous
+                layer?.insertSublayer(sky, at: 0)
+            }
+            let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let colors: [NSColor] = dark
+                ? (isSelected ? [NSColor(red: 0.16, green: 0.30, blue: 0.50, alpha: 1), NSColor(red: 0.12, green: 0.25, blue: 0.44, alpha: 1)]
+                              : [NSColor(red: 0.12, green: 0.22, blue: 0.36, alpha: 1), NSColor(red: 0.10, green: 0.19, blue: 0.32, alpha: 1)])
+                : (isSelected ? [NSColor(red: 0.83, green: 0.91, blue: 1, alpha: 1), NSColor(red: 0.89, green: 0.94, blue: 1, alpha: 1)]
+                              : [NSColor(red: 0.89, green: 0.945, blue: 1, alpha: 1), NSColor(red: 0.933, green: 0.965, blue: 1, alpha: 1)])
+            Motion.set(sky, "colors", colors.map(\.cgColor), duration: 0.25)
+            Motion.set(sky, "opacity", Float(isPersist ? 1 : 0), duration: 0.25)
         }
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        sky.frame = bounds
+        CATransaction.commit()
     }
 
     override func updateTrackingAreas() {
