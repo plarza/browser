@@ -2,18 +2,15 @@ import AppKit
 import CoreKit
 
 /// The one field, as a capsule: a lock or a magnifying glass, the address
-/// (just the host while you're not editing, as Safari shows it), and reload.
+/// (just the host while you're not editing, as Safari shows it).
 @MainActor
 final class AddressField: NSView, NSTextFieldDelegate {
     var onSubmit: (String) -> Void = { _ in }
     var onEscape: () -> Void = {}
-    var onReload: () -> Void = {}
     private(set) var isEditing = false
-    var loading = false { didSet { if loading != oldValue { updateReload() } } }
 
     private let field = SelectingField()
     private let icon = NSImageView()
-    private let reload = NSButton()
     private var url: URL?
     private var completing = false
     private var flashing: DispatchWorkItem?
@@ -39,14 +36,8 @@ final class AddressField: NSView, NSTextFieldDelegate {
         icon.contentTintColor = .secondaryLabelColor
         icon.symbolConfiguration = .init(pointSize: 11, weight: .semibold)
 
-        reload.isBordered = false
-        reload.bezelStyle = .accessoryBarAction
-        reload.contentTintColor = .secondaryLabelColor
-        reload.target = self
-        reload.action = #selector(reloadClicked)
-        updateReload()
 
-        for v in [icon, field, reload] as [NSView] {
+        for v in [icon, field] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             addSubview(v)
         }
@@ -56,10 +47,9 @@ final class AddressField: NSView, NSTextFieldDelegate {
             icon.widthAnchor.constraint(equalToConstant: 14),
             field.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
-            field.trailingAnchor.constraint(equalTo: reload.leadingAnchor, constant: -4),
-            reload.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            reload.centerYAnchor.constraint(equalTo: centerYAnchor),
-            reload.widthAnchor.constraint(equalToConstant: 20),
+            // As far from the right edge as the icon is from the left, so a
+            // centred host sits in the middle of the capsule.
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -32),
         ])
         show(nil)
     }
@@ -98,7 +88,6 @@ final class AddressField: NSView, NSTextFieldDelegate {
         let symbol = url == nil ? "magnifyingglass" : own ? "clock" : secure ? "lock.fill" : "exclamationmark.triangle.fill"
         icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         icon.contentTintColor = url != nil && !secure && !own ? .systemOrange : .secondaryLabelColor
-        reload.isHidden = url == nil
     }
 
     static func display(_ url: URL) -> String {
@@ -126,12 +115,6 @@ final class AddressField: NSView, NSTextFieldDelegate {
         show(url)
     }
 
-    private func updateReload() {
-        reload.image = NSImage(systemSymbolName: loading ? "xmark" : "arrow.clockwise", accessibilityDescription: loading ? "Stop" : "Reload")?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
-    }
-
-    @objc private func reloadClicked() { onReload() }
 
     func controlTextDidChange(_ obj: Notification) {
         guard !completing, let editor = field.currentEditor() as? NSTextView else { return }

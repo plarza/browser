@@ -81,6 +81,14 @@ enum SelfTest {
 
             await storage(browser)
 
+            // ⌘, opens Settings with its four sections drawn.
+            key(",", in: window)
+            try? await Task.sleep(for: .seconds(2))
+            let settings = NSApp.windows.first { $0.title == "Settings" && $0.isVisible }
+            let content = settings?.contentView
+            check("⌘, opens Settings with something in it", settings != nil && (content?.frame.height ?? 0) > 300 && !(content?.subviews.isEmpty ?? true),
+                  "window=\(settings?.frame ?? .zero) content=\(content?.frame ?? .zero)")
+
             NSLog("Core self-test: done")
         }
     }

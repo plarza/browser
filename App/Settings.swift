@@ -13,7 +13,13 @@ final class SettingsWindowController: NSWindowController {
             backing: .buffered, defer: false
         )
         window.title = "Settings"
-        window.contentViewController = NSHostingController(rootView: SettingsView())
+        // The window keeps its own size: a grouped Form has no ideal size,
+        // and letting SwiftUI size the window collapses it to nothing.
+        let hosting = NSHostingController(rootView: SettingsView())
+        hosting.sizingOptions = []
+        window.contentViewController = hosting
+        window.setContentSize(NSSize(width: 560, height: 640))
+        window.contentMinSize = NSSize(width: 460, height: 400)
         window.center()
         window.isRestorable = false
         super.init(window: window)

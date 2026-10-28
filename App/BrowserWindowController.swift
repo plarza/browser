@@ -86,10 +86,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
         address.onSubmit = { [weak self] text in self?.go(text) }
         address.onEscape = { [weak self] in self?.focusPage() }
-        address.onReload = { [weak self] in
-            guard let tab = self?.selected else { return }
-            if tab.isLoading { tab.stop() } else { tab.reload() }
-        }
 
         tabList.onSelect = { [weak self] tab in self?.select(tab) }
         tabList.onClose = { [weak self] tab in self?.close(tab) }
@@ -286,7 +282,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private func refreshChrome() {
         guard let tab = selected else { return }
         if !address.isEditing { address.show(tab.url) }
-        address.loading = tab.isLoading
         progress.set(tab.isLoading ? tab.progress : 1)
         window?.title = tab.title.isEmpty ? "Core" : tab.title
     }
