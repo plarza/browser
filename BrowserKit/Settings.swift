@@ -27,10 +27,10 @@ public struct Settings: Codable, Equatable {
     /// a frosted sidebar.
     public var fill: Bool = false
     /// How blurred and how see-through the sidebar is over a filled window,
-    /// in steps of `fillSteps`.
-    public var fillBlur: Int = 6
-    public var fillTransparency: Int = 4
-    public static let fillSteps = 10
+    /// anywhere from 0 to `fillMax`.
+    public var fillBlur: Double = 6
+    public var fillTransparency: Double = 4
+    public static let fillMax = 10.0
 
     public enum NewTabPage: String, Codable, CaseIterable {
         case image, color, blank

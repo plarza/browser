@@ -264,9 +264,9 @@ struct SettingsPage: View {
                 Toggle("Fill Behind Sidebar", isOn: $prefs.settings.fill)
                 if prefs.settings.fill {
                     if prefs.settings.newTabPage == .image {
-                        LabeledContent("Blur") { Notched(value: $prefs.settings.fillBlur) }
+                        LabeledContent("Blur") { SmoothSlider(value: $prefs.settings.fillBlur) }
                     }
-                    LabeledContent("Transparency") { Notched(value: $prefs.settings.fillTransparency) }
+                    LabeledContent("Transparency") { SmoothSlider(value: $prefs.settings.fillTransparency) }
                 }
             }
 
@@ -488,15 +488,15 @@ struct Segmented<Value: Hashable>: View {
     }
 }
 
-/// A slider that stops on Settings' steps, with a notch at each.
-struct Notched: NSViewRepresentable {
-    @Binding var value: Int
+/// A slider from 0 to `Settings.fillMax` that applies as it moves, not
+/// only where it's let go.
+struct SmoothSlider: NSViewRepresentable {
+    @Binding var value: Double
 
     func makeNSView(context: Context) -> NSSlider {
-        let slider = NSSlider(value: Double(value), minValue: 0, maxValue: Double(Settings.fillSteps),
+        let slider = NSSlider(value: value, minValue: 0, maxValue: Settings.fillMax,
                               target: context.coordinator, action: #selector(Coordinator.changed(_:)))
-        slider.numberOfTickMarks = Settings.fillSteps + 1
-        slider.allowsTickMarkValuesOnly = true
+        slider.isContinuous = true
         slider.controlSize = .regular
         slider.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         return slider
@@ -504,16 +504,16 @@ struct Notched: NSViewRepresentable {
 
     func updateNSView(_ slider: NSSlider, context: Context) {
         context.coordinator.parent = self
-        if slider.integerValue != value { slider.integerValue = value }
+        if slider.doubleValue != value { slider.doubleValue = value }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
     @MainActor
     final class Coordinator: NSObject {
-        var parent: Notched
-        init(parent: Notched) { self.parent = parent }
-        @objc func changed(_ slider: NSSlider) { parent.value = slider.integerValue }
+        var parent: SmoothSlider
+        init(parent: SmoothSlider) { self.parent = parent }
+        @objc func changed(_ slider: NSSlider) { parent.value = slider.doubleValue }
     }
 }
 

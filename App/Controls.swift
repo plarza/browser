@@ -353,7 +353,8 @@ extension CATransaction {
 /// What a blank tab shows behind nothing: the chosen picture filling the
 /// page, a colour, or the desktop, frosted through the window. With Fill on
 /// it spans the window, and the sidebar's part of it is glass: the picture
-/// blurred and tinted white, by Settings' amounts.
+/// blurred and tinted with the sidebar's own colour (white, or black in dark
+/// mode), by Settings' amounts.
 @MainActor
 final class NewTabBackdrop: NSView {
     private let picture = CALayer()
@@ -363,8 +364,14 @@ final class NewTabBackdrop: NSView {
     private let tint = CALayer()
     private var shownImage: URL?
     private var shownVersion = -1
-    private var blurKey = ""
     private var settings = Settings()
+    /// The blur last asked for, and whether one is being made. One at a time,
+    /// always of the latest ask, so dragging the slider never queues work.
+    private var wantedBlur: (image: URL, version: Int, radius: Double)?
+    private var shownBlur: (image: URL, version: Int, radius: Double)?
+    private var blurring = false
+    /// The picture decoded at blur size, kept while it stays the same.
+    private var source: (image: URL, version: Int, cg: CGImage)?
 
     /// How much of the left edge is under the sidebar; 0 without Fill.
     var glassWidth: CGFloat = 0 { didSet { if glassWidth != oldValue { needsLayout = true } } }
@@ -401,31 +408,65 @@ final class NewTabBackdrop: NSView {
             shownVersion = imageVersion
             picture.contents = image.flatMap(NSImage.init(contentsOf:))
         }
-        // White over the glass: none at full transparency, nearly opaque at none.
-        tint.backgroundColor = NSColor.white.withAlphaComponent(0.92 * (1 - CGFloat(settings.fillTransparency) / CGFloat(Settings.fillSteps))).cgColor
+        updateTint()
         blurred.isHidden = settings.newTabPage != .image
-        let key = "\(image?.path ?? "") \(imageVersion) \(settings.fillBlur)"
-        if settings.newTabPage == .image, settings.fill, key != blurKey, let image {
-            blurKey = key
-            let radius = Double(settings.fillBlur) * 5
-            Task.detached(priority: .userInitiated) {
-                let cg = NewTabBackdrop.blur(image, radius: radius)
-                await MainActor.run { if self.blurKey == key { self.blurred.contents = cg } }
-            }
+        if settings.newTabPage == .image, settings.fill, let image {
+            // Up to 50 points of blur at the far end.
+            wantedBlur = (image, imageVersion, settings.fillBlur * 50 / Settings.fillMax)
+            blurNext()
         }
         needsLayout = true
     }
 
-    /// The picture at 1600 points wide, blurred with its edges held.
-    nonisolated static func blur(_ url: URL, radius: Double) -> CGImage? {
-        guard var image = CIImage(contentsOf: url) else { return nil }
-        let scale = min(1, 1600 / image.extent.width)
-        image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        let extent = image.extent
-        if radius > 0 {
-            image = image.clampedToExtent().applyingGaussianBlur(sigma: radius).cropped(to: extent)
+    private func blurNext() {
+        guard !blurring, let wanted = wantedBlur else { return }
+        wantedBlur = nil
+        if let shown = shownBlur, shown == wanted { return }
+        blurring = true
+        let decoded = source.flatMap { $0.image == wanted.image && $0.version == wanted.version ? $0.cg : nil }
+        Task.detached(priority: .userInitiated) {
+            let picture = decoded ?? NewTabBackdrop.decode(wanted.image)
+            let cg = picture.flatMap { NewTabBackdrop.blur($0, radius: wanted.radius) }
+            await MainActor.run {
+                if let picture { self.source = (wanted.image, wanted.version, picture) }
+                self.blurred.contents = cg
+                self.shownBlur = wanted
+                self.blurring = false
+                self.blurNext()
+            }
         }
-        return CIContext().createCGImage(image, from: extent)
+    }
+
+    /// The sidebar's colour over the glass: none at full transparency,
+    /// nearly opaque at none.
+    private func updateTint() {
+        let alpha = 0.92 * (1 - settings.fillTransparency / Settings.fillMax)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            tint.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(alpha).cgColor
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateTint()
+    }
+
+    nonisolated private static let context = CIContext()
+
+    /// The picture at 1600 points wide at most.
+    nonisolated static func decode(_ url: URL) -> CGImage? {
+        guard let image = CIImage(contentsOf: url) else { return nil }
+        let scale = min(1, 1600 / image.extent.width)
+        let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        return context.createCGImage(scaled, from: scaled.extent)
+    }
+
+    /// Blurred with its edges held.
+    nonisolated static func blur(_ picture: CGImage, radius: Double) -> CGImage? {
+        let image = CIImage(cgImage: picture)
+        guard radius > 0 else { return picture }
+        let blurred = image.clampedToExtent().applyingGaussianBlur(sigma: radius).cropped(to: image.extent)
+        return context.createCGImage(blurred, from: image.extent)
     }
 
     override func layout() {
