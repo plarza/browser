@@ -98,6 +98,33 @@ index 751267b4b0..ecbb836b9f 100644
  
  #if PLATFORM(IOS_FAMILY)
      String m_sceneIdentifier;
+diff --git a/Source/WebCore/platform/mac/ScrollingEffectsController.mm b/Source/WebCore/platform/mac/ScrollingEffectsController.mm
+index 945209a430..1a686e3576 100644
+--- a/Source/WebCore/platform/mac/ScrollingEffectsController.mm
++++ b/Source/WebCore/platform/mac/ScrollingEffectsController.mm
+@@ -292,8 +292,20 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+             }
+         } else {
+             delta.scale(scrollWheelMultiplier());
+-            m_client.immediateScrollBy(delta);
+-            if (wheelEvent.phase() == PlatformWheelEventPhase::None && wheelEvent.momentumPhase() == PlatformWheelEventPhase::None)
++            bool notch = wheelEvent.phase() == PlatformWheelEventPhase::None && wheelEvent.momentumPhase() == PlatformWheelEventPhase::None;
++            if (notch && !wheelEvent.hasPreciseScrollingDeltas()) {
++                // Core: a mouse wheel's notches glide to where they're going,
++                // and a notch that arrives on the way extends the glide. A
++                // trackpad's scrolls are already smooth and stay immediate.
++                if (!retargetAnimatedScrollBy(delta)) {
++                    auto offset = m_client.scrollOffset();
++                    auto extents = m_client.scrollExtents();
++                    auto destination = (offset + delta).constrainedBetween(extents.minimumScrollOffset(), extents.maximumScrollOffset());
++                    startAnimatedScrollToDestination(offset, destination);
++                }
++            } else
++                m_client.immediateScrollBy(delta);
++            if (notch)
+                 scheduleScrollendTimer();
+         }
+     }
 diff --git a/Source/WebCore/platform/network/AdvancedPrivacyProtections.h b/Source/WebCore/platform/network/AdvancedPrivacyProtections.h
 index d1c33ac6e3..eb1b6e70b5 100644
 --- a/Source/WebCore/platform/network/AdvancedPrivacyProtections.h

@@ -2,11 +2,11 @@
 
 # Core
 
-A private macOS browser on its own build of WebKit. None of what follows can be turned off.
+A private macOS browser on its own build of WebKit.
 
 ## Engine patches
 
-Applied to upstream WebKit (`engine/patches/`), so they hold for every page, frame and worker regardless of what the app asks for.
+Applied to upstream WebKit (`engine/patches/`).
 
 - Safari's Private Browsing fingerprinting protections are forced on: canvas and audio readouts get noise, `screen` reports the window's size, and link-decoration parameters are stripped.
 - `navigator.hardwareConcurrency` is always 8.
@@ -15,7 +15,7 @@ Applied to upstream WebKit (`engine/patches/`), so they hold for every page, fra
 - Every web process runs in UTC.
 - Every WebKit process reports en-US, so `navigator.language`, `Accept-Language` and `Intl` agree.
 - WebRTC gathers relay candidates only, so neither your LAN address nor your public IP reaches a page or a peer.
-- Smooth scrolling is always on.
+- Mouse-wheel scrolling glides: each notch animates to where it's going (WebKit on macOS applies notches instantly), and keyboard scrolling is animated too.
 
 ## Browser
 

@@ -425,7 +425,7 @@ final class SidebarShadow: NSView {
         wantsLayer = true
         gradient.startPoint = CGPoint(x: 0, y: 0.5)
         gradient.endPoint = CGPoint(x: 1, y: 0.5)
-        gradient.colors = [0.05, 0.02, 0].map { NSColor.black.withAlphaComponent($0).cgColor }
+        gradient.colors = [0.035, 0.014, 0].map { NSColor.black.withAlphaComponent($0).cgColor }
         gradient.locations = [0, 0.35, 1]
         layer?.addSublayer(gradient)
     }
@@ -529,68 +529,85 @@ final class ProgressLine: NSView {
     }
 }
 
-/// ⌘F: a small field over the top right of the page.
+/// ⌘F, as in Chrome: a field, "3/12", previous and next, close. Every
+/// match on the page is highlighted by WebKit's find engine.
 @MainActor
 final class FindBar: NSGlassEffectView, NSSearchFieldDelegate {
     var onSearch: (String, Bool) -> Void = { _, _ in }
     var onClose: () -> Void = {}
     private let field = NSSearchField()
+    private let count = NSTextField(labelWithString: "")
+    private let previous = FindBar.button("chevron.up", "Previous Match")
+    private let next = FindBar.button("chevron.down", "Next Match")
+    private let close = FindBar.button("xmark", "Close")
     var text: String { field.stringValue }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        cornerRadius = 18
+        cornerRadius = 20
         let body = NSView()
         contentView = body
         field.placeholderString = "Find on page"
         field.sendsSearchStringImmediately = true
+        field.controlSize = .large
         field.delegate = self
         field.target = self
         field.action = #selector(changed)
-        field.translatesAutoresizingMaskIntoConstraints = false
-        body.addSubview(field)
+        (field.cell as? NSSearchFieldCell)?.cancelButtonCell = nil
+        count.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        count.textColor = .secondaryLabelColor
+        count.alignment = .right
+        previous.target = self; previous.action = #selector(goPrevious)
+        next.target = self; next.action = #selector(goNext)
+        close.target = self; close.action = #selector(closeClicked)
+        let row = NSStackView(views: [field, count, previous, next, close])
+        row.spacing = 4
+        row.setCustomSpacing(8, after: count)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        body.addSubview(row)
         NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: body.leadingAnchor, constant: 10),
-            field.trailingAnchor.constraint(equalTo: body.trailingAnchor, constant: -10),
-            field.topAnchor.constraint(equalTo: body.topAnchor, constant: 7),
-            field.bottomAnchor.constraint(equalTo: body.bottomAnchor, constant: -7),
-            field.widthAnchor.constraint(equalToConstant: 240),
+            row.leadingAnchor.constraint(equalTo: body.leadingAnchor, constant: 8),
+            row.trailingAnchor.constraint(equalTo: body.trailingAnchor, constant: -8),
+            row.topAnchor.constraint(equalTo: body.topAnchor, constant: 6),
+            row.bottomAnchor.constraint(equalTo: body.bottomAnchor, constant: -6),
+            field.widthAnchor.constraint(equalToConstant: 220),
+            count.widthAnchor.constraint(greaterThanOrEqualToConstant: 44),
         ])
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    static func button(_ symbol: String, _ label: String) -> NSButton {
+        let b = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)!, target: nil, action: nil)
+        b.isBordered = false
+        b.bezelStyle = .accessoryBarAction
+        b.contentTintColor = .secondaryLabelColor
+        b.toolTip = label
+        b.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        return b
+    }
 
     func focus() {
         window?.makeFirstResponder(field)
         field.currentEditor()?.selectAll(nil)
     }
 
-    /// Fades in and out.
-    func present() {
-        guard isHidden else { return }
-        isHidden = false
-        alphaValue = 0
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            animator().alphaValue = 1
-        }
-    }
+    func present() { isHidden = false }
+    func dismiss() { isHidden = true }
 
-    func dismiss() {
-        guard !isHidden else { return }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
-            animator().alphaValue = 0
-        } completionHandler: { [weak self] in
-            self?.isHidden = true
-        }
-    }
-
-    func matched(_ found: Bool) {
-        field.textColor = found || field.stringValue.isEmpty ? .labelColor : .systemRed
+    /// "3/12", or "0/0" in red when nothing matches.
+    func show(matches: Int, current: Int?) {
+        guard !field.stringValue.isEmpty else { count.stringValue = ""; return }
+        count.stringValue = matches == 0 ? "0/0" : "\((current ?? 0) + 1)/\(matches)"
+        count.textColor = matches == 0 ? .systemRed : .secondaryLabelColor
+        previous.isEnabled = matches > 0
+        next.isEnabled = matches > 0
     }
 
     @objc private func changed() { onSearch(field.stringValue, false) }
+    @objc private func goPrevious() { onSearch(field.stringValue, true) }
+    @objc private func goNext() { onSearch(field.stringValue, false) }
+    @objc private func closeClicked() { onClose() }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {

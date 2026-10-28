@@ -63,11 +63,11 @@ enum SelfTest {
             }
             check("the tab shows the site's icon", browser.selectedTab.flatMap { Favicons.shared.icon(for: $0.url) } != nil, "")
 
-            // ⌘Y: History in a new tab, native, searchable.
-            key("y", in: window)
+            // ⌘H: History in a new tab, native, searchable.
+            key("h", in: window)
             try? await Task.sleep(for: .seconds(1))
             let history = HistoryModel.shared
-            check("⌘Y opens History with entries", browser.selectedTab?.url?.absoluteString == "about://history"
+            check("⌘H opens History with entries", browser.selectedTab?.url?.absoluteString == "about://history"
                   && browser.pageShownForTesting == "history" && !history.results.isEmpty,
                   "url=\(browser.selectedTab?.url?.absoluteString ?? "nil") page=\(browser.pageShownForTesting ?? "none") rows=\(history.results.count)")
             history.query = "webkit wikipedia"
@@ -149,8 +149,63 @@ enum SelfTest {
                 try? await Task.sleep(for: .milliseconds(25))
             }
             let steps = Set(positions.filter { $0 > 0 && $0 < (positions.last ?? 0) }).count
-            check("scrolling is smooth", steps >= 3, "positions=\(positions.map { Int($0) })")
+            check("keyboard scrolling is smooth", steps >= 3, "positions=\(positions.map { Int($0) })")
+
+            // A mouse wheel's notch (line deltas, not a trackpad's) glides too.
+            _ = try? await long.webView.evaluateJavaScript("scrollTo(0, 0)", in: nil, contentWorld: .defaultClient)
+            try? await Task.sleep(for: .milliseconds(500))
+            if let cg = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: -5, wheel2: 0, wheel3: 0),
+               let wheel = NSEvent(cgEvent: cg) {
+                long.webView.scrollWheel(with: wheel)
+            }
+            var wheelPositions: [Double] = []
+            for _ in 0 ..< 15 {
+                if let y = try? await long.webView.evaluateJavaScript("scrollY", in: nil, contentWorld: .defaultClient) as? Double { wheelPositions.append(y) }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            let wheelSteps = Set(wheelPositions.filter { $0 > 0 && $0 < (wheelPositions.last ?? 0) }).count
+            check("mouse-wheel scrolling is smooth", wheelSteps >= 3, "positions=\(wheelPositions.map { Int($0) })")
+
+            // Find on page counts every match and steps through them.
+            var found: (Int, Int?) = (0, nil)
+            long.onFind = { found = ($0, $1) }
+            long.find("WebKit")
+            try? await Task.sleep(for: .seconds(1))
+            let firstFind = found
+            long.find("WebKit")
+            try? await Task.sleep(for: .milliseconds(500))
+            check("find on page counts matches and moves to the next", firstFind.0 > 5 && firstFind.1 == 0 && found.1 == 1,
+                  "first=\(firstFind) then=\(found)")
+            long.hideFind()
+
+            // ⇧⌘I opens Web Inspector for the page.
+            browser.select(long)
+            browser.showInspector(nil)
+            try? await Task.sleep(for: .seconds(2))
+            let inspector = long.webView.value(forKey: "_inspector") as? NSObject
+            check("⇧⌘I opens Web Inspector", (inspector?.value(forKey: "isVisible") as? Bool) == true, "")
+            inspector?.perform(NSSelectorFromString("close"))
             browser.close(long)
+
+            // A blank tab's search, then Back, is the new tab page again.
+            let searched = browser.newTab(nil, focus: false)
+            searched.load(URL(string: "https://example.com/")!)
+            try? await Task.sleep(for: .seconds(2))
+            searched.goBack()
+            try? await Task.sleep(for: .milliseconds(500))
+            check("Back from a blank tab's first page shows the new tab page", searched.url == nil && browser.newTabPageShownForTesting && searched.canGoForward,
+                  "url=\(searched.url?.absoluteString ?? "nil") shown=\(browser.newTabPageShownForTesting)")
+            browser.close(searched)
+
+            // The Chrome Web Store offers "Add to Core".
+            let store = browser.newTab(URL(string: "https://chromewebstore.google.com/detail/ghmbeldphafepmbegfdlkpapadhbakde")!)
+            var label = ""
+            for _ in 0 ..< 20 where !label.contains("Core") {
+                try? await Task.sleep(for: .milliseconds(500))
+                label = (try? await store.webView.evaluateJavaScript("(document.querySelector('button[data-core=\"add\"]') || {}).textContent || ''", in: nil, contentWorld: .defaultClient) as? String) ?? ""
+            }
+            check("the Chrome Web Store's button says Add to Core", label.contains("Add to Core"), "label=\(label)")
+            browser.close(store)
 
             // ⇧⌘↑ from the first tab goes round to the last; ⇧⌘↓ back to the first.
             let up = String(Character(UnicodeScalar(NSUpArrowFunctionKey)!))
@@ -226,8 +281,8 @@ enum SelfTest {
             browser.showHelp(nil)
             try? await Task.sleep(for: .seconds(2))
             let shortcuts = (NSApp.mainMenu.map(Menus.shortcuts(in:)) ?? []).map { $0.joined(separator: " ") }.joined(separator: "\n")
-            check("about://help lists the shortcuts", browser.pageShownForTesting == "help" && shortcuts.contains("Persist Tab ⌘I") && shortcuts.contains("Two-finger swipe"),
-                  "page=\(browser.pageShownForTesting ?? "none")")
+            check("about://help lists the shortcuts", browser.pageShownForTesting == "help" && shortcuts.contains("Persist Tab ⌘I") && shortcuts.contains("Web Inspector ⇧⌘I") && !shortcuts.contains("Minimize"),
+                  "page=\(browser.pageShownForTesting ?? "none") shortcuts=\(shortcuts.replacingOccurrences(of: "\n", with: " | "))")
             await shot("help", browser)
 
             browser.showSettings(nil)

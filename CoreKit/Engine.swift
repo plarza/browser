@@ -30,6 +30,7 @@ public enum Engine {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = identity.store
         config.userContentController = content
+        StoreRelay.install(in: content)
         config.webExtensionController = Extensions.shared.controller
         config.applicationNameForUserAgent = applicationName
         config.limitsNavigationsToAppBoundDomains = false
@@ -43,6 +44,12 @@ public enum Engine {
         config.allowsAirPlayForMediaPlayback = false
         config.defaultWebpagePreferences.preferredContentMode = .desktop
         config.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Web Inspector (⇧⌘I) for the person at the keyboard; nothing a page can see.
+        let extras = NSSelectorFromString("_setDeveloperExtrasEnabled:")
+        if config.preferences.responds(to: extras) {
+            typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
+            unsafeBitCast(config.preferences.method(for: extras), to: Setter.self)(config.preferences, extras, true)
+        }
         harden(config.defaultWebpagePreferences, seed: identity.seed)
         return config
     }

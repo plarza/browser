@@ -42,6 +42,9 @@ public final class Tab: NSObject {
     }
 
     public private(set) var title = ""
+    /// Find on page's results: how many matches, and which is current.
+    public var onFind: ((Int, Int?) -> Void)?
+    let finder = FindReporter()
     public private(set) var url: URL?
     public private(set) var isLoading = false
     public private(set) var progress = 0.0
@@ -200,6 +203,18 @@ public final class Tab: NSObject {
         return own
     }
 
+    /// The new tab page, as an entry in the tab's own back and forward list:
+    /// a tab that began blank goes back to it.
+    static let blank = URL(string: "about:newtab")!
+
+    private func showBlank(direction: Direction) {
+        replaceWebView(with: .fresh())
+        pendingDirection = direction
+        recordEntry(Tab.blank)
+        update(.URL) { $0.url = nil }
+        update(.title) { $0.title = "" }
+    }
+
     /// One of Core's own pages, shown by the shell in place of the web view.
     public private(set) var internalPage: String?
 
@@ -216,6 +231,15 @@ public final class Tab: NSObject {
 
     private func navigate(_ request: URLRequest, direction: Direction) {
         guard var url = request.url else { return }
+        if url == Tab.blank {
+            showBlank(direction: direction)
+            return
+        }
+        // Leaving a blank tab: it stays behind as the first entry.
+        if direction == .new, entries.isEmpty, self.url == nil, pending == nil {
+            entries = [Tab.blank]
+            index = 0
+        }
         if let page = InternalPage.page(url) {
             showInternal(page, direction: direction)
             return

@@ -313,11 +313,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             address.suggestions.leadingAnchor.constraint(equalTo: address.leadingAnchor, constant: -2),
             address.suggestions.trailingAnchor.constraint(equalTo: address.trailingAnchor, constant: 2),
 
-            actionBar.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 8),
-            actionBar.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 12),
-            actionBar.trailingAnchor.constraint(lessThanOrEqualTo: sidebar.trailingAnchor, constant: -12),
+            // In the traffic lights' row, after them.
+            actionBar.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 3),
+            actionBar.heightAnchor.constraint(equalToConstant: 22),
+            actionBar.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 78),
+            actionBar.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -8),
 
-            tabList.topAnchor.constraint(equalTo: actionBar.bottomAnchor, constant: 8),
+            tabList.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 10),
             tabList.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 8),
             tabList.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -8),
             tabList.bottomAnchor.constraint(equalTo: notice.topAnchor, constant: -6),
@@ -482,18 +484,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     private func hideFind() {
         findBar.dismiss()
-        selected?.webView.evaluateJavaScript("void 0") // nothing; WebKit clears the highlight on its own
+        selected?.hideFind()
     }
 
     private func find(_ text: String, backwards: Bool) {
-        guard let web = selected?.webView, !text.isEmpty else { return }
-        let config = WKFindConfiguration()
-        config.backwards = backwards
-        config.wraps = true
-        config.caseSensitive = false
-        web.find(text, configuration: config) { [weak self] result in
-            self?.findBar.matched(result.matchFound)
-        }
+        guard let tab = selected else { return }
+        tab.onFind = { [weak self] matches, current in self?.findBar.show(matches: matches, current: current) }
+        tab.find(text, backwards: backwards)
     }
 
     // MARK: Actions
@@ -599,6 +596,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     @objc func duplicateTab(_ sender: Any?) {
         if let tab = selected, let url = tab.url { newTab(url, after: tab) }
     }
+    /// ⇧⌘I: Web Inspector for this tab's page.
+    @objc func showInspector(_ sender: Any?) {
+        guard let web = selected?.webView, selected?.internalPage == nil,
+              let inspector = web.value(forKey: "_inspector") as? NSObject else { return }
+        inspector.perform(NSSelectorFromString("show"))
+    }
+
     @objc func showFind(_ sender: Any?) {
         findBar.present()
         findBar.focus()

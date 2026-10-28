@@ -2,8 +2,6 @@
 
 Core is a macOS browser that gives you the privacy and anonymity of Mullvad Browser on a WebKit base. The name says what it is for: a core that other browsers can build on later. The UI is kept deliberately plain, just enough to use it as a browser.
 
-Core is fool-proof. None of its protections can be turned off: there is no setting for it, the CoreKit API has no switch for it, and there is no debug flag.
-
 ## Shape
 
 ```
@@ -37,13 +35,13 @@ release/     build, sign, notarize, publish to Forgejo, update feed
 Core has one user, so there is no crowd of Core users to hide in. It hides in the biggest crowd available instead: **stock Safari on the same macOS version**, with Safari's Private Browsing fingerprinting protections switched on permanently in the engine. Nothing is injected into pages and no prototype is patched, so CreepJS finds no "lies" to report. Whatever varies is derived from the identity's **seed**, so it changes on every wipe.
 
 - **Seeds.** A wiped tab gets a fresh seed. A Persist tab keeps its seed until it is closed. A whitelisted domain keeps its own fixed seed. Each site's noise salt is derived from the seed and the site, so two sites in one identity can't match their readings either.
-- **Protections that are always on**, whatever the embedder asks for: WebKit's baseline protections, fingerprinting protections (with canvas, WebGL, audio and screen noise), enhanced network privacy, link-decoration filtering, script-tracking privacy, and `hardwareConcurrency` reported as 8.
+- **Protections that are always on:** WebKit's baseline protections, fingerprinting protections (canvas, audio and screen), enhanced network privacy, link-decoration filtering, script-tracking privacy, and `hardwareConcurrency` reported as 8.
 - **User agent:** exactly Safari's for this macOS version.
 - **Language and time zone:** `en-US` everywhere, set in every child process, so `navigator.language(s)`, `Accept-Language` and `Intl` all agree. The time zone is UTC.
 - **Screen.** `screen.*` reports the window's own size, as Safari Private Browsing does. The page's viewport sizes are the real ones: rounding them would disagree with CSS media queries, and that disagreement is exactly the kind of lie CreepJS looks for. The window stays freely resizable; there is no letterboxing.
 - **Fonts.** Fonts you installed yourself are invisible to pages; only macOS's own fonts can be seen.
 - **JavaScript engine.** No JIT and no WebAssembly. That shuts out a large class of exploits and removes two timing surfaces.
-- **WebRTC.** WebRTC stays on, but ICE uses TURN relay only, whatever the page asks for. Host and srflx candidates are never gathered, so neither the LAN IP nor the public IP leaks around the VPN.
+- **WebRTC.** WebRTC stays on, but ICE uses TURN relay only. Host and srflx candidates are never gathered, so neither the LAN IP nor the public IP leaks around the VPN.
 - **Media devices.** WebKit's default applies: no labels and no IDs until permission is granted.
 
 ## Network
@@ -86,7 +84,7 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 ## Mouse and trackpad
 
 - The mouse's back and forward buttons, and two-finger swipes, go through Core's own back and forward lists, the same as ⌘[ and ⌘].
-- Scrolling is smooth, as in Safari (the engine always enables WebKit's scroll animator).
+- Scrolling is smooth: mouse-wheel notches glide to their destination (patched into WebKit's macOS wheel handling), and keyboard scrolling animates.
 
 ## Downloads
 

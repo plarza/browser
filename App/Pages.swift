@@ -53,6 +53,7 @@ struct HistoryPage: View {
                 SearchField(text: $model.query, placeholder: "Search History") {
                     if let first = model.results.first, let url = URL(string: first.url) { open(url) }
                 }
+                .controlSize(.large)
                 Button("Clear History") { confirmingClear = true }
                     .controlSize(.large)
                     .buttonBorderShape(.capsule)
@@ -219,7 +220,9 @@ struct SettingsPage: View {
                             Label {
                                 Text(engine.name)
                             } icon: {
-                                if let image = engine.image { Image(nsImage: image).resizable().frame(width: 16, height: 16) }
+                                if let image = engine.image {
+                                    Image(nsImage: image).resizable().frame(width: 16, height: 16).clipShape(RoundedRectangle(cornerRadius: 3.5, style: .continuous))
+                                }
                             }
                         }
                         .buttonBorderShape(.capsule)

@@ -12,8 +12,8 @@ enum Menus {
             .separator(),
             item("Settings…", #selector(AppDelegate.showSettings(_:)), ",", target: app),
             .separator(),
-            item("Hide Core", #selector(NSApplication.hide(_:)), "h"),
-            item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
+            item("Hide Core", #selector(NSApplication.hide(_:)), ""),
+            item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), ""),
             item("Show All", #selector(NSApplication.unhideAllApplications(_:)), ""),
             .separator(),
             item("Quit Core", #selector(NSApplication.terminate(_:)), "q"),
@@ -53,13 +53,15 @@ enum Menus {
             .separator(),
             item("Hide Sidebar", #selector(BrowserWindowController.toggleCoreSidebar(_:)), "s"),
             item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
+            .separator(),
+            item("Web Inspector", #selector(BrowserWindowController.showInspector(_:)), "i", [.command, .shift]),
         ]))
 
         main.addItem(submenu("History", [
             item("Back", #selector(BrowserWindowController.goBack(_:)), "["),
             item("Forward", #selector(BrowserWindowController.goForward(_:)), "]"),
             .separator(),
-            item("Show All History", #selector(BrowserWindowController.showHistory(_:)), "y"),
+            item("Show All History", #selector(BrowserWindowController.showHistory(_:)), "h"),
         ]))
 
         var tabItems: [NSMenuItem] = [
@@ -91,12 +93,6 @@ enum Menus {
         }
         main.addItem(submenu("Tab", tabItems))
 
-        let window = submenu("Window", [
-            item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
-            item("Zoom", #selector(NSWindow.performZoom(_:)), ""),
-        ])
-        NSApp.windowsMenu = window.submenu
-        main.addItem(window)
         main.addItem(submenu("Help", [
             item("Keyboard Shortcuts", #selector(BrowserWindowController.showHelp(_:)), "/", [.command, .shift]),
         ]))
@@ -112,7 +108,8 @@ enum Menus {
             guard let menu = top.submenu else { continue }
             // Not the ones macOS adds to every Edit menu.
             let system: Set<Selector?> = [Selector(("startDictation:")), Selector(("orderFrontCharacterPalette:"))]
-            for item in menu.items where !item.keyEquivalent.isEmpty && !system.contains(item.action) {
+            for item in menu.items where !item.keyEquivalent.isEmpty && !system.contains(item.action)
+                && !item.keyEquivalentModifierMask.contains(.function) {
                 let keys = describe(item)
                 let id = menu.title + item.title
                 if let i = seen[id] { rows[i][2] += " or " + keys; continue }
@@ -120,7 +117,6 @@ enum Menus {
                 rows.append([menu.title, item.title, keys])
             }
         }
-        rows.append(["Gestures", "Back / Forward", "Two-finger swipe or Mouse back / forward buttons"])
         return rows
     }
 
@@ -128,7 +124,7 @@ enum Menus {
         var key = item.keyEquivalent
         var mods = item.keyEquivalentModifierMask
         if key.count == 1, let c = key.first, c.isUppercase { mods.insert(.shift); key = key.lowercased() }
-        let shifted: [String: String] = ["{": "[", "}": "]", "+": "=", "_": "-", "?": "/"]
+        let shifted: [String: String] = ["{": "[", "}": "]", "_": "-", "?": "/"]
         if let base = shifted[key] { mods.insert(.shift); key = base }
         let names: [String: String] = [
             "\t": "⇥", "\r": "↩", " ": "Space",
