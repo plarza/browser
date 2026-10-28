@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Extensions.shared.start()
         #if DEBUG
         SelfTest.run(browser)
+        SelfTest.probe(browser)
         // Debug builds only: `-coreInstall <store id>`, for testing from a script.
         if let id = UserDefaults.standard.string(forKey: "coreInstall") {
             Task { await Extensions.shared.install(from: id); NSLog("Core: install \(id): \(Extensions.shared.trouble ?? "ok")") }

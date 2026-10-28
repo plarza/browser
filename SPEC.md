@@ -20,7 +20,7 @@ release/     build, sign, notarize, publish to Forgejo, update feed
 
 ## Tabs
 
-- Tabs run down the left, in a vertical list, in a plain white sidebar whose edge drags (200–420 pt). The page fills the rest of the window. There are no pinned tabs, no back/forward buttons and no New Tab button: ⌘T, ⌘[ and ⌘] do those.
+- Tabs run down the left, in a vertical list, in a pure white sidebar, flush with the page and with no dividing line, whose edge drags (200–420 pt). The page fills the rest of the window. There are no pinned tabs, no back/forward buttons and no New Tab button: ⌘T, ⌘[ and ⌘] do those.
 - Each tab is a separate identity, with its own web process and its own network session. The session holds the tab's cookies, localStorage, sessionStorage, IndexedDB, Cache API, service workers, HTTP cache, HSTS, TLS session cache, connection pool, DNS cache and its fingerprint seed.
 - **Wipe.** Every reload and every top-level navigation throws the whole session away and starts the next load in a brand-new one. That includes typed URLs, clicked links, back and forward, and redirects initiated by the page. Logins do not survive a reload.
 - **Persist** (⌘I, or right-click › Persist Tab). The tab keeps its session through reloads and navigation. A subtle blue glow behind the tab shows it is on. Persist belongs to the tab, not the site, and closing the tab still destroys everything.
@@ -71,7 +71,7 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 ## Remembered on disk
 
-- **History:** URLs only, with no titles, times or favicons. It feeds autocomplete.
+- **History:** each page's address and title, most recent first, with no visit times, icons or page contents. It feeds autocomplete and **about://history** (⌘Y): a page of its own, opened in a new tab, that searches every word across addresses and titles, removes entries one at a time, or clears everything. It runs on a `core:` scheme that only that page's web view can reach.
 - **Open tabs:** URLs only. They come back on the next launch, each in a fresh session.
 - **Whitelist jars**, as described under Whitelist.
 - **Extension data.** Extensions' own storage, such as the Bitwarden vault, is kept.

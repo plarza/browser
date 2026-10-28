@@ -92,14 +92,17 @@ final class AddressField: NSView, NSTextFieldDelegate {
         guard !isEditing else { return }
         field.stringValue = url.map(Self.display) ?? ""
         field.alignment = url == nil ? .left : .center
+        // Core's own pages (about://history) are neither secure nor not.
+        let own = url?.scheme == "about"
         let secure = url?.scheme == "https"
-        let symbol = url == nil ? "magnifyingglass" : secure ? "lock.fill" : "exclamationmark.triangle.fill"
+        let symbol = url == nil ? "magnifyingglass" : own ? "clock" : secure ? "lock.fill" : "exclamationmark.triangle.fill"
         icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        icon.contentTintColor = url != nil && !secure ? .systemOrange : .secondaryLabelColor
+        icon.contentTintColor = url != nil && !secure && !own ? .systemOrange : .secondaryLabelColor
         reload.isHidden = url == nil
     }
 
     static func display(_ url: URL) -> String {
+        if url.scheme == "about" { return url.absoluteString }
         var host = url.host ?? url.absoluteString
         if host.hasPrefix("www.") { host.removeFirst(4) }
         return host
@@ -182,41 +185,23 @@ final class AddressField: NSView, NSTextFieldDelegate {
     }
 }
 
-/// Liquid Glass, flush with the window's edges, over the desktop showing
-/// faintly through. No line where it meets the page: the glass's own edge
-/// is the boundary.
+/// Pure white (black in dark mode), flush with the page, with no line
+/// between them.
 @MainActor
 final class Sidebar: NSView {
-    private let behind = NSVisualEffectView()
-    private let glass = NSGlassEffectView()
-
     override init(frame: NSRect) {
         super.init(frame: frame)
-        behind.material = .sidebar
-        behind.blendingMode = .behindWindow
-        behind.state = .followsWindowActiveState
-        glass.style = .regular
-        glass.cornerRadius = 0
-        glass.contentView = NSView()
-        // The glass is drawn larger than the sidebar and clipped to it: its
-        // own edge has a bright rim and a shadow, which would otherwise sit
-        // between the sidebar and the page as a hard line.
         wantsLayer = true
-        layer?.masksToBounds = true
-        let bleed: CGFloat = 40
-        for (v, out) in [(behind, CGFloat(0)), (glass, bleed)] as [(NSView, CGFloat)] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(v)
-            NSLayoutConstraint.activate([
-                v.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -out),
-                v.trailingAnchor.constraint(equalTo: trailingAnchor, constant: out),
-                v.topAnchor.constraint(equalTo: topAnchor, constant: -out),
-                v.bottomAnchor.constraint(equalTo: bottomAnchor, constant: out),
-            ])
-        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+        }
+    }
 
     // The window drags from the sidebar's empty top, around the traffic lights.
     override var mouseDownCanMoveWindow: Bool { true }

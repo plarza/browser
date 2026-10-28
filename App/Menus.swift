@@ -58,6 +58,8 @@ enum Menus {
         main.addItem(submenu("History", [
             item("Back", #selector(BrowserWindowController.goBack(_:)), "["),
             item("Forward", #selector(BrowserWindowController.goForward(_:)), "]"),
+            .separator(),
+            item("Show All History", #selector(BrowserWindowController.showHistory(_:)), "y"),
         ]))
 
         var tabItems: [NSMenuItem] = [

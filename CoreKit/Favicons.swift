@@ -38,7 +38,7 @@ public final class Favicons {
     """
 
     func load(for tab: Tab) {
-        guard let url = tab.url, let host = url.host?.lowercased(), icons[host] == nil, !loading.contains(host) else { return }
+        guard let url = tab.url, url.scheme == "https" || url.scheme == "http", let host = url.host?.lowercased(), icons[host] == nil, !loading.contains(host) else { return }
         loading.insert(host)
         tab.webView.evaluateJavaScript(Favicons.script, in: nil, in: .defaultClient) { [weak self] result in
             guard let self else { return }

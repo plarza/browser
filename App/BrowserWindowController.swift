@@ -296,6 +296,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private func go(_ text: String) {
         let template = Preferences.shared.settings.searchTemplate
         switch Address.resolve(text, searchTemplate: template) {
+        case .go(let url) where HistoryPage.isHistory(url):
+            showHistory(nil)
         case .go(let url):
             let tab = selected ?? newTab(nil)
             tab.load(url)
@@ -334,6 +336,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     // MARK: Actions
 
     @objc func newTabAction(_ sender: Any?) { newTab(nil) }
+
+    /// ⌘Y or about://history: History in a new tab, or in this one if it's blank.
+    @objc func showHistory(_ sender: Any?) {
+        if let tab = selected, tab.url == nil, tab.pending == nil {
+            tab.load(HistoryPage.address)
+        } else {
+            newTab(HistoryPage.address)
+        }
+        focusPage()
+    }
     @objc func focusAddress(_ sender: Any?) {
         guard sidebarShown || toggleCoreSidebarIfHidden() else { return }
         address.focus()

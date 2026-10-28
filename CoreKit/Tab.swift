@@ -113,7 +113,13 @@ public final class Tab: NSObject {
         webView.uiDelegate = self
         observations = [
             webView.observe(\.title) { [weak self] view, _ in
-                MainActor.assumeIsolated { self?.update(.title) { $0.title = view.title ?? "" } }
+                MainActor.assumeIsolated {
+                    guard let self, !self.isInternal else { return }
+                    self.update(.title) { $0.title = view.title ?? "" }
+                    if let url = self.url, url.scheme == "https" || url.scheme == "http" {
+                        History.shared.setTitle(self.title, for: url)
+                    }
+                }
             },
             webView.observe(\.url) { [weak self] view, _ in
                 MainActor.assumeIsolated {
@@ -194,8 +200,29 @@ public final class Tab: NSObject {
         return own
     }
 
+    /// about://history, in this tab: its own web view, which alone can reach
+    /// Core's `core:` scheme, in an identity of its own.
+    private var isInternal = false
+
+    private func showHistory(direction: Direction) {
+        identity = .fresh()
+        let config = Engine.configuration(for: identity, content: WKUserContentController())
+        config.setURLSchemeHandler(HistoryPage.shared, forURLScheme: HistoryPage.scheme)
+        replaceWebView(with: config)
+        isInternal = true
+        pendingDirection = direction
+        webView.load(URLRequest(url: HistoryPage.start))
+        recordEntry(HistoryPage.address)
+        update(.URL) { $0.url = HistoryPage.address }
+        update(.title) { $0.title = "History" }
+    }
+
     private func navigate(_ request: URLRequest, direction: Direction) {
         guard var url = request.url else { return }
+        if HistoryPage.isHistory(url) {
+            showHistory(direction: direction)
+            return
+        }
         url = CleanLink.clean(url)
         upgradedFrom = nil
         if url.scheme?.lowercased() == "http", url != httpAllowed {
@@ -217,6 +244,12 @@ public final class Tab: NSObject {
     }
 
     private func replaceWebView(with target: Identity) {
+        identity = target
+        replaceWebView(with: Engine.configuration(for: target, content: Blocker.shared.controller()))
+    }
+
+    private func replaceWebView(with configuration: WKWebViewConfiguration) {
+        isInternal = false
         let old = webView
         observations = []
         old.stopLoading()
@@ -226,14 +259,18 @@ public final class Tab: NSObject {
         // popup has nothing to share and closes.
         for popup in popups { popup.close(); delegate?.tabWantsToClose(popup) }
         popups = []
-        identity = target
-        webView = Tab.makeWebView(Engine.configuration(for: target, content: Blocker.shared.controller()))
+        webView = Tab.makeWebView(configuration)
         attach()
         delegate?.tab(self, didReplace: old)
         old.removeFromSuperview()
     }
 
     private func record(_ url: URL) {
+        recordEntry(url)
+        History.shared.add(url)
+    }
+
+    private func recordEntry(_ url: URL) {
         switch pendingDirection {
         case .new:
             if index >= 0, entries[index] == url { break }
@@ -245,7 +282,6 @@ public final class Tab: NSObject {
         case .reload: if index >= 0 { entries[index] = url }
         }
         pendingDirection = .new
-        History.shared.add(url)
         delegate?.tabDidChange(self)
     }
 
@@ -261,6 +297,7 @@ public final class Tab: NSObject {
             navigate(URLRequest(url: target), direction: .reload)
             return .cancel
         }
+        if scheme == HistoryPage.scheme { return isInternal ? .allow : .cancel }
         if scheme == "about" || scheme == "blob" || scheme == "data" { return .allow }
         if scheme == "mailto" || scheme == "tel" || scheme == "facetime" {
             if action.navigationType == .linkActivated { NSWorkspace.shared.open(url) }
