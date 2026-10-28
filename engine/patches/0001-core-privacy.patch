@@ -131,10 +131,18 @@ index d1c33ac6e3..eb1b6e70b5 100644
 +
  }
 diff --git a/Source/WebKit/Shared/WebsitePoliciesData.cpp b/Source/WebKit/Shared/WebsitePoliciesData.cpp
-index 9d9ea6035f..d8135a0785 100644
+index 9d9ea6035f..aa8283bd3f 100644
 --- a/Source/WebKit/Shared/WebsitePoliciesData.cpp
 +++ b/Source/WebKit/Shared/WebsitePoliciesData.cpp
-@@ -217,6 +217,12 @@ void WebsitePoliciesData::applyToDocumentLoader(WebsitePoliciesData&& websitePol
+@@ -29,6 +29,7 @@
+ #include "ArgumentCoders.h"
+ #include "WebProcess.h"
+ #include "WebUserContentController.h"
++#include <WebCore/DocumentPage.h>
+ #include <WebCore/FrameDestructionObserverInlines.h>
+ #include <WebCore/LocalFrame.h>
+ #include <WebCore/Page.h>
+@@ -217,6 +218,12 @@ void WebsitePoliciesData::applyToDocumentLoader(WebsitePoliciesData&& websitePol
      documentLoader.setModalContainerObservationPolicy(websitePolicies.modalContainerObservationPolicy);
      documentLoader.setColorSchemePreference(websitePolicies.colorSchemePreference);
      documentLoader.setAdvancedPrivacyProtections(websitePolicies.advancedPrivacyProtections);
