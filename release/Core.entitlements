@@ -4,5 +4,8 @@
 <dict>
 	<key>com.apple.security.device.camera</key><true/>
 	<key>com.apple.security.device.audio-input</key><true/>
+	<!-- The launcher points dyld at the bundled WebKit; without this the
+	     hardened runtime would ignore it and load the system's. -->
+	<key>com.apple.security.cs.allow-dyld-environment-variables</key><true/>
 </dict>
 </plist>

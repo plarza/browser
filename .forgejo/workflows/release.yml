@@ -1,0 +1,34 @@
+# A tag (v0.2.0) builds the engine and the app on this Mac's runner, signs
+# and notarises them, and publishes the release with the updater's feed.
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    runs-on: macos-arm64
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Engine
+        run: engine/build.sh
+      - name: App
+        env:
+          CORE_UPDATE_FEED: ${{ vars.CORE_UPDATE_FEED }}
+          CORE_DOWNLOAD_URL: ${{ vars.CORE_DOWNLOAD_URL }}
+          CORE_TEAM_ID: ${{ vars.CORE_TEAM_ID }}
+        run: ./build.sh release ship
+      - name: Publish
+        env:
+          TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+        run: |
+          id=$(curl -sf -X POST -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
+            -d "{\"tag_name\": \"$TAG\", \"name\": \"Core $TAG\"}" "$API/releases" | jq -r .id)
+          for f in build/release/*; do
+            curl -sf -X POST -H "Authorization: token $TOKEN" -F "attachment=@$f" "$API/releases/$id/assets?name=$(basename "$f")" >/dev/null
+          done

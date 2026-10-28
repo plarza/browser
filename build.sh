@@ -22,21 +22,29 @@ BIN="$(swift build -c "$CONFIG" --show-bin-path)/Core"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
-cp "$BIN" "$APP/Contents/MacOS/Core"
-sed -e "s/VERSION/$VERSION/" -e "s/BUILD/$BUILD/" release/Info.plist > "$APP/Contents/Info.plist"
+cp "$BIN" "$APP/Contents/MacOS/CoreApp"
+clang -O2 -mmacosx-version-min=26.0 -o "$APP/Contents/MacOS/Core" engine/launcher.c
+sed -e "s/VERSION/$VERSION/" -e "s/BUILD/$BUILD/" \
+    -e "s|FEED|${CORE_UPDATE_FEED:-}|" -e "s/TEAM/${CORE_TEAM_ID:-}/" \
+    release/Info.plist > "$APP/Contents/Info.plist"
 [ -f release/AppIcon.icns ] && cp release/AppIcon.icns "$APP/Contents/Resources/"
 
-if [ -d "$ENGINE/WebKit.framework" ]; then
-  ./engine/embed.sh "$ENGINE" "$APP"
-fi
-
 IDENTITY="-"
+RUNTIME=()
 if [ "$STEP" = "ship" ]; then
   IDENTITY="${CORE_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ {print $2; exit}')}"
   [ -n "$IDENTITY" ] || { echo "No Developer ID Application certificate in the keychain" >&2; exit 1; }
+  export CORE_SIGN_IDENTITY="$IDENTITY"
+  RUNTIME=(--options runtime --timestamp)
 fi
-codesign --force --options runtime --timestamp=none --entitlements release/Core.entitlements --sign "$IDENTITY" "$APP" 2>/dev/null \
-  || codesign --force --options runtime --entitlements release/Core.entitlements --sign "$IDENTITY" "$APP"
+
+if [ -d "$ENGINE/WebKit.framework" ]; then
+  ./engine/embed.sh "$ENGINE" "$APP" "$IDENTITY"
+fi
+
+codesign --force ${RUNTIME[@]+"${RUNTIME[@]}"} --entitlements release/Core.entitlements --sign "$IDENTITY" "$APP/Contents/MacOS/CoreApp"
+codesign --force ${RUNTIME[@]+"${RUNTIME[@]}"} --sign "$IDENTITY" "$APP/Contents/MacOS/Core"
+codesign --force ${RUNTIME[@]+"${RUNTIME[@]}"} --entitlements release/Core.entitlements --sign "$IDENTITY" "$APP"
 
 if [ "$STEP" = "ship" ]; then
   ./release/ship.sh "$APP" "$VERSION"
