@@ -1,38 +1,133 @@
 import AppKit
 import CoreKit
 
-/// The one field. Finishes addresses from history inline, as you type.
+/// The one field, as a capsule: a lock or a magnifying glass, the address
+/// (just the host while you're not editing, as Safari shows it), and reload.
 @MainActor
-final class AddressField: NSTextField, NSTextFieldDelegate {
+final class AddressField: NSView, NSTextFieldDelegate {
     var onSubmit: (String) -> Void = { _ in }
     var onEscape: () -> Void = {}
+    var onReload: () -> Void = {}
     private(set) var isEditing = false
+    var loading = false { didSet { if loading != oldValue { updateReload() } } }
+
+    private let field = NSTextField()
+    private let icon = NSImageView()
+    private let reload = NSButton()
+    private var url: URL?
     private var completing = false
     private var flashing: DispatchWorkItem?
+    private static let placeholder = "Search or enter address"
 
-    init() {
-        super.init(frame: .zero)
-        placeholderString = "Search or enter address"
-        font = .systemFont(ofSize: 13)
-        bezelStyle = .roundedBezel
-        focusRingType = .none
-        lineBreakMode = .byTruncatingTail
-        cell?.usesSingleLineMode = true
-        cell?.isScrollable = true
-        delegate = self
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = 17
+        layer?.cornerCurve = .continuous
+
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: 13)
+        field.placeholderString = Self.placeholder
+        field.lineBreakMode = .byTruncatingTail
+        field.cell?.usesSingleLineMode = true
+        field.cell?.isScrollable = true
+        field.delegate = self
+
+        icon.contentTintColor = .secondaryLabelColor
+        icon.symbolConfiguration = .init(pointSize: 11, weight: .semibold)
+
+        reload.isBordered = false
+        reload.bezelStyle = .accessoryBarAction
+        reload.contentTintColor = .secondaryLabelColor
+        reload.target = self
+        reload.action = #selector(reloadClicked)
+        updateReload()
+
+        for v in [icon, field, reload] as [NSView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(v)
+        }
+        NSLayoutConstraint.activate([
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 14),
+            field.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
+            field.centerYAnchor.constraint(equalTo: centerYAnchor),
+            field.trailingAnchor.constraint(equalTo: reload.leadingAnchor, constant: -4),
+            reload.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            reload.centerYAnchor.constraint(equalTo: centerYAnchor),
+            reload.widthAnchor.constraint(equalToConstant: 20),
+        ])
+        show(nil)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override func becomeFirstResponder() -> Bool {
-        isEditing = true
-        return super.becomeFirstResponder()
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(isEditing ? 0.1 : 0.06).cgColor
+            layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(isEditing ? 0.5 : 0).cgColor
+            layer?.borderWidth = isEditing ? 1.5 : 0
+        }
     }
 
-    func controlTextDidEndEditing(_ obj: Notification) { isEditing = false }
+    override func mouseDown(with event: NSEvent) { focus() }
+
+    func focus() {
+        window?.makeFirstResponder(field)
+        beginEditing()
+        field.currentEditor()?.selectAll(nil)
+    }
+
+    /// The page's address: the host while not editing, all of it when you click in.
+    func show(_ url: URL?) {
+        self.url = url
+        guard !isEditing else { return }
+        field.stringValue = url.map(Self.display) ?? ""
+        field.alignment = url == nil ? .left : .center
+        let secure = url?.scheme == "https"
+        let symbol = url == nil ? "magnifyingglass" : secure ? "lock.fill" : "exclamationmark.triangle.fill"
+        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        icon.contentTintColor = url != nil && !secure ? .systemOrange : .secondaryLabelColor
+        reload.isHidden = url == nil
+    }
+
+    static func display(_ url: URL) -> String {
+        var host = url.host ?? url.absoluteString
+        if host.hasPrefix("www.") { host.removeFirst(4) }
+        return host
+    }
+
+    private func beginEditing() {
+        guard !isEditing else { return }
+        isEditing = true
+        field.alignment = .left
+        field.stringValue = url?.absoluteString ?? ""
+        icon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
+        icon.contentTintColor = .secondaryLabelColor
+        needsDisplay = true
+    }
+
+    func controlTextDidBeginEditing(_ obj: Notification) { beginEditing() }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        isEditing = false
+        needsDisplay = true
+        show(url)
+    }
+
+    private func updateReload() {
+        reload.image = NSImage(systemSymbolName: loading ? "xmark" : "arrow.clockwise", accessibilityDescription: loading ? "Stop" : "Reload")?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+    }
+
+    @objc private func reloadClicked() { onReload() }
 
     func controlTextDidChange(_ obj: Notification) {
-        guard !completing, let editor = currentEditor() as? NSTextView else { return }
+        guard !completing, let editor = field.currentEditor() as? NSTextView else { return }
         let typed = editor.string
         // Only when the caret is at the end and the person is adding text.
         guard editor.selectedRange().location == (typed as NSString).length,
@@ -70,16 +165,98 @@ final class AddressField: NSTextField, NSTextFieldDelegate {
 
     func flash(_ message: String) {
         flashing?.cancel()
-        let typed = stringValue
-        stringValue = ""
-        placeholderString = message
-        window?.makeFirstResponder(self)
+        let typed = field.stringValue
+        field.stringValue = ""
+        field.placeholderString = message
+        focus()
         let restore = DispatchWorkItem { [weak self] in
-            self?.placeholderString = "Search or enter address"
-            if self?.stringValue.isEmpty == true { self?.stringValue = typed }
+            self?.field.placeholderString = Self.placeholder
+            if self?.field.stringValue.isEmpty == true { self?.field.stringValue = typed }
         }
         flashing = restore
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: restore)
+    }
+}
+
+/// Back and forward, and the sidebar toggle: glass buttons beside the
+/// traffic lights.
+@MainActor
+final class NavigationButtons: NSStackView {
+    var onBack: () -> Void = {}
+    var onForward: () -> Void = {}
+    var onSidebar: () -> Void = {}
+    private let back = NavigationButtons.button("chevron.left", "Back")
+    private let forward = NavigationButtons.button("chevron.right", "Forward")
+    private let sidebar = NavigationButtons.button("sidebar.left", "Hide Sidebar")
+
+    init() {
+        super.init(frame: .zero)
+        orientation = .horizontal
+        spacing = 6
+        back.target = self; back.action = #selector(goBack)
+        forward.target = self; forward.action = #selector(goForward)
+        sidebar.target = self; sidebar.action = #selector(toggle)
+        addArrangedSubview(sidebar)
+        addArrangedSubview(back)
+        addArrangedSubview(forward)
+        update(back: false, forward: false)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    static func button(_ symbol: String, _ label: String) -> NSButton {
+        let b = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)!
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))!, target: nil, action: nil)
+        b.bezelStyle = .glass
+        b.controlSize = .regular
+        b.toolTip = label
+        return b
+    }
+
+    func update(back canBack: Bool, forward canForward: Bool) {
+        back.isEnabled = canBack
+        forward.isEnabled = canForward
+    }
+
+    @objc private func goBack() { onBack() }
+    @objc private func goForward() { onForward() }
+    @objc private func toggle() { onSidebar() }
+}
+
+/// The page, as a card with rounded corners and a soft shadow.
+@MainActor
+final class PageCard: NSView {
+    let content = NSView()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.shadowOpacity = 0.18
+        layer?.shadowRadius = 10
+        layer?.shadowOffset = NSSize(width: 0, height: -2)
+        content.wantsLayer = true
+        content.layer?.cornerRadius = 12
+        content.layer?.cornerCurve = .continuous
+        content.layer?.masksToBounds = true
+        content.layer?.borderWidth = 0.5
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor),
+            content.topAnchor.constraint(equalTo: topAnchor),
+            content.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            content.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+            content.layer?.borderColor = NSColor.separatorColor.cgColor
+        }
     }
 }
 
@@ -113,7 +290,7 @@ final class ProgressLine: NSView {
 
 /// ⌘F: a small field over the top right of the page.
 @MainActor
-final class FindBar: NSVisualEffectView, NSSearchFieldDelegate {
+final class FindBar: NSGlassEffectView, NSSearchFieldDelegate {
     var onSearch: (String, Bool) -> Void = { _, _ in }
     var onClose: () -> Void = {}
     private let field = NSSearchField()
@@ -121,22 +298,21 @@ final class FindBar: NSVisualEffectView, NSSearchFieldDelegate {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        material = .popover
-        state = .active
-        wantsLayer = true
-        layer?.cornerRadius = 9
+        cornerRadius = 18
+        let body = NSView()
+        contentView = body
         field.placeholderString = "Find on page"
         field.sendsSearchStringImmediately = true
         field.delegate = self
         field.target = self
         field.action = #selector(changed)
         field.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(field)
+        body.addSubview(field)
         NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            field.topAnchor.constraint(equalTo: topAnchor, constant: 7),
-            field.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
+            field.leadingAnchor.constraint(equalTo: body.leadingAnchor, constant: 10),
+            field.trailingAnchor.constraint(equalTo: body.trailingAnchor, constant: -10),
+            field.topAnchor.constraint(equalTo: body.topAnchor, constant: 7),
+            field.bottomAnchor.constraint(equalTo: body.bottomAnchor, constant: -7),
             field.widthAnchor.constraint(equalToConstant: 240),
         ])
     }

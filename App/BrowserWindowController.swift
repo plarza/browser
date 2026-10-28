@@ -10,28 +10,34 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private(set) var selected: Tab?
     private var closed: [URL] = []
 
-    private let sidebar = NSVisualEffectView()
+    private let backdrop = NSVisualEffectView()
+    private let sidebar = NSGlassEffectView()
+    private let sidebarBody = NSView()
+    private let navigation = NavigationButtons()
     private let address = AddressField()
     private let tabList = TabListView()
     private let actionBar = ActionBar()
-    private let content = NSView()
+    private let card = PageCard()
+    private var content: NSView { card.content }
     private let progress = ProgressLine()
     private let notice = NSTextField(labelWithString: "")
     private let findBar = FindBar()
     private var sidebarWidth: NSLayoutConstraint!
+    private var sidebarLeading: NSLayoutConstraint!
     private var popover: NSPopover?
-    private static let width: CGFloat = 240
+    private static let width: CGFloat = 252
+    private static let inset: CGFloat = 8
 
     init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
+            contentRect: NSRect(x: 0, y: 0, width: 1320, height: 860),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false
         )
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = false
-        window.minSize = NSSize(width: 600, height: 400)
+        window.isMovableByWindowBackground = true
+        window.minSize = NSSize(width: 640, height: 420)
         window.setFrameAutosaveName("Core")
         if window.frame.origin == .zero { window.center() }
         window.isRestorable = false
@@ -42,16 +48,28 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Safari's shape: a floating glass sidebar with the traffic lights in
+    /// it, and the page as a rounded card beside it.
     private func layout() {
         guard let root = window?.contentView else { return }
-        sidebar.material = .sidebar
-        sidebar.blendingMode = .behindWindow
-        sidebar.state = .followsWindowActiveState
-        content.wantsLayer = true
-        content.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        backdrop.material = .underWindowBackground
+        backdrop.blendingMode = .behindWindow
+        backdrop.state = .followsWindowActiveState
+
+        sidebar.cornerRadius = 18
+        sidebar.style = .regular
+        sidebar.contentView = sidebarBody
 
         address.onSubmit = { [weak self] text in self?.go(text) }
         address.onEscape = { [weak self] in self?.focusPage() }
+        address.onReload = { [weak self] in
+            guard let tab = self?.selected else { return }
+            if tab.isLoading { tab.stop() } else { tab.reload() }
+        }
+
+        navigation.onBack = { [weak self] in self?.selected?.goBack() }
+        navigation.onForward = { [weak self] in self?.selected?.goForward() }
+        navigation.onSidebar = { [weak self] in self?.toggleSidebar(nil) }
 
         tabList.onSelect = { [weak self] tab in self?.select(tab) }
         tabList.onClose = { [weak self] tab in self?.close(tab) }
@@ -64,11 +82,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         }
 
         let newTab = NSButton(title: "New Tab", image: NSImage(systemSymbolName: "plus", accessibilityDescription: nil)!, target: self, action: #selector(newTabAction(_:)))
-        newTab.bezelStyle = .accessoryBarAction
-        newTab.isBordered = false
+        newTab.bezelStyle = .glass
         newTab.imagePosition = .imageLeading
-        newTab.contentTintColor = .secondaryLabelColor
-        newTab.font = .systemFont(ofSize: 12)
+        newTab.imageHugsTitle = true
+        newTab.controlSize = .large
+        newTab.font = .systemFont(ofSize: 13, weight: .medium)
 
         notice.font = .systemFont(ofSize: 11)
         notice.textColor = .systemOrange
@@ -79,62 +97,71 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
         actionBar.onClick = { [weak self] action, button in self?.perform(action, from: button) }
 
-        for view in [sidebar, content, address, actionBar, tabList, newTab, notice, progress, findBar] as [NSView] {
+        for view in [backdrop, card, sidebar, navigation, address, actionBar, tabList, newTab, notice, progress, findBar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
+        root.addSubview(backdrop)
+        root.addSubview(card)
         root.addSubview(sidebar)
-        root.addSubview(content)
-        sidebar.addSubview(address)
-        sidebar.addSubview(actionBar)
-        sidebar.addSubview(tabList)
-        sidebar.addSubview(newTab)
-        sidebar.addSubview(notice)
+        for view in [navigation, address, actionBar, tabList, newTab, notice] as [NSView] { sidebarBody.addSubview(view) }
         content.addSubview(progress)
         content.addSubview(findBar)
         findBar.isHidden = true
         findBar.onClose = { [weak self] in self?.hideFind() }
         findBar.onSearch = { [weak self] text, back in self?.find(text, backwards: back) }
 
+        let inset = Self.inset
         sidebarWidth = sidebar.widthAnchor.constraint(equalToConstant: Self.width)
+        sidebarLeading = sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset)
         NSLayoutConstraint.activate([
-            sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            sidebar.topAnchor.constraint(equalTo: root.topAnchor),
-            sidebar.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            backdrop.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            backdrop.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            backdrop.topAnchor.constraint(equalTo: root.topAnchor),
+            backdrop.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+
+            sidebarLeading,
+            sidebar.topAnchor.constraint(equalTo: root.topAnchor, constant: inset),
+            sidebar.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -inset),
             sidebarWidth,
 
-            content.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-            content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            content.topAnchor.constraint(equalTo: root.topAnchor),
-            content.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            card.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: inset),
+            card.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -inset),
+            card.topAnchor.constraint(equalTo: root.topAnchor, constant: inset),
+            card.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -inset),
 
-            address.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 40),
-            address.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
-            address.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
-            address.heightAnchor.constraint(equalToConstant: 28),
+            // Level with the traffic lights, at the sidebar's trailing edge.
+            navigation.topAnchor.constraint(equalTo: sidebarBody.topAnchor, constant: 7),
+            navigation.trailingAnchor.constraint(equalTo: sidebarBody.trailingAnchor, constant: -10),
 
-            actionBar.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 6),
-            actionBar.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
-            actionBar.trailingAnchor.constraint(lessThanOrEqualTo: sidebar.trailingAnchor, constant: -10),
+            address.topAnchor.constraint(equalTo: navigation.bottomAnchor, constant: 12),
+            address.leadingAnchor.constraint(equalTo: sidebarBody.leadingAnchor, constant: 10),
+            address.trailingAnchor.constraint(equalTo: sidebarBody.trailingAnchor, constant: -10),
+            address.heightAnchor.constraint(equalToConstant: 34),
 
-            tabList.topAnchor.constraint(equalTo: actionBar.bottomAnchor, constant: 6),
-            tabList.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 6),
-            tabList.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -6),
+            actionBar.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 8),
+            actionBar.leadingAnchor.constraint(equalTo: sidebarBody.leadingAnchor, constant: 12),
+            actionBar.trailingAnchor.constraint(lessThanOrEqualTo: sidebarBody.trailingAnchor, constant: -12),
+
+            tabList.topAnchor.constraint(equalTo: actionBar.bottomAnchor, constant: 8),
+            tabList.leadingAnchor.constraint(equalTo: sidebarBody.leadingAnchor, constant: 8),
+            tabList.trailingAnchor.constraint(equalTo: sidebarBody.trailingAnchor, constant: -8),
             tabList.bottomAnchor.constraint(equalTo: notice.topAnchor, constant: -6),
 
-            notice.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 12),
-            notice.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -12),
-            notice.bottomAnchor.constraint(equalTo: newTab.topAnchor, constant: -4),
+            notice.leadingAnchor.constraint(equalTo: sidebarBody.leadingAnchor, constant: 14),
+            notice.trailingAnchor.constraint(equalTo: sidebarBody.trailingAnchor, constant: -14),
+            notice.bottomAnchor.constraint(equalTo: newTab.topAnchor, constant: -8),
 
-            newTab.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 12),
-            newTab.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: -10),
+            newTab.leadingAnchor.constraint(equalTo: sidebarBody.leadingAnchor, constant: 10),
+            newTab.trailingAnchor.constraint(equalTo: sidebarBody.trailingAnchor, constant: -10),
+            newTab.bottomAnchor.constraint(equalTo: sidebarBody.bottomAnchor, constant: -10),
 
             progress.topAnchor.constraint(equalTo: content.topAnchor),
             progress.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             progress.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             progress.heightAnchor.constraint(equalToConstant: 2),
 
-            findBar.topAnchor.constraint(equalTo: content.topAnchor, constant: 10),
-            findBar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
+            findBar.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
+            findBar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
         ])
     }
 
@@ -239,7 +266,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     private func refreshChrome() {
         guard let tab = selected else { return }
-        if !address.isEditing { address.stringValue = tab.url?.absoluteString ?? "" }
+        if !address.isEditing { address.show(tab.url) }
+        address.loading = tab.isLoading
+        navigation.update(back: tab.canGoBack, forward: tab.canGoForward)
         progress.set(tab.isLoading ? tab.progress : 1)
         window?.title = tab.title.isEmpty ? "Core" : tab.title
     }
@@ -288,9 +317,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     @objc func newTabAction(_ sender: Any?) { newTab(nil) }
     @objc func focusAddress(_ sender: Any?) {
-        guard sidebarWidth.constant > 0 || toggleSidebarIfHidden() else { return }
-        window?.makeFirstResponder(address)
-        address.currentEditor()?.selectAll(nil)
+        guard sidebarShown || toggleSidebarIfHidden() else { return }
+        address.focus()
     }
     private func toggleSidebarIfHidden() -> Bool { toggleSidebar(nil); return true }
     @objc func closeTabAction(_ sender: Any?) {
@@ -311,8 +339,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func zoomIn(_ sender: Any?) { selected.map { $0.webView.pageZoom = min(3, $0.webView.pageZoom + 0.1) } }
     @objc func zoomOut(_ sender: Any?) { selected.map { $0.webView.pageZoom = max(0.3, $0.webView.pageZoom - 0.1) } }
     @objc func togglePersist(_ sender: Any?) { selected?.persist.toggle() }
+    private var sidebarShown: Bool { sidebarLeading.constant > 0 }
+
     @objc func toggleSidebar(_ sender: Any?) {
-        sidebarWidth.animator().constant = sidebarWidth.constant > 0 ? 0 : Self.width
+        let show = !sidebarShown
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            sidebarLeading.animator().constant = show ? Self.inset : -Self.width
+        }
     }
     @objc func nextTab(_ sender: Any?) { step(1) }
     @objc func previousTab(_ sender: Any?) { step(-1) }
@@ -348,7 +383,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         case #selector(goForward(_:)): return selected?.canGoForward ?? false
         case #selector(reopenClosedTab(_:)): return !closed.isEmpty
         case #selector(toggleSidebar(_:)):
-            item.title = sidebarWidth.constant > 0 ? "Hide Sidebar" : "Show Sidebar"
+            item.title = sidebarShown ? "Hide Sidebar" : "Show Sidebar"
             return true
         default: return true
         }

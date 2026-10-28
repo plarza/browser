@@ -25,8 +25,8 @@ final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegat
         table.addTableColumn(column)
         table.headerView = nil
         table.backgroundColor = .clear
-        table.rowHeight = 32
-        table.intercellSpacing = NSSize(width: 0, height: 2)
+        table.rowHeight = 34
+        table.intercellSpacing = NSSize(width: 0, height: 3)
         table.selectionHighlightStyle = .none
         table.style = .plain
         table.dataSource = self
@@ -120,6 +120,7 @@ final class TabCell: NSTableCellView {
     var onClose: () -> Void = {}
     private let label = NSTextField(labelWithString: "")
     private let close = NSButton()
+    private let tile = Monogram()
     private let spinner = NSProgressIndicator()
     private var tracking: NSTrackingArea?
     private var hovering = false { didSet { close.isHidden = !hovering } }
@@ -129,12 +130,12 @@ final class TabCell: NSTableCellView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 7
+        layer?.cornerRadius = 10
         layer?.cornerCurve = .continuous
         label.font = .systemFont(ofSize: 13)
         label.lineBreakMode = .byTruncatingTail
         close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")?
-            .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
         close.isBordered = false
         close.bezelStyle = .accessoryBarAction
         close.contentTintColor = .secondaryLabelColor
@@ -144,19 +145,23 @@ final class TabCell: NSTableCellView {
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
-        for v in [label, close, spinner] as [NSView] {
+        for v in [tile, spinner, label, close] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             addSubview(v)
         }
         NSLayoutConstraint.activate([
-            spinner.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            spinner.centerYAnchor.constraint(equalTo: centerYAnchor),
-            spinner.widthAnchor.constraint(equalToConstant: 12),
-            spinner.heightAnchor.constraint(equalToConstant: 12),
-            label.leadingAnchor.constraint(equalTo: spinner.trailingAnchor, constant: 6),
+            tile.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            tile.centerYAnchor.constraint(equalTo: centerYAnchor),
+            tile.widthAnchor.constraint(equalToConstant: 18),
+            tile.heightAnchor.constraint(equalToConstant: 18),
+            spinner.centerXAnchor.constraint(equalTo: tile.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: tile.centerYAnchor),
+            spinner.widthAnchor.constraint(equalToConstant: 14),
+            spinner.heightAnchor.constraint(equalToConstant: 14),
+            label.leadingAnchor.constraint(equalTo: tile.trailingAnchor, constant: 9),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
             label.trailingAnchor.constraint(lessThanOrEqualTo: close.leadingAnchor, constant: -4),
-            close.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            close.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             close.centerYAnchor.constraint(equalTo: centerYAnchor),
             close.widthAnchor.constraint(equalToConstant: 18),
             close.heightAnchor.constraint(equalToConstant: 18),
@@ -166,34 +171,35 @@ final class TabCell: NSTableCellView {
     required init?(coder: NSCoder) { fatalError() }
 
     func configure(_ tab: Tab, selected: Bool) {
-        let title = tab.title.isEmpty ? (tab.url?.host ?? "New Tab") : tab.title
-        label.stringValue = tab.opener != nil ? "↳ " + title : title
+        let title = tab.title.isEmpty ? (tab.url.map(AddressField.display) ?? "New Tab") : tab.title
+        label.stringValue = title
+        label.font = .systemFont(ofSize: 13, weight: selected ? .medium : .regular)
         label.textColor = selected ? .labelColor : .secondaryLabelColor
-        if tab.isLoading { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
+        tile.set(host: tab.url?.host, popup: tab.opener != nil)
+        if tab.isLoading { spinner.startAnimation(nil); tile.alphaValue = 0 } else { spinner.stopAnimation(nil); tile.alphaValue = 1 }
         isSelected = selected
         isPersist = tab.persist
         toolTip = tab.persist ? "Persist: reloads and navigation keep this tab's cookies and storage until it closes." : tab.url?.absoluteString
         needsDisplay = true
-        updateLayer()
     }
 
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        let base: NSColor = isSelected ? NSColor.labelColor.withAlphaComponent(0.1)
-            : hovering ? NSColor.labelColor.withAlphaComponent(0.05) : .clear
         effectiveAppearance.performAsCurrentDrawingAppearance {
+            let glow = NSColor.systemBlue
             if isPersist {
-                let glow = NSColor.systemBlue
-                layer?.backgroundColor = glow.withAlphaComponent(isSelected ? 0.22 : 0.12).cgColor
+                layer?.backgroundColor = glow.withAlphaComponent(isSelected ? 0.24 : hovering ? 0.16 : 0.11).cgColor
                 layer?.shadowColor = glow.cgColor
-                layer?.shadowOpacity = 0.55
-                layer?.shadowRadius = 6
+                layer?.shadowOpacity = 0.6
+                layer?.shadowRadius = 7
                 layer?.shadowOffset = .zero
-                layer?.borderColor = glow.withAlphaComponent(0.35).cgColor
+                layer?.borderColor = glow.withAlphaComponent(0.4).cgColor
                 layer?.borderWidth = 0.5
             } else {
-                layer?.backgroundColor = base.cgColor
+                let fill: NSColor = isSelected ? NSColor.labelColor.withAlphaComponent(0.1)
+                    : hovering ? NSColor.labelColor.withAlphaComponent(0.05) : .clear
+                layer?.backgroundColor = fill.cgColor
                 layer?.shadowOpacity = 0
                 layer?.borderWidth = 0
             }
@@ -208,12 +214,62 @@ final class TabCell: NSTableCellView {
         tracking = area
     }
 
-    override func mouseEntered(with event: NSEvent) { hovering = true; updateLayer() }
-    override func mouseExited(with event: NSEvent) { hovering = false; updateLayer() }
+    override func mouseEntered(with event: NSEvent) { hovering = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovering = false; needsDisplay = true }
 
     override func otherMouseUp(with event: NSEvent) {
         if event.buttonNumber == 2 { onClose() } else { super.otherMouseUp(with: event) }
     }
 
     @objc private func closeClicked() { onClose() }
+}
+
+/// A site's initial on a soft tile coloured from its name. Core fetches no
+/// favicons: that would be a request the page didn't make.
+@MainActor
+final class Monogram: NSView {
+    private let letter = NSTextField(labelWithString: "")
+    private var hue: CGFloat = 0
+    private var empty = true
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = 5
+        layer?.cornerCurve = .continuous
+        letter.font = .systemFont(ofSize: 10, weight: .bold)
+        letter.alignment = .center
+        letter.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(letter)
+        letter.centerXAnchor.constraint(equalTo: centerXAnchor).isActive = true
+        letter.centerYAnchor.constraint(equalTo: centerYAnchor).isActive = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func set(host: String?, popup: Bool) {
+        // The site's own name: wikipedia from en.wikipedia.org.
+        let labels = (host ?? "").split(separator: ".")
+        let name = labels.count >= 2 ? String(labels[labels.count - 2]) : String(labels.first ?? "")
+        empty = name.isEmpty
+        letter.stringValue = popup ? "↳" : empty ? "" : String(name.prefix(1)).uppercased()
+        var h: UInt32 = 5381
+        for b in name.utf8 { h = (h &* 33) ^ UInt32(b) }
+        hue = CGFloat(h % 360) / 360
+        needsDisplay = true
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            if empty {
+                layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+                letter.textColor = .secondaryLabelColor
+            } else {
+                layer?.backgroundColor = NSColor(hue: hue, saturation: dark ? 0.45 : 0.35, brightness: dark ? 0.55 : 0.92, alpha: 1).cgColor
+                letter.textColor = NSColor(hue: hue, saturation: 0.7, brightness: dark ? 0.98 : 0.4, alpha: 1)
+            }
+        }
+    }
 }
