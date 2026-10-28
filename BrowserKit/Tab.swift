@@ -541,6 +541,30 @@ extension Tab: WKNavigationDelegate {
         }
     }
 
+    /// A page that changes its address without loading (pushState, as
+    /// GitHub and most apps do, or an anchor): WebKit's private delegate call,
+    /// since nothing commits. 0 anchor, 1 push, 2 replace, 3 pop.
+    @objc(_webView:navigation:didSameDocumentNavigation:)
+    public func webView(_ webView: WKWebView, navigation: WKNavigation?, didSameDocumentNavigation type: Int) {
+        guard webView === self.webView, let url = webView.url, url.scheme == "http" || url.scheme == "https",
+              index >= 0, entries[index] != url else { return }
+        switch type {
+        case 2:
+            entries[index] = url
+        case 3:
+            // The page's own history.back() or forward() within the document.
+            if index > 0, entries[index - 1] == url { index -= 1 }
+            else if index + 1 < entries.count, entries[index + 1] == url { index += 1 }
+            else { entries[index] = url }
+        default:
+            entries.removeSubrange((index + 1)...)
+            entries.append(url)
+            index = entries.count - 1
+            History.shared.add(url)
+        }
+        delegate?.tabDidChange(self)
+    }
+
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         provisional = false
         let code = (error as NSError).code

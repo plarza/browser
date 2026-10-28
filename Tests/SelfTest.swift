@@ -266,6 +266,16 @@ enum SelfTest {
                 tab.goBack()
                 check("Back after a search from a blank tab reaches the new tab page", tab.url == nil && browser.newTabPageShown,
                       "url=\(tab.url?.absoluteString ?? "nil")")
+                // A site that changes pages with pushState, as GitHub does.
+                let app = server.url("/page/app")
+                await go(tab, one) { tab.load(one) }
+                await go(tab, app) { tab.load(app) }
+                _ = await js(tab, "history.pushState(null, '', '/page/app-issues'); history.pushState(null, '', '/page/app-pulls')")
+                let issues = server.url("/page/app-issues"), pulls = server.url("/page/app-pulls")
+                await expect("pushState pages join the tab's back list", { tab.entries.suffix(3) == [app, issues, pulls] },
+                             "entries=\(tab.entries.map(\.absoluteString))")
+                await go(tab, issues) { tab.goBack() }
+                check("Back after pushState reaches the site's previous page", tab.url == issues, "url=\(tab.url?.absoluteString ?? "nil")")
             }),
             ("tab list", {
                 _ = await open(one)
