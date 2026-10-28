@@ -376,6 +376,10 @@ extension Tab: WKNavigationDelegate {
         }
     }
 
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Favicons.shared.load(for: self)
+    }
+
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         provisional = false
     }

@@ -77,6 +77,7 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 - **Extension data.** Extensions' own storage, such as the Bitwarden vault, is kept.
 - Settings.
 - Nothing else is written: no cache, no favicons and no downloads list.
+- **Favicons** are read from the page's own `<link rel=icon>` through WebKit's isolated client world (invisible to the page), fetched with no cookies, and kept in memory only.
 
 ## Extensions
 

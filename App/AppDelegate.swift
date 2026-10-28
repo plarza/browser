@@ -7,13 +7,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settings: SettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.mainMenu = Menus.build(target: self)
         Blocker.shared.start()
         browser = BrowserWindowController()
+        NSApp.mainMenu = Menus.build(target: self, browser: browser)
         Extensions.shared.host = browser
         Extensions.shared.windowOpened()
         Extensions.shared.start()
         #if DEBUG
+        SelfTest.run(browser)
         // Debug builds only: `-coreInstall <store id>`, for testing from a script.
         if let id = UserDefaults.standard.string(forKey: "coreInstall") {
             Task { await Extensions.shared.install(from: id); NSLog("Core: install \(id): \(Extensions.shared.trouble ?? "ok")") }

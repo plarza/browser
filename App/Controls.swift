@@ -34,7 +34,7 @@ final class AddressField: NSView, NSTextFieldDelegate {
         field.cell?.usesSingleLineMode = true
         field.cell?.isScrollable = true
         field.delegate = self
-        field.onFocus = { [weak self] in self?.focus() }
+        field.onBecome = { [weak self] in self?.beginEditing() }
 
         icon.contentTintColor = .secondaryLabelColor
         icon.symbolConfiguration = .init(pointSize: 11, weight: .semibold)
@@ -79,9 +79,11 @@ final class AddressField: NSView, NSTextFieldDelegate {
 
     /// A click or ⌘L: the whole address, https and all, selected.
     func focus() {
-        if field.currentEditor() == nil { window?.makeFirstResponder(field) }
+        // The text goes in before focus does: changing a field's text while
+        // it is being edited ends the editing.
         beginEditing()
-        field.currentEditor()?.selectAll(nil)
+        if field.currentEditor() == nil { window?.makeFirstResponder(field) }
+        field.selectEverything()
     }
 
     /// The page's address: the host while not editing, all of it when you click in.
@@ -103,7 +105,7 @@ final class AddressField: NSView, NSTextFieldDelegate {
         return host
     }
 
-    private func beginEditing() {
+    fileprivate func beginEditing() {
         guard !isEditing else { return }
         isEditing = true
         field.alignment = .left
@@ -180,34 +182,35 @@ final class AddressField: NSView, NSTextFieldDelegate {
     }
 }
 
-/// Pure white (black in dark mode), with a hairline where it meets the page.
+/// Liquid Glass, flush with the window's edges, over the desktop showing
+/// faintly through. No line where it meets the page: the glass's own edge
+/// is the boundary.
 @MainActor
 final class Sidebar: NSView {
-    private let edge = CALayer()
+    private let behind = NSVisualEffectView()
+    private let glass = NSGlassEffectView()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        wantsLayer = true
-        layer?.addSublayer(edge)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override var wantsUpdateLayer: Bool { true }
-    override func updateLayer() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
-            edge.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.6).cgColor
+        behind.material = .sidebar
+        behind.blendingMode = .behindWindow
+        behind.state = .followsWindowActiveState
+        glass.style = .regular
+        glass.cornerRadius = 0
+        glass.contentView = NSView()
+        for v in [behind, glass] as [NSView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(v)
+            NSLayoutConstraint.activate([
+                v.leadingAnchor.constraint(equalTo: leadingAnchor),
+                v.trailingAnchor.constraint(equalTo: trailingAnchor),
+                v.topAnchor.constraint(equalTo: topAnchor),
+                v.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
         }
     }
 
-    override func layout() {
-        super.layout()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        edge.frame = NSRect(x: bounds.maxX - 0.5, y: 0, width: 0.5, height: bounds.height)
-        CATransaction.commit()
-    }
+    required init?(coder: NSCoder) { fatalError() }
 
     // The window drags from the sidebar's empty top, around the traffic lights.
     override var mouseDownCanMoveWindow: Bool { true }
@@ -282,15 +285,27 @@ enum Motion {
     }
 }
 
-/// A text field that, when clicked into, selects everything rather than
-/// placing a caret, as Safari's does. Clicks once editing go on as usual.
+/// The address text. Focused by any means, it holds the whole address with
+/// all of it selected; the window turns a first click into a focus (see
+/// BrowserWindowController.watchClicks) so no caret lands where it was clicked.
 @MainActor
 final class SelectingField: NSTextField {
-    var onFocus: () -> Void = {}
+    var onBecome: () -> Void = {}
 
-    override func mouseDown(with event: NSEvent) {
-        if currentEditor() == nil { onFocus() } else { super.mouseDown(with: event) }
+    override func becomeFirstResponder() -> Bool {
+        onBecome()
+        guard super.becomeFirstResponder() else { return false }
+        selectEverything()
+        return true
     }
+
+    /// The editor's text is the field's, all of it selected.
+    func selectEverything() {
+        guard let editor = currentEditor() as? NSTextView else { return }
+        if editor.string != stringValue { editor.string = stringValue }
+        editor.setSelectedRange(NSRange(location: 0, length: (editor.string as NSString).length))
+    }
+
 }
 
 /// A two-point line across the top of the page while it loads.

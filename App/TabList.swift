@@ -36,6 +36,9 @@ final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegat
         table.menu = NSMenu()
         table.menu?.delegate = self
         documentView = table
+        NotificationCenter.default.addObserver(forName: Favicons.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshAll(except: []) }
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -196,7 +199,7 @@ final class TabCell: NSTableCellView {
         label.stringValue = title
         label.font = .systemFont(ofSize: 13, weight: selected ? .medium : .regular)
         label.textColor = selected ? .labelColor : .secondaryLabelColor
-        tile.set(host: tab.url?.host, popup: tab.opener != nil)
+        tile.set(host: tab.url?.host, icon: Favicons.shared.icon(for: tab.url), popup: tab.opener != nil)
         if tab.isLoading { spinner.startAnimation(nil); tile.alphaValue = 0 } else { spinner.stopAnimation(nil); tile.alphaValue = 1 }
         isSelected = selected
         isPersist = tab.persist
@@ -241,13 +244,15 @@ final class TabCell: NSTableCellView {
     @objc private func closeClicked() { onClose() }
 }
 
-/// A site's initial on a soft tile coloured from its name. Core fetches no
-/// favicons: that would be a request the page didn't make.
+/// The site's icon, or, until it arrives (or when it has none), its
+/// initial on a soft tile coloured from its name.
 @MainActor
 final class Monogram: NSView {
     private let letter = NSTextField(labelWithString: "")
+    private let image = NSImageView()
     private var hue: CGFloat = 0
     private var empty = true
+    private var hasIcon = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -256,15 +261,27 @@ final class Monogram: NSView {
         layer?.cornerCurve = .continuous
         letter.font = .systemFont(ofSize: 10, weight: .bold)
         letter.alignment = .center
-        letter.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(letter)
-        letter.centerXAnchor.constraint(equalTo: centerXAnchor).isActive = true
-        letter.centerYAnchor.constraint(equalTo: centerYAnchor).isActive = true
+        image.imageScaling = .scaleProportionallyUpOrDown
+        image.wantsLayer = true
+        image.layer?.cornerRadius = 3
+        image.layer?.masksToBounds = true
+        for v in [letter, image] as [NSView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(v)
+        }
+        NSLayoutConstraint.activate([
+            letter.centerXAnchor.constraint(equalTo: centerXAnchor),
+            letter.centerYAnchor.constraint(equalTo: centerYAnchor),
+            image.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 1),
+            image.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -1),
+            image.topAnchor.constraint(equalTo: topAnchor, constant: 1),
+            image.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
+        ])
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func set(host: String?, popup: Bool) {
+    func set(host: String?, icon: NSImage?, popup: Bool) {
         // The site's own name: wikipedia from en.wikipedia.org.
         let labels = (host ?? "").split(separator: ".")
         let name = labels.count >= 2 ? String(labels[labels.count - 2]) : String(labels.first ?? "")
@@ -273,6 +290,17 @@ final class Monogram: NSView {
         var h: UInt32 = 5381
         for b in name.utf8 { h = (h &* 33) ^ UInt32(b) }
         hue = CGFloat(h % 360) / 360
+        let arriving = icon != nil && !hasIcon
+        hasIcon = icon != nil
+        image.image = icon
+        letter.isHidden = hasIcon
+        if arriving {
+            image.alphaValue = 0
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.25
+                image.animator().alphaValue = 1
+            }
+        }
         needsDisplay = true
     }
 
@@ -280,7 +308,9 @@ final class Monogram: NSView {
     override func updateLayer() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            if empty {
+            if hasIcon {
+                layer?.backgroundColor = NSColor.clear.cgColor
+            } else if empty {
                 layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
                 letter.textColor = .secondaryLabelColor
             } else {

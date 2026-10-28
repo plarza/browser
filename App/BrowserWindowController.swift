@@ -12,10 +12,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private var closed: [URL] = []
 
     private let sidebar = Sidebar()
-    private let address = AddressField()
+    fileprivate let address = AddressField()
     private let tabList = TabListView()
     private let actionBar = ActionBar()
-    private let content = PageArea()
+    fileprivate let content = PageArea()
     private let progress = ProgressLine()
     private let notice = NSTextField(labelWithString: "")
     private let findBar = FindBar()
@@ -30,7 +30,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     }()
 
     init() {
-        let window = NSWindow(
+        let window = BrowserWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1320, height: 860),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false
@@ -46,6 +46,34 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         super.init(window: window)
         window.delegate = self
         layout()
+        watchClicks()
+    }
+
+    /// A click anywhere but the field, while editing it, leaves it: on the
+    /// page, focus goes to the page; elsewhere, to nothing.
+    private var clickMonitor: Any?
+
+    private func watchClicks() {
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            MainActor.assumeIsolated { () -> NSEvent? in
+                guard let self, let window = self.window, event.window === window else { return event }
+                let inside = self.address.bounds.contains(self.address.convert(event.locationInWindow, from: nil))
+                // The first click on the field focuses it with everything
+                // selected, as Safari's does; later clicks place the caret.
+                if inside, !self.address.isEditing, event.type == .leftMouseDown {
+                    self.address.focus()
+                    return nil
+                }
+                guard self.address.isEditing, !inside else { return event }
+                if let web = self.selected?.webView, web.superview != nil,
+                   web.bounds.contains(web.convert(event.locationInWindow, from: nil)) {
+                    window.makeFirstResponder(web)
+                } else {
+                    window.makeFirstResponder(nil)
+                }
+                return event
+            }
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -307,10 +335,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     @objc func newTabAction(_ sender: Any?) { newTab(nil) }
     @objc func focusAddress(_ sender: Any?) {
-        guard sidebarShown || toggleSidebarIfHidden() else { return }
+        guard sidebarShown || toggleCoreSidebarIfHidden() else { return }
         address.focus()
     }
-    private func toggleSidebarIfHidden() -> Bool { toggleSidebar(nil); return true }
+    private func toggleCoreSidebarIfHidden() -> Bool { toggleCoreSidebar(nil); return true }
     @objc func closeTabAction(_ sender: Any?) {
         if let tab = selected { close(tab) }
     }
@@ -329,11 +357,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func zoomIn(_ sender: Any?) { selected.map { $0.webView.pageZoom = min(3, $0.webView.pageZoom + 0.1) } }
     @objc func zoomOut(_ sender: Any?) { selected.map { $0.webView.pageZoom = max(0.3, $0.webView.pageZoom - 0.1) } }
     @objc func togglePersist(_ sender: Any?) { selected?.persist.toggle() }
-    private var sidebarShown: Bool { sidebarLeading.constant == 0 }
+    fileprivate private(set) var sidebarShown = true
 
     /// ⌘S. Hidden, the page has the whole window, traffic lights and all.
-    @objc func toggleSidebar(_ sender: Any?) {
+    @objc func toggleCoreSidebar(_ sender: Any?) {
         let show = !sidebarShown
+        sidebarShown = show
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             window?.standardWindowButton(kind)?.animator().alphaValue = show ? 1 : 0
         }
@@ -342,7 +371,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             context.duration = 0.32
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
             context.allowsImplicitAnimation = true
-            sidebarLeading.animator().constant = show ? 0 : -width
+            sidebarLeading.constant = show ? 0 : -width
             sidebar.animator().alphaValue = show ? 1 : 0
             window?.contentView?.layoutSubtreeIfNeeded()
         }
@@ -398,7 +427,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         case #selector(goBack(_:)): return selected?.canGoBack ?? false
         case #selector(goForward(_:)): return selected?.canGoForward ?? false
         case #selector(reopenClosedTab(_:)): return !closed.isEmpty
-        case #selector(toggleSidebar(_:)):
+        case #selector(toggleCoreSidebar(_:)):
             item.title = sidebarShown ? "Hide Sidebar" : "Show Sidebar"
             return true
         default: return true
@@ -517,5 +546,26 @@ final class PopoverCloser: NSObject, NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) {
         action?.closePopup()
         action = nil
+    }
+}
+
+#if DEBUG
+extension BrowserWindowController {
+    var addressFieldForTesting: AddressField { address }
+    var selectedWebViewForTesting: NSView { selected?.webView ?? content }
+    var sidebarShownForTesting: Bool { sidebarShown }
+    var selectedTab: Tab? { selected }
+}
+#endif
+
+/// Core's shortcuts come before the page's: WKWebView takes every ⌘-key
+/// it is offered (⌘S, ⌘L…) and hands back only some of them.
+final class BrowserWindow: NSWindow {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.type == .keyDown, event.modifierFlags.contains(.command),
+           NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }

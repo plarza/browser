@@ -3,8 +3,9 @@ import AppKit
 /// The menu bar. Shortcuts follow Search's, plus ⌘I for Persist.
 @MainActor
 enum Menus {
-    static func build(target app: AppDelegate) -> NSMenu {
+    static func build(target app: AppDelegate, browser: BrowserWindowController) -> NSMenu {
         let main = NSMenu()
+        defer { aim(main, at: browser) }
 
         main.addItem(submenu("Core", [
             item("About Core", #selector(AppDelegate.showAbout(_:)), "", target: app),
@@ -50,7 +51,7 @@ enum Menus {
             item("Zoom In", #selector(BrowserWindowController.zoomIn(_:)), "+"),
             item("Zoom Out", #selector(BrowserWindowController.zoomOut(_:)), "-"),
             .separator(),
-            item("Hide Sidebar", #selector(BrowserWindowController.toggleSidebar(_:)), "s"),
+            item("Hide Sidebar", #selector(BrowserWindowController.toggleCoreSidebar(_:)), "s"),
             item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
         ]))
 
@@ -92,6 +93,19 @@ enum Menus {
         return main
     }
 
+    /// Browser commands go straight to the browser, not up the responder
+    /// chain: there, NSWindow's own toggleSidebar: and a web view that keeps
+    /// ⌘-keys can each get in the way, and nothing at all answers while
+    /// the window isn't key.
+    static func aim(_ menu: NSMenu, at browser: BrowserWindowController) {
+        for item in menu.items {
+            if let sub = item.submenu { aim(sub, at: browser) }
+            if item.target == nil, let action = item.action, browser.responds(to: action) {
+                item.target = browser
+            }
+        }
+    }
+
     static func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenuItem {
         let holder = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         let menu = NSMenu(title: title)
@@ -101,6 +115,15 @@ enum Menus {
     }
 
     static func item(_ title: String, _ action: Selector, _ key: String, _ mods: NSEvent.ModifierFlags = [.command], target: AnyObject? = nil) -> NSMenuItem {
+        // A shifted shortcut is written as the shifted character (⇧⌘S is
+        // "S"); a lowercase key with a shift mask also matches plain ⌘S.
+        var key = key
+        var mods = mods
+        if mods.contains(.shift), key != "\t" {
+            let shifted: [String: String] = ["[": "{", "]": "}", "=": "+", "-": "_", "/": "?"]
+            key = shifted[key] ?? key.uppercased()
+            mods.remove(.shift)
+        }
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.keyEquivalentModifierMask = key.isEmpty ? [] : mods
         item.target = target
