@@ -5,6 +5,8 @@ import CoreKit
 // it too; this keeps the shell and the engine telling the same story.
 UserDefaults.standard.set(["en-US"], forKey: "AppleLanguages")
 UserDefaults.standard.set("en_US", forKey: "AppleLocale")
+// Smooth scrolling for wheels and keys, as Safari has; WebKit reads this.
+UserDefaults.standard.set(true, forKey: "NSScrollAnimationEnabled")
 
 #if DEBUG
 // Debug builds only: a separate store, so a test instance never touches the

@@ -70,7 +70,7 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 ## Remembered on disk
 
-- **History:** each page's address and title, most recent first, with no visit times, icons or page contents. It feeds **about://history** (⌘Y): a page of its own, opened in a new tab, that searches every word across addresses and titles, removes entries one at a time, or clears everything. It runs on a `core:` scheme that only that page's web view can reach.
+- **History:** each page's address, title and visit count, most recent first, with no visit times, icons or page contents. It feeds the address field (inline completion of a visited site's name, and a ranked list of matching pages underneath) and **about://history** (⌘Y): a page of its own, opened in a new tab, that searches every word across addresses and titles, removes entries one at a time, or clears everything. It runs on a `core:` scheme that only that page's web view can reach.
 - **Open tabs:** URLs only. They come back on the next launch, each in a fresh session.
 - **Whitelist jars**, as described under Whitelist.
 - **Extension data.** Extensions' own storage, such as the Bitwarden vault, is kept.
@@ -82,6 +82,11 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 - Extensions work the way they do in Search: WebKit's WKWebExtension engine, Chrome Web Store install, and Search's fill-ins for the Chrome APIs WebKit lacks. Bitwarden is the expected password manager. Core has no built-in password store.
 - Extension content scripts can change pages in ways that are visible, so installing an extension is a fingerprinting trade-off the user chooses to make.
+
+## Mouse and trackpad
+
+- The mouse's back and forward buttons, and two-finger swipes, go through Core's own back and forward lists, the same as ⌘[ and ⌘].
+- Scrolling is smooth, as in Safari.
 
 ## Downloads
 

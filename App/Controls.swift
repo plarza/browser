@@ -12,6 +12,10 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
 
     private var url: URL?
     private var flashing: DispatchWorkItem?
+    /// Pages from history, under the field while typing. The window lays it out.
+    let suggestions = SuggestionList()
+    /// The last edit removed text: don't fill it straight back in.
+    private var deleting = false
     private static let placeholder = "Search or enter website name"
 
     init() {
@@ -24,6 +28,10 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
         lineBreakMode = .byTruncatingTail
         delegate = self
         clear = (cell as? NSSearchFieldCell)?.cancelButtonCell
+        suggestions.onPick = { [weak self] visit in
+            self?.suggestions.hide()
+            self?.onSubmit(visit.url)
+        }
         show(nil)
     }
 
@@ -84,17 +92,48 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
 
     func controlTextDidEndEditing(_ obj: Notification) {
         isEditing = false
+        suggestions.hide()
         show(url)
+    }
+
+    /// As you type: the rest of a site's name filled in and selected, so
+    /// typing on replaces it and Delete removes it; and the best pages from
+    /// history listed underneath.
+    func controlTextDidChange(_ obj: Notification) {
+        guard let editor = currentEditor() as? NSTextView else { return }
+        let typed = editor.string
+        let atEnd = editor.selectedRange().location == (typed as NSString).length
+        if !deleting, atEnd, let fill = History.shared.autofill(typed), fill.lowercased().hasPrefix(typed.lowercased()) {
+            let rest = String(fill.dropFirst(typed.count))
+            editor.string = typed + rest
+            editor.setSelectedRange(NSRange(location: (typed as NSString).length, length: (rest as NSString).length))
+        }
+        deleting = false
+        suggestions.show(History.shared.suggest(typed))
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
-            onSubmit(textView.string)
+            if let visit = suggestions.selected {
+                suggestions.hide()
+                onSubmit(visit.url)
+            } else {
+                suggestions.hide()
+                onSubmit(textView.string)
+            }
             return true
         case #selector(NSResponder.cancelOperation(_:)):
-            onEscape()
+            if suggestions.isShown { suggestions.hide() } else { onEscape() }
             return true
+        case #selector(NSResponder.moveDown(_:)):
+            return suggestions.move(1)
+        case #selector(NSResponder.moveUp(_:)):
+            return suggestions.move(-1)
+        case #selector(NSResponder.deleteBackward(_:)), #selector(NSResponder.deleteForward(_:)),
+             #selector(NSResponder.deleteWordBackward(_:)), #selector(NSResponder.deleteToBeginningOfLine(_:)):
+            deleting = true
+            return false
         default:
             return false
         }
@@ -113,6 +152,149 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
         flashing = restore
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: restore)
     }
+}
+
+/// The pages under the address field as you type: icon, title, address.
+/// ↑ and ↓ move through them, Return or a click opens one.
+@MainActor
+final class SuggestionList: NSView {
+    var onPick: (History.Visit) -> Void = { _ in }
+    private(set) var visits: [History.Visit] = []
+    private var index = -1
+    private let stack = NSStackView()
+    var isShown: Bool { !isHidden }
+    var selected: History.Visit? { visits.indices.contains(index) ? visits[index] : nil }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = 12
+        layer?.cornerCurve = .continuous
+        layer?.borderWidth = 0.5
+        shadow = NSShadow()
+        layer?.shadowOpacity = 0.12
+        layer?.shadowRadius = 12
+        layer?.shadowOffset = NSSize(width: 0, height: -4)
+        stack.orientation = .vertical
+        stack.spacing = 0
+        stack.edgeInsets = NSEdgeInsets(top: 5, left: 5, bottom: 5, right: 5)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+            layer?.borderColor = NSColor.separatorColor.cgColor
+        }
+    }
+
+    func show(_ visits: [History.Visit]) {
+        self.visits = visits
+        index = -1
+        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for (i, visit) in visits.enumerated() {
+            let row = SuggestionRow(visit)
+            row.onHover = { [weak self] in self?.select(i) }
+            row.onClick = { [weak self] in self?.onPick(visit) }
+            stack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -10).isActive = true
+        }
+        let show = !visits.isEmpty
+        guard show == isHidden else { return }
+        if show {
+            alphaValue = 0
+            isHidden = false
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            animator().alphaValue = show ? 1 : 0
+        } completionHandler: { [weak self] in
+            if !show { self?.isHidden = true }
+        }
+    }
+
+    func hide() { show([]) }
+
+    /// ↑/↓: false when there is nothing to move through.
+    func move(_ by: Int) -> Bool {
+        guard isShown, !visits.isEmpty else { return false }
+        select(min(max(index + by, -1), visits.count - 1))
+        return true
+    }
+
+    private func select(_ i: Int) {
+        index = i
+        for (n, row) in stack.arrangedSubviews.enumerated() { (row as? SuggestionRow)?.isSelected = n == i }
+    }
+}
+
+@MainActor
+final class SuggestionRow: NSView {
+    var onHover: () -> Void = {}
+    var onClick: () -> Void = {}
+    var isSelected = false { didSet { needsDisplay = true } }
+
+    init(_ visit: History.Visit) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.cornerCurve = .continuous
+        let icon = NSImageView(image: Favicons.shared.icon(for: URL(string: visit.url)) ?? NSImage(systemSymbolName: "globe", accessibilityDescription: nil)!)
+        icon.contentTintColor = .tertiaryLabelColor
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        let bare = History.bare(visit.url)
+        let title = NSTextField(labelWithString: visit.title.isEmpty ? bare : visit.title)
+        title.font = .systemFont(ofSize: 13)
+        title.lineBreakMode = .byTruncatingTail
+        let address = NSTextField(labelWithString: bare)
+        address.font = .systemFont(ofSize: 11)
+        address.textColor = .secondaryLabelColor
+        address.lineBreakMode = .byTruncatingTail
+        for v in [icon, title, address] as [NSView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(v)
+        }
+        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        address.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: 40),
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 16),
+            icon.heightAnchor.constraint(equalToConstant: 16),
+            title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 9),
+            title.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+            title.bottomAnchor.constraint(equalTo: centerYAnchor, constant: 1),
+            address.leadingAnchor.constraint(equalTo: title.leadingAnchor),
+            address.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+            address.topAnchor.constraint(equalTo: centerYAnchor, constant: 1),
+        ])
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(isSelected ? 0.07 : 0).cgColor
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHover() }
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) { onClick() }
 }
 
 /// Pure white (black in dark mode), flush with the page, with no line

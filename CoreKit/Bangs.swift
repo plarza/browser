@@ -44,7 +44,6 @@ public enum Bangs {
         add(["ddgh", "ddghtml"], b("https://html.duckduckgo.com/html/?q=%s"))
         add(["b", "bing"], b("https://www.bing.com/search?q=%s"))
         add(["brave", "bs"], b("https://search.brave.com/search?q=%s"))
-        add(["leta", "mullvad"], b("https://leta.mullvad.net/search?q=%s"))
         add(["sp", "startpage"], b("https://www.startpage.com/do/search?query=%s"))
         add(["kagi", "k"], b("https://kagi.com/search?q=%s"))
         add(["qw", "qwant"], b("https://www.qwant.com/?q=%s"))

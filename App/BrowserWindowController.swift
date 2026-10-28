@@ -48,6 +48,25 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         layout()
         watchClicks()
         watchSwipes()
+        watchMouseButtons()
+    }
+
+    /// A mouse's back and forward buttons do what ⌘[ and ⌘] do. WebKit
+    /// would otherwise take them for its own lists, which a wipe empties.
+    private var buttonMonitor: Any?
+
+    private func watchMouseButtons() {
+        buttonMonitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp]) { [weak self] event in
+            MainActor.assumeIsolated { () -> NSEvent? in
+                guard let self, event.window === self.window, event.buttonNumber == 3 || event.buttonNumber == 4 else { return event }
+                if event.type == .otherMouseDown { self.mouseButton(event.buttonNumber) }
+                return nil
+            }
+        }
+    }
+
+    fileprivate func mouseButton(_ number: Int) {
+        if number == 3 { selected?.goBack() } else { selected?.goForward() }
     }
 
     /// Two-finger swipes left and right go back and forward, as in Safari.
@@ -130,7 +149,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
                     self.address.focus()
                     return nil
                 }
-                guard self.address.isEditing, !inside else { return event }
+                let list = self.address.suggestions
+                let onList = list.isShown && list.bounds.contains(list.convert(event.locationInWindow, from: nil))
+                guard self.address.isEditing, !inside, !onList else { return event }
                 if let web = self.selected?.webView, web.superview != nil,
                    web.bounds.contains(web.convert(event.locationInWindow, from: nil)) {
                     window.makeFirstResponder(web)
@@ -160,7 +181,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         tabList.onDuplicate = { [weak self] tab in if let url = tab.url { self?.newTab(url, after: tab) } }
         tabList.onCloseOthers = { [weak self] tab in
             guard let self else { return }
-            for other in self.tabs where other !== tab { self.close(other) }
+            let others = self.tabs.filter { $0 !== tab }
+            guard !others.isEmpty else { return }
+            Task {
+                guard await Dialogs.ask(in: self.window, "Close \(others.count) other tab\(others.count == 1 ? "" : "s")?", detail: "", yes: "Close", no: "Cancel") else { return }
+                for other in others { self.close(other) }
+            }
         }
 
         divider.onDrag = { [weak self] delta in self?.resizeSidebar(by: delta) }
@@ -185,6 +211,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         root.addSubview(sidebar)
         root.addSubview(divider)
         for view in [address, actionBar, tabList, notice] as [NSView] { sidebar.addSubview(view) }
+        // Over the tabs, under the field.
+        address.suggestions.translatesAutoresizingMaskIntoConstraints = false
+        sidebar.addSubview(address.suggestions)
         content.addSubview(progress)
         content.addSubview(findBar)
         findBar.isHidden = true
@@ -213,6 +242,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             address.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 42),
             address.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
             address.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
+
+            address.suggestions.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 6),
+            address.suggestions.leadingAnchor.constraint(equalTo: address.leadingAnchor, constant: -2),
+            address.suggestions.trailingAnchor.constraint(equalTo: address.trailingAnchor, constant: 2),
 
             actionBar.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 8),
             actionBar.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 12),
@@ -638,6 +671,7 @@ extension BrowserWindowController {
     var selectedWebViewForTesting: NSView { selected?.webView ?? content }
     var sidebarShownForTesting: Bool { sidebarShown }
     var selectedTab: Tab? { selected }
+    func mouseButtonForTesting(_ number: Int) { mouseButton(number) }
     func swipeForTesting(_ phase: NSEvent.Phase, dx: CGFloat) { follow(phase, dx: dx, dy: 0) }
 }
 #endif

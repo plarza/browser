@@ -90,7 +90,9 @@ enum SelfTest {
                   "url=\(browser.selectedTab?.url?.absoluteString ?? "nil") sections=\(sections ?? -1)")
             _ = try? await page?.evaluateJavaScript("document.querySelector('#picks button').click()", in: nil, contentWorld: .page)
             try? await Task.sleep(for: .milliseconds(500))
-            check("choosing a search engine in Settings saves it", Preferences.shared.settings.searchTemplate.contains("leta.mullvad.net"),
+            let fixed = try? await page?.evaluateJavaScript("[...document.querySelectorAll('textarea')].every(t => getComputedStyle(t).resize === 'none' && t.offsetHeight >= 190)", in: nil, contentWorld: .page) as? Bool
+            check("the Settings text boxes are tall and fixed", fixed == true, "fixed=\(String(describing: fixed))")
+            check("choosing a search engine in Settings saves it", Preferences.shared.settings.searchTemplate.contains("google.com"),
                   "template=\(Preferences.shared.settings.searchTemplate)")
 
             // A two-finger swipe right goes back; a short one doesn't.
@@ -111,6 +113,34 @@ enum SelfTest {
             try? await Task.sleep(for: .seconds(2))
             check("a short swipe left doesn't go forward", swiper.url?.host == "example.com", "url=\(swiper.url?.absoluteString ?? "nil")")
 
+            // A mouse's forward button goes forward, as ⌘] does.
+            browser.mouseButtonForTesting(4)
+            try? await Task.sleep(for: .seconds(3))
+            check("the mouse's forward button goes forward", swiper.url?.host == "example.org", "url=\(swiper.url?.absoluteString ?? "nil")")
+            browser.mouseButtonForTesting(3)
+            try? await Task.sleep(for: .seconds(3))
+            check("the mouse's back button goes back", swiper.url?.host == "example.com", "url=\(swiper.url?.absoluteString ?? "nil")")
+
+            // Typing fills in a site you've been to, and lists pages from history.
+            let field = browser.addressFieldForTesting
+            field.focus()
+            let typing = window.fieldEditor(true, for: field) as? NSTextView
+            typing?.selectAll(nil)
+            for ch in "en.wik" { typing?.insertText(String(ch), replacementRange: typing?.selectedRange() ?? NSRange()) }
+            let filled = typing?.string ?? ""
+            let filledSelection = typing?.selectedRange() ?? NSRange()
+            check("typing fills in the rest of a visited site's name", filled == "en.wikipedia.org" && filledSelection == NSRange(location: 6, length: 10),
+                  "text=\(filled) selection=\(filledSelection)")
+            typing?.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+            check("Delete removes what was filled in", typing?.string == "en.wik", "text=\(typing?.string ?? "nil")")
+            typing?.selectAll(nil)
+            for ch in "webkit" { typing?.insertText(String(ch), replacementRange: typing?.selectedRange() ?? NSRange()) }
+            let listed = field.suggestions.visits
+            check("history suggestions match by title", field.suggestions.isShown && listed.first?.title.contains("WebKit") == true,
+                  "shown=\(field.suggestions.isShown) first=\(listed.first?.title ?? "none")")
+            window.makeFirstResponder(nil)
+            check("leaving the field hides the suggestions", !field.suggestions.isShown || field.suggestions.alphaValue < 1, "shown=\(field.suggestions.isShown)")
+
             // The filter lists, fetched at launch, compile into the blocker.
             for _ in 0 ..< 120 where Blocker.shared.ruleCount == 0 && Blocker.shared.trouble == nil {
                 try? await Task.sleep(for: .seconds(1))
@@ -126,6 +156,14 @@ enum SelfTest {
                 browser.select(wiki)
                 NSLog("Core self-test: SHOT page")
                 try? await Task.sleep(for: .seconds(4))
+                let field = browser.addressFieldForTesting
+                field.focus()
+                let editor = window.fieldEditor(true, for: field) as? NSTextView
+                for ch in "wik" { editor?.insertText(String(ch), replacementRange: editor?.selectedRange() ?? NSRange()) }
+                try? await Task.sleep(for: .milliseconds(500))
+                NSLog("Core self-test: SHOT suggest")
+                try? await Task.sleep(for: .seconds(4))
+                window.makeFirstResponder(nil)
                 browser.showHistory(nil)
                 try? await Task.sleep(for: .seconds(1))
                 NSLog("Core self-test: SHOT history")
