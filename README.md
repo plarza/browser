@@ -4,7 +4,7 @@
 
 A private macOS browser on its own build of WebKit.
 
-![Browser with tabs open and the new tab page](release/screenshot.png)
+![Browser with tabs open and the new tab page](release/screenshot.webp)
 
 ## Engine patches
 
@@ -81,7 +81,11 @@ It logs PASS/FAIL per check, ends with a count and quits, exiting non-zero if an
 
 ## Screenshot
 
-`release/screenshot.sh` redraws `release/screenshot.png` from a debug build: the tabs listed in the script load from the internet into a throwaway data folder, and the new tab page is in front. `release/screenshot.sh dark` is the dark version; `FILL=1` puts the picture behind the sidebar too.
+`release/screenshot.sh` redraws `release/screenshot.webp` (quality 80) from a debug build: the tabs listed in the script load from the internet into a throwaway data folder, and the new tab page is in front. `release/screenshot.sh dark` is the dark version; `FILL=1` puts the picture behind the sidebar too.
+
+## Licence
+
+MIT, in `LICENSE`. WebKit, which `engine/patches/` changes, keeps its own licences.
 
 ## Layout
 

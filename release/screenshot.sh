@@ -1,6 +1,7 @@
 #!/bin/bash
 # README's screenshot: Browser with these tabs open and the new tab page in
-# front, drawn by the app itself into release/screenshot.png. Run it again
+# front, drawn by the app itself into release/screenshot.webp (quality 80).
+# Run it again
 # whenever the window changes.
 #
 #   release/screenshot.sh            light
@@ -26,16 +27,20 @@ TABS=(
 PERSIST=https://github.com/WebKit/WebKit
 
 APPEARANCE="${1:-light}"
-OUT="$PWD/release/screenshot.png"
+OUT="$PWD/release/screenshot.webp"
 STORE="$(mktemp -d)"
+PNG="$STORE/screenshot.png"
 trap 'rm -rf "$STORE"' EXIT
 
+command -v cwebp >/dev/null || brew install webp
 ./build.sh debug >/dev/null
 build/Browser.app/Contents/MacOS/Browser \
   -browserStore "$STORE" \
-  -browserScreenshot "$OUT" \
+  -browserScreenshot "$PNG" \
   -browserScreenshotTabs "$(IFS=,; echo "${TABS[*]}")" \
   -browserScreenshotPersist "$PERSIST" \
   -browserScreenshotAppearance "$APPEARANCE" \
-  -browserScreenshotFill "$([ "${FILL:-0}" = 1 ] && echo YES || echo NO)"
+  -browserScreenshotFill "$([ "${FILL:-0}" = 1 ] && echo YES || echo NO)" \
+  -sidebarWidth 336
+cwebp -quiet -q 80 "$PNG" -o "$OUT"
 echo "$OUT"

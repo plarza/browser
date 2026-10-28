@@ -36,7 +36,12 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN" "$APP/Contents/MacOS/BrowserApp"
 clang -O2 -mmacosx-version-min=26.0 -o "$APP/Contents/MacOS/Browser" engine/launcher.c
-sed -e "s/VERSION/$VERSION/" -e "s/BUILD/$BUILD/" release/Info.plist > "$APP/Contents/Info.plist"
+# A debug build is its own app to macOS, so it has its own WebKit data
+# (~/Library/WebKit/network.aza.browser.debug): the self-test and the
+# screenshot delete data stores, and must never reach the real Browser's.
+ID=network.aza.browser
+[ "$CONFIG" = debug ] && ID=network.aza.browser.debug
+sed -e "s/VERSION/$VERSION/" -e "s/BUILD/$BUILD/" -e "s/network\.aza\.browser/$ID/" release/Info.plist > "$APP/Contents/Info.plist"
 # The icon: release/Browser.icon (Icon Composer's format, a plain glyph on a
 # fill), which actool renders into the Liquid Glass icon and an .icns.
 # actool resolves relative paths against a directory of its own: absolute ones.

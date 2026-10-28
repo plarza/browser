@@ -20,6 +20,14 @@ enum SelfTest {
     /// Before anything starts: the local site, and settings pointing at it,
     /// so not even the launch's filter-list fetch reaches the internet.
     static func prepare() {
+        guard enabled || UserDefaults.standard.string(forKey: "browserScreenshot") != nil else { return }
+        // Both delete data stores, and WebKit keeps those per app, not per
+        // -browserStore: only a debug build's own app id keeps the real
+        // Browser's cookies out of reach.
+        guard Bundle.main.bundleIdentifier?.hasSuffix(".debug") == true else {
+            NSLog("Browser self-test: refusing to run as \(Bundle.main.bundleIdentifier ?? "?"); build with ./build.sh debug")
+            exit(EXIT_FAILURE)
+        }
         guard enabled else { return }
         server = TestServer()
         Preferences.shared.settings = settings
@@ -644,6 +652,10 @@ enum SelfTest {
             }
             if !loaded { NSLog("Browser screenshot: some tabs hadn't loaded: \(tabs.filter(\.isLoading).compactMap(\.url))") }
             window.makeFirstResponder(nil)
+            // The active window, so its buttons are in colour.
+            NSApp.activate()
+            window.makeKeyAndOrderFront(nil)
+            _ = await until("the window to be key", seconds: 5) { window.isKeyWindow }
             let saved = await capture(browser, to: URL(fileURLWithPath: out))
             NSLog("Browser screenshot: \(saved ? "wrote \(out)" : "failed")")
             exit(saved ? EXIT_SUCCESS : EXIT_FAILURE)
