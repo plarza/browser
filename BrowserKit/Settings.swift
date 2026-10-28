@@ -140,13 +140,7 @@ public enum Whitelist {
             .max { $0.count < $1.count }
     }
 
-    static func storeID(for domain: String) -> UUID {
-        var bytes = Array(SHA256.hash(data: Data(("browser.jar." + domain).utf8)).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x50
-        bytes[8] = (bytes[8] & 0x3F) | 0x80
-        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-                           bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
-    }
+    static func storeID(for domain: String) -> UUID { UUID(hashing: "browser.jar." + domain) }
 
     /// Random the first time, then fixed for as long as the domain stays.
     static func seed(for domain: String) -> UInt64 {
@@ -156,5 +150,16 @@ public enum Whitelist {
         seeds[domain] = seed
         Store.write(seeds, "seeds.json")
         return seed
+    }
+}
+
+extension UUID {
+    /// The same UUID for the same text every time: a version 5 style UUID
+    /// from its SHA-256.
+    init(hashing text: String) {
+        var bytes = Array(SHA256.hash(data: Data(text.utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x50
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        self = bytes.withUnsafeBytes { $0.load(as: UUID.self) }
     }
 }

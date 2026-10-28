@@ -256,11 +256,7 @@ public final class Tab: NSObject {
         dropRetired()
         for popup in popups { popup.close() }
         popups = []
-        observations = []
-        webView.stopLoading()
-        webView.navigationDelegate = nil
-        webView.uiDelegate = nil
-        webView.removeFromSuperview()
+        detach(webView)
         opener?.popups.removeAll { $0 === self }
     }
 
@@ -323,7 +319,7 @@ public final class Tab: NSObject {
         }
         url = CleanLink.clean(url)
         upgradedFrom = nil
-        if url.scheme?.lowercased() == "http", url != httpAllowed {
+        if url.scheme?.lowercased() == "http", url != httpAllowed, !Tab.isLoopback(url.host) {
             upgradedFrom = url
             var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
             parts?.scheme = "https"
@@ -368,10 +364,7 @@ public final class Tab: NSObject {
     private func replaceWebView(with configuration: WKWebViewConfiguration) {
         internalPage = nil
         let old = webView
-        observations = []
-        old.stopLoading()
-        old.navigationDelegate = nil
-        old.uiDelegate = nil
+        detach(old, keepOnScreen: true)
         // A popup's jar is its opener's; once the opener moves on, the
         // popup has nothing to share and closes.
         for popup in popups { popup.close(); delegate?.tabWantsToClose(popup) }
@@ -380,6 +373,16 @@ public final class Tab: NSObject {
         attach()
         delegate?.tab(self, didReplace: old)
         old.removeFromSuperview()
+    }
+
+    /// Lets go of a web view: nothing it does reaches this tab any more.
+    /// One being replaced stays on screen until its successor is shown.
+    private func detach(_ view: WKWebView, keepOnScreen: Bool = false) {
+        observations = []
+        view.stopLoading()
+        view.navigationDelegate = nil
+        view.uiDelegate = nil
+        if !keepOnScreen { view.removeFromSuperview() }
     }
 
     private func record(_ url: URL) {
@@ -445,7 +448,7 @@ public final class Tab: NSObject {
             } else {
                 staysPut = persist && identity === own
             }
-            if staysPut, webView.configuration.websiteDataStore === identity.store, scheme == "https", CleanLink.clean(url) == url {
+            if staysPut, webView.configuration.websiteDataStore === identity.store, scheme == "https" || Tab.isLoopback(url.host), CleanLink.clean(url) == url {
                 pendingDirection = .new
                 return .allow
             }
@@ -454,19 +457,20 @@ public final class Tab: NSObject {
         return .cancel
     }
 
+    /// This Mac itself: plain HTTP to it never leaves the machine, so it
+    /// isn't upgraded (as Chrome's and Firefox's HTTPS-only modes don't).
+    static func isLoopback(_ host: String?) -> Bool {
+        guard let host = host?.lowercased() else { return false }
+        return ["localhost", "127.0.0.1", "::1", "[::1]"].contains(host) || host.hasSuffix(".localhost")
+    }
+
     static func isUserInitiated(_ action: WKNavigationAction) -> Bool {
-        let selector = NSSelectorFromString("_isUserInitiated")
-        typealias Getter = @convention(c) (AnyObject, Selector) -> Bool
-        return unsafeBitCast(action.method(for: selector), to: Getter.self)(action, selector)
+        action.value(forKey: "_isUserInitiated") as? Bool ?? true
     }
 
     static func sameDocument(_ a: URL, _ b: URL) -> Bool {
-        guard b.fragment != nil else { return false }
-        var x = URLComponents(url: a, resolvingAgainstBaseURL: false)
-        var y = URLComponents(url: b, resolvingAgainstBaseURL: false)
-        x?.fragment = nil
-        y?.fragment = nil
-        return x?.url == y?.url
+        let page = { (url: URL) in url.absoluteString.prefix { $0 != "#" } }
+        return b.fragment != nil && page(a) == page(b)
     }
 
     private func showInterstitial(for url: URL) {

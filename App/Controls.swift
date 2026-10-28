@@ -1,6 +1,20 @@
 import AppKit
 import BrowserKit
 
+extension NSView {
+    /// Adds `child` flush with all four edges, below `sibling` if given.
+    func addPinned(_ child: NSView, below sibling: NSView? = nil) {
+        child.translatesAutoresizingMaskIntoConstraints = false
+        if let sibling { addSubview(child, positioned: .below, relativeTo: sibling) } else { addSubview(child) }
+        NSLayoutConstraint.activate([
+            child.leadingAnchor.constraint(equalTo: leadingAnchor),
+            child.trailingAnchor.constraint(equalTo: trailingAnchor),
+            child.topAnchor.constraint(equalTo: topAnchor),
+            child.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+}
+
 /// The one field: AppKit's search field, as Safari's is. It shows the host
 /// while you're not editing, and the whole address, all selected, when you
 /// click in or press ⌘L.
@@ -133,13 +147,9 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
-            if let visit = suggestions.selected {
-                suggestions.hide()
-                onSubmit(visit.url)
-            } else {
-                suggestions.hide()
-                onSubmit(textView.string)
-            }
+            let text = suggestions.selected?.url ?? textView.string
+            suggestions.hide()
+            onSubmit(text)
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             if suggestions.isShown { suggestions.hide() } else { onEscape() }
@@ -196,14 +206,7 @@ final class SuggestionList: NSView {
         stack.orientation = .vertical
         stack.spacing = 0
         stack.edgeInsets = NSEdgeInsets(top: 5, left: 5, bottom: 5, right: 5)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+        addPinned(stack)
         isHidden = true
     }
 
@@ -315,10 +318,11 @@ final class SuggestionRow: NSView {
     override func mouseUp(with event: NSEvent) { onClick() }
 }
 
-/// Pure white (black in dark mode), flush with the page, with no line
-/// between them.
+/// The sidebar and the page area: pure white (black in dark mode), flush
+/// with each other with no line between them, or clear over the new tab
+/// page's backdrop, which draws the glass (see `NewTabBackdrop.glassWidth`).
 @MainActor
-final class Sidebar: NSView {
+final class Surface: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
@@ -326,34 +330,6 @@ final class Sidebar: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// White, or clear over the window's backdrop, which draws the glass
-    /// (see `NewTabBackdrop.glassWidth`).
-    var isFrosted = false {
-        didSet { needsDisplay = true }
-    }
-
-    override var wantsUpdateLayer: Bool { true }
-    override func updateLayer() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = isFrosted ? NSColor.clear.cgColor : NSColor.textBackgroundColor.cgColor
-        }
-    }
-
-    // The window drags from the sidebar's empty top, around the traffic lights.
-    override var mouseDownCanMoveWindow: Bool { true }
-}
-
-/// Where the page goes.
-@MainActor
-final class PageArea: NSView {
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    /// Clear under a blank tab's new tab page, white under pages.
     var isClear = false { didSet { if isClear != oldValue { needsDisplay = true } } }
 
     override var wantsUpdateLayer: Bool { true }
@@ -362,7 +338,16 @@ final class PageArea: NSView {
             layer?.backgroundColor = isClear ? NSColor.clear.cgColor : NSColor.textBackgroundColor.cgColor
         }
     }
+}
 
+extension CATransaction {
+    /// Layer changes made at once, or over `duration` when given.
+    static func run(duration: CFTimeInterval? = nil, _ changes: () -> Void) {
+        begin()
+        if let duration { setAnimationDuration(duration) } else { setDisableActions(true) }
+        changes()
+        commit()
+    }
 }
 
 /// What a blank tab shows behind nothing: the chosen picture filling the
@@ -445,16 +430,15 @@ final class NewTabBackdrop: NSView {
 
     override func layout() {
         super.layout()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        picture.frame = bounds
-        frost.frame = bounds
-        glass.isHidden = glassWidth <= 0
-        glass.frame = NSRect(x: 0, y: 0, width: glassWidth, height: bounds.height)
-        // The blurred copy lies exactly over the picture, cut to the sidebar.
-        blurred.frame = bounds
-        tint.frame = glass.bounds
-        CATransaction.commit()
+        CATransaction.run {
+            picture.frame = bounds
+            frost.frame = bounds
+            glass.isHidden = glassWidth <= 0
+            glass.frame = NSRect(x: 0, y: 0, width: glassWidth, height: bounds.height)
+            // The blurred copy lies exactly over the picture, cut to the sidebar.
+            blurred.frame = bounds
+            tint.frame = glass.bounds
+        }
     }
 }
 
@@ -487,10 +471,7 @@ final class SidebarShadow: NSView {
 
     override func layout() {
         super.layout()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        gradient.frame = NSRect(x: 0, y: 0, width: Self.width, height: bounds.height)
-        CATransaction.commit()
+        CATransaction.run { gradient.frame = NSRect(x: 0, y: 0, width: Self.width, height: bounds.height) }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -559,10 +540,7 @@ final class ProgressLine: NSView {
         let done = value >= 1
         if !done && self.value >= 1 {
             // A new load: start from nothing, without animating back.
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            bar.frame.size.width = 0
-            CATransaction.commit()
+            CATransaction.run { bar.frame.size.width = 0 }
         }
         self.value = value
         NSAnimationContext.runAnimationGroup { context in
@@ -676,30 +654,34 @@ final class FindBar: NSGlassEffectView, NSSearchFieldDelegate {
     }
 }
 
+/// Every dialog in Browser, as a sheet on the window: Return answers yes,
+/// Escape answers no (or dismisses an alert that has only OK).
 @MainActor
 enum Dialogs {
-    static func ask(in window: NSWindow?, _ message: String, detail: String, yes: String, no: String?) async -> Bool {
+    static func ask(in window: NSWindow? = NSApp.keyWindow, _ message: String, detail: String = "", yes: String, no: String? = "Cancel",
+                    field: NSTextField? = nil) async -> Bool {
         let alert = NSAlert()
         alert.messageText = message
         alert.informativeText = detail
         alert.addButton(withTitle: yes)
-        if let no { alert.addButton(withTitle: no) }
+        if let no { alert.addButton(withTitle: no).keyEquivalent = "\u{1b}" }
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        // AppKit gives an OK-only alert no Escape: an unseen button that presses OK.
+        if no == nil {
+            let escape = NSButton(title: "", target: alert.buttons[0], action: #selector(NSButton.performClick(_:)))
+            escape.keyEquivalent = "\u{1b}"
+            escape.frame = .zero
+            alert.accessoryView = NSView(frame: .zero)
+            alert.accessoryView?.addSubview(escape)
+        }
         guard let window else { return alert.runModal() == .alertFirstButtonReturn }
         return await alert.beginSheetModal(for: window) == .alertFirstButtonReturn
     }
 
     static func prompt(in window: NSWindow?, _ message: String, detail: String, text: String) async -> String? {
-        let alert = NSAlert()
-        alert.messageText = message
-        alert.informativeText = detail
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
         let field = NSTextField(string: text)
         field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
-        let response: NSApplication.ModalResponse
-        if let window { response = await alert.beginSheetModal(for: window) } else { response = alert.runModal() }
-        return response == .alertFirstButtonReturn ? field.stringValue : nil
+        return await ask(in: window, message, detail: detail, yes: "OK", no: "Cancel", field: field) ? field.stringValue : nil
     }
 }

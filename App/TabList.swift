@@ -74,17 +74,17 @@ final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegat
         self.tabs = tabs
         self.selected = selected
         // One tab in or out: animate just that row; anything else redraws.
-        if tabs.count == old.count + 1, let i = tabs.indices.first(where: { $0 >= old.count || tabs[$0] !== old[$0] }),
-           Array(tabs[..<i]) == Array(old[..<i]), Array(tabs[(i + 1)...]) == Array(old[i...]) {
+        let change = tabs.difference(from: old) { $0 === $1 }
+        switch (change.insertions.first, change.removals.first, change.count) {
+        case (.insert(let i, _, _)?, nil, 1):
             table.insertRows(at: [i], withAnimation: [.effectFade, .slideDown])
             refreshAll(except: [i])
-        } else if tabs.count + 1 == old.count, let i = old.indices.first(where: { $0 >= tabs.count || tabs[$0] !== old[$0] }),
-                  Array(old[..<i]) == Array(tabs[..<i]), Array(old[(i + 1)...]) == Array(tabs[i...]) {
+        case (nil, .remove(let i, _, _)?, 1):
             table.removeRows(at: [i], withAnimation: [.effectFade, .slideUp])
             refreshAll(except: [])
-        } else if tabs.count == old.count, zip(tabs, old).allSatisfy({ $0 === $1 }) {
+        case (_, _, 0):
             if previous !== selected { refreshAll(except: []) }
-        } else {
+        default:
             table.reloadData()
         }
         if let selected, let row = tabs.firstIndex(where: { $0 === selected }) { table.scrollRowToVisible(row) }
@@ -110,7 +110,8 @@ final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegat
         cell.identifier = .init("cell")
         let tab = tabs[row]
         cell.configure(tab, selected: tab === selected)
-        cell.onClose = { [weak self] in self?.onClose(tab) }
+        // Weakly: AppKit keeps cells for reuse, and a closed tab must go, jar and all.
+        cell.onClose = { [weak self, weak tab] in if let tab { self?.onClose(tab) } }
         return cell
     }
 
@@ -153,13 +154,16 @@ final class TabTable: NSTableView {
             }
         }
         if let lifted {
+            // The row's own view, not its index: the list can change before
+            // the animation ends (a tab closed), and the view goes with it.
+            weak var hidden = view(atColumn: 0, row: current, makeIfNecessary: false)
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.12
                 lifted.animator().frame.origin.y = rect(ofRow: current).minY
             } completionHandler: {
                 MainActor.assumeIsolated {
                     lifted.removeFromSuperview()
-                    self.view(atColumn: 0, row: current, makeIfNecessary: false)?.alphaValue = 1
+                    hidden?.alphaValue = 1
                 }
             }
         } else {
@@ -341,10 +345,7 @@ final class TabCell: NSTableCellView {
 
     override func layout() {
         super.layout()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        sky.frame = bounds
-        CATransaction.commit()
+        CATransaction.run { sky.frame = bounds }
     }
 
     override func updateTrackingAreas() {

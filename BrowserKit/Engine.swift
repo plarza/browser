@@ -27,6 +27,20 @@ public enum Engine {
         return "Version/\(version) Safari/605.1.15"
     }()
 
+    static var userAgent: String { "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) \(applicationName)" }
+
+    /// For Browser's own requests (filter lists, icons): no cookies, no
+    /// cache, Safari's user agent, nothing that ties one request to the next.
+    static func session(timeout: TimeInterval, headers: [String: String] = [:]) -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.httpCookieAcceptPolicy = .never
+        config.httpShouldSetCookies = false
+        config.urlCache = nil
+        config.timeoutIntervalForRequest = timeout
+        config.httpAdditionalHeaders = headers.merging(["User-Agent": userAgent]) { a, _ in a }
+        return URLSession(configuration: config)
+    }
+
     /// A configuration for a page in `identity`. Everything a page can
     /// switch on through preferences is decided here, once.
     static func configuration(for identity: Identity, content: WKUserContentController) -> WKWebViewConfiguration {
@@ -49,9 +63,7 @@ public enum Engine {
         config.defaultWebpagePreferences.preferredContentMode = .desktop
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         // Web Inspector (⇧⌘I) for the person at the keyboard; nothing a page can see.
-        let extras = NSSelectorFromString("_setDeveloperExtrasEnabled:")
-        typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
-        unsafeBitCast(config.preferences.method(for: extras), to: Setter.self)(config.preferences, extras, true)
+        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         harden(config.defaultWebpagePreferences, seed: identity.seed)
         return config
     }

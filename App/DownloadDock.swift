@@ -17,14 +17,7 @@ final class DownloadDock: NSView {
         stack.orientation = .vertical
         stack.spacing = 3
         stack.alignment = .width
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-        ])
+        addPinned(stack)
         NotificationCenter.default.addObserver(forName: Downloads.changed, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reload() }
         }
@@ -170,10 +163,7 @@ final class DownloadTile: NSView {
         super.layout()
         // The progress is the row's background; a finished row is plain again.
         let fraction = item.state == .active ? (item.fraction ?? 0) : 0
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(0.2)
-        fill.frame = NSRect(x: 0, y: 0, width: bounds.width * fraction, height: bounds.height)
-        CATransaction.commit()
+        CATransaction.run(duration: 0.2) { fill.frame = NSRect(x: 0, y: 0, width: bounds.width * fraction, height: bounds.height) }
     }
 
     override func updateTrackingAreas() {

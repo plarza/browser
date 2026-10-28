@@ -18,6 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case .dark: NSAppearance(named: .darkAqua)
                 }
             }
+        #if DEBUG
+        SelfTest.prepare()
+        #endif
         Blocker.shared.start()
         browser = BrowserWindowController()
         NSApp.mainMenu = Menus.build(target: self, browser: browser)

@@ -39,18 +39,13 @@ public final class Blocker {
     }
 
     private func remove(_ id: String) {
-        for controller in controllers.allObjects {
-            for old in lists where old.identifier == id { controller.remove(old) }
-        }
+        for old in lists where old.identifier == id { controllers.allObjects.forEach { $0.remove(old) } }
         lists.removeAll { $0.identifier == id }
     }
 
-    private func install(_ list: WKContentRuleList, replacing id: String) {
-        for controller in controllers.allObjects {
-            for old in lists where old.identifier == id { controller.remove(old) }
-            controller.add(list)
-        }
-        lists.removeAll { $0.identifier == id }
+    private func install(_ list: WKContentRuleList) {
+        remove(list.identifier)
+        controllers.allObjects.forEach { $0.add(list) }
         lists.append(list)
     }
 
@@ -60,7 +55,7 @@ public final class Blocker {
             let count = Store.read(Int.self, "filters-lists.json") ?? 0
             for i in 0 ..< count {
                 if let list = try? await store?.contentRuleList(forIdentifier: "\(Blocker.filtersID)-\(i)") {
-                    install(list, replacing: list.identifier)
+                    install(list)
                 }
             }
             refresh(force: false)
@@ -80,7 +75,7 @@ public final class Blocker {
               let json = String(data: data, encoding: .utf8),
               let list = try? await store?.compileContentRuleList(forIdentifier: Blocker.baseID, encodedContentRuleList: json)
         else { return }
-        install(list, replacing: Blocker.baseID)
+        install(list)
     }
 
     /// Fetch and compile when a day has passed, or now when `force`.
@@ -112,7 +107,7 @@ public final class Blocker {
                     remove("\(Blocker.filtersID)-\(old)")
                     try? await store.removeContentRuleList(forIdentifier: "\(Blocker.filtersID)-\(old)")
                 }
-                for list in compiled { install(list, replacing: list.identifier) }
+                for list in compiled { install(list) }
                 Store.write(lists.count, "filters-lists.json")
                 ruleCount = output.blocks.count + output.hides.count + output.exceptions.count
                 trouble = texts.count < urls.count ? "\(urls.count - texts.count) of \(urls.count) lists couldn't be fetched." : nil
@@ -123,15 +118,8 @@ public final class Blocker {
         }
     }
 
-    /// No cookies, no cache, nothing that ties one day's fetch to the next.
     static func fetch(_ urls: [URL]) async -> [String] {
-        let config = URLSessionConfiguration.ephemeral
-        config.httpCookieAcceptPolicy = .never
-        config.httpShouldSetCookies = false
-        config.urlCache = nil
-        config.timeoutIntervalForRequest = 30
-        config.httpAdditionalHeaders = ["User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) \(await Engine.applicationName)"]
-        let session = URLSession(configuration: config)
+        let session = Engine.session(timeout: 30)
         defer { session.finishTasksAndInvalidate() }
         return await withTaskGroup(of: String?.self) { group in
             for url in urls {
@@ -142,9 +130,7 @@ public final class Blocker {
                     return String(decoding: data, as: UTF8.self)
                 }
             }
-            var texts: [String] = []
-            for await text in group { if let text { texts.append(text) } }
-            return texts
+            return await group.reduce(into: []) { texts, text in if let text { texts.append(text) } }
         }
     }
 

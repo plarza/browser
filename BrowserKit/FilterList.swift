@@ -31,7 +31,9 @@ public enum FilterList {
         var out = Output()
         var genericHides: [String] = []
         var seen = Set<String>()
-        var seenRules = Set<Data>()
+        // Strings, not Data: Data hashes only its first bytes, and every
+        // rule's JSON starts the same, so a Set<Data> is quadratic here.
+        var seenRules = Set<String>()
         for text in texts {
             text.enumerateLines { raw, _ in
                 let line = raw.trimmingCharacters(in: .whitespaces)
@@ -48,7 +50,7 @@ public enum FilterList {
                     // The lists overlap: the same rule, written differently,
                     // comes out the same here.
                     guard let key = try? JSONSerialization.data(withJSONObject: rule, options: .sortedKeys),
-                          seenRules.insert(key).inserted else { return }
+                          seenRules.insert(String(decoding: key, as: UTF8.self)).inserted else { return }
                     if isException { out.exceptions.append(rule) } else { out.blocks.append(rule) }
                 } else {
                     out.skipped += 1
@@ -134,8 +136,12 @@ public enum FilterList {
         let isException = text.hasPrefix("@@")
         if isException { text.removeFirst(2) }
 
-        // A regex filter is /…/ and may itself contain `$`.
-        if text.hasPrefix("/") { return nil }
+        // A regex filter is /…/, perhaps with $options after it (and `$`
+        // inside it). A path filter like /ad-banner.js only starts with one.
+        if text.hasPrefix("/"), text.count > 2,
+           text.hasSuffix("/") || (text.range(of: "/$", options: .backwards).map { $0.lowerBound > text.startIndex } ?? false) {
+            return nil
+        }
 
         var options: [String] = []
         if let dollar = text.lastIndex(of: "$") {

@@ -46,7 +46,12 @@ public final class Extensions: NSObject {
     /// The extension controller's storage and its pages' data store.
     static let storeIDs = [UUID(uuidString: "C0DE0000-0000-4000-8000-0000000E7E45")!, UUID(uuidString: "C0DE0000-0000-4000-8000-00000000E75D")!]
 
+    /// Safari's scheme for extension pages, which Safari web extensions
+    /// are written and tested against.
+    static let scheme = "safari-web-extension"
+
     private override init() {
+        WKWebExtension.MatchPattern.registerCustomURLScheme(Extensions.scheme)
         let configuration = WKWebExtensionController.Configuration(identifier: Extensions.storeIDs[0])
         let store = WKWebsiteDataStore(forIdentifier: Extensions.storeIDs[1])
         configuration.defaultWebsiteDataStore = store
@@ -91,8 +96,10 @@ public final class Extensions: NSObject {
         do {
             let ext = try await WKWebExtension(appExtensionBundle: item.bundle)
             let context = WKWebExtensionContext(for: ext)
-            // A stable identifier: what the extension stored comes back.
+            // A stable identifier and origin: what the extension stored,
+            // in its storage and in its pages', comes back next launch.
             context.uniqueIdentifier = id
+            context.baseURL = URL(string: "\(Extensions.scheme)://\(UUID(hashing: "browser.extension." + id).uuidString.lowercased())/")!
             context.isInspectable = false
             // Browser's regular tabs use ephemeral (WebKit private) stores.
             context.hasAccessToPrivateData = true

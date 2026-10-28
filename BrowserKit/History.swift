@@ -11,13 +11,7 @@ public final class History {
         public var url: String
         public var title: String
         /// How many times it was visited, for ranking suggestions.
-        public var count: Int
-
-        init(url: String, title: String, count: Int = 1) {
-            self.url = url
-            self.title = title
-            self.count = count
-        }
+        public var count = 1
     }
 
     private var visits: [Visit]
@@ -158,29 +152,17 @@ public enum OpenTabs {
 
     /// Each tab's address and, for a Persist tab, its jar on disk and seed.
     public static func save(_ tabs: [(url: URL, kept: Kept?)], selected: Int) {
-        let saved = Saved(
-            urls: tabs.map(\.url.absoluteString),
-            kept: tabs.map { $0.kept.map { Saved.Jar(id: $0.id.uuidString, seed: String($0.seed)) } },
-            selected: selected
-        )
-        Store.write(saved, "tabs.json")
+        Store.write(Saved(tabs: tabs.map { .init(url: $0.url, jar: $0.kept?.id, seed: $0.kept?.seed) }, selected: selected), "tabs.json")
     }
 
     public static func restore() -> (tabs: [(url: URL, kept: Kept?)], selected: Int) {
         guard let saved = Store.read(Saved.self, "tabs.json") else { return ([], 0) }
-        let tabs: [(url: URL, kept: Kept?)] = saved.urls.enumerated().compactMap { i, string in
-            guard let url = URL(string: string) else { return nil }
-            let jar = i < saved.kept.count ? saved.kept[i] : nil
-            let kept = jar.flatMap { jar in UUID(uuidString: jar.id).flatMap { id in UInt64(jar.seed).map { (id, $0) } } }
-            return (url, kept)
-        }
-        return (tabs, saved.selected)
+        return (saved.tabs.map { tab in (tab.url, tab.jar.flatMap { id in tab.seed.map { (id, $0) } }) }, saved.selected)
     }
 
     private struct Saved: Codable {
-        struct Jar: Codable { var id: String; var seed: String }
-        var urls: [String]
-        var kept: [Jar?]
+        struct Tab: Codable { var url: URL; var jar: UUID?; var seed: UInt64? }
+        var tabs: [Tab]
         var selected: Int
     }
 }

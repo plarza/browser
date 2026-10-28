@@ -44,7 +44,6 @@ final class HistoryModel: ObservableObject {
 struct HistoryPage: View {
     let open: (URL) -> Void
     @ObservedObject private var model = HistoryModel.shared
-    @State private var confirmingClear = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -55,7 +54,13 @@ struct HistoryPage: View {
                     if let first = model.results.first, let url = URL(string: first.url) { open(url) }
                 }
                 .controlSize(.large)
-                Button("Clear History") { confirmingClear = true }
+                Button("Clear History") {
+                    Task {
+                        guard await Dialogs.ask("Clear all history?", yes: "Clear History") else { return }
+                        History.shared.clear()
+                        model.refresh()
+                    }
+                }
                     .controlSize(.large)
                     .buttonBorderShape(.capsule)
             }
@@ -81,13 +86,6 @@ struct HistoryPage: View {
             }
         }
         .onAppear { model.refresh() }
-        .alert("Clear all history?", isPresented: $confirmingClear) {
-            Button("Clear History", role: .destructive) {
-                History.shared.clear()
-                model.refresh()
-            }
-            Button("Cancel", role: .cancel) {}
-        }
     }
 }
 
@@ -207,8 +205,6 @@ struct SettingsPage: View {
     @State private var rules = Blocker.shared.ruleCount
     @State private var trouble: String?
     @State private var enabled = Extensions.shared.enabled
-    @State private var confirmingDefaults = false
-    @State private var confirmingDefaultImage = false
     private let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -233,40 +229,28 @@ struct SettingsPage: View {
             }
 
             Section("Appearance") {
-                Picker("Appearance", selection: $prefs.settings.appearance) {
-                    Text("Light").tag(Settings.Appearance.light)
-                    Text("Dark").tag(Settings.Appearance.dark)
-                    Text("System").tag(Settings.Appearance.system)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                Segmented(selection: $prefs.settings.appearance, [(.light, "Light"), (.dark, "Dark"), (.system, "System")])
             }
 
             Section("New Tabs Open") {
-                Picker("New Tabs Open", selection: $prefs.settings.newTabPosition) {
-                    Text("Below Current Tab").tag(Settings.TabPosition.below)
-                    Text("At the Top").tag(Settings.TabPosition.top)
-                    Text("At the Bottom").tag(Settings.TabPosition.bottom)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                Segmented(selection: $prefs.settings.newTabPosition, [(.below, "Below Current Tab"), (.top, "At the Top"), (.bottom, "At the Bottom")])
             }
 
             Section("New Tab Page") {
-                Picker("New Tab Page", selection: $prefs.settings.newTabPage) {
-                    Text("Image").tag(Settings.NewTabPage.image)
-                    Text("Color").tag(Settings.NewTabPage.color)
-                    Text("Blank").tag(Settings.NewTabPage.blank)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                Segmented(selection: $prefs.settings.newTabPage, [(.image, "Image"), (.color, "Color"), (.blank, "Blank")])
                 switch prefs.settings.newTabPage {
                 case .image:
                     HStack(spacing: 12) {
                         NewTabThumbnail(version: prefs.newTabImageVersion)
                         Button("Choose Image…", action: chooseImage).buttonBorderShape(.capsule)
                         if FileManager.default.fileExists(atPath: Settings.newTabImage.path) {
-                            Button("Use Default") { confirmingDefaultImage = true }.buttonBorderShape(.capsule)
+                            Button("Use Default") {
+                                Task {
+                                    guard await Dialogs.ask("Go back to the default image?", yes: "Use Default") else { return }
+                                    try? FileManager.default.removeItem(at: Settings.newTabImage)
+                                    prefs.newTabImageChanged()
+                                }
+                            }.buttonBorderShape(.capsule)
                         }
                     }
                 case .color:
@@ -301,7 +285,13 @@ struct SettingsPage: View {
                 }
                 HStack {
                     Button("Update Now") { Blocker.shared.refresh(force: true) }.buttonBorderShape(.capsule)
-                    Button("Defaults") { confirmingDefaults = true }.buttonBorderShape(.capsule)
+                    Button("Defaults") {
+                        Task {
+                            guard await Dialogs.ask("Replace your filter lists with the defaults?", yes: "Replace") else { return }
+                            prefs.settings.filterLists = Settings.defaultFilterLists
+                            Blocker.shared.refresh(force: true)
+                        }
+                    }.buttonBorderShape(.capsule)
                     Spacer()
                     if rules > 0 { Text("\(rules.formatted()) rules").foregroundStyle(.secondary) }
                 }
@@ -332,20 +322,6 @@ struct SettingsPage: View {
             rules = Blocker.shared.ruleCount
             trouble = Blocker.shared.trouble ?? Extensions.shared.trouble
         }
-        .alert("Replace your filter lists with the defaults?", isPresented: $confirmingDefaults) {
-            Button("Replace", role: .destructive) {
-                prefs.settings.filterLists = Settings.defaultFilterLists
-                Blocker.shared.refresh(force: true)
-            }
-            Button("Cancel", role: .cancel) {}
-        }
-        .alert("Go back to the default image?", isPresented: $confirmingDefaultImage) {
-            Button("Use Default") {
-                try? FileManager.default.removeItem(at: Settings.newTabImage)
-                prefs.newTabImageChanged()
-            }
-            Button("Cancel", role: .cancel) {}
-        }
     }
 
     private func chooseImage() {
@@ -371,7 +347,6 @@ struct RowList: View {
     let normalise: (String) -> String?
     let save: ([String]) -> Void
     @State private var adding = ""
-    @State private var removing: String?
     @State private var hovered: String?
 
     var body: some View {
@@ -381,7 +356,7 @@ struct RowList: View {
                 Text(item).lineLimit(1).truncationMode(.middle)
                 Spacer()
                 Button {
-                    removing = item
+                    Task { if await Dialogs.ask(removal(item), yes: "Remove") { save(items.filter { $0 != item }) } }
                 } label: {
                     Image(systemName: "xmark").foregroundStyle(.secondary)
                 }
@@ -400,13 +375,6 @@ struct RowList: View {
                 .labelsHidden()
                 .textFieldStyle(.plain)
                 .onSubmit(add)
-        }
-        .alert(removing.map(removal) ?? "", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
-            Button("Remove", role: .destructive) {
-                if let item = removing { save(items.filter { $0 != item }) }
-                removing = nil
-            }
-            Button("Cancel", role: .cancel) { removing = nil }
         }
     }
 
@@ -501,6 +469,25 @@ struct HelpPage: View {
     }
 }
 
+/// One of a setting's choices, as a segmented control.
+struct Segmented<Value: Hashable>: View {
+    @Binding var selection: Value
+    let options: [(Value, String)]
+
+    init(selection: Binding<Value>, _ options: [(Value, String)]) {
+        _selection = selection
+        self.options = options
+    }
+
+    var body: some View {
+        Picker("", selection: $selection) {
+            ForEach(options, id: \.0) { Text($0.1).tag($0.0) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+}
+
 /// A slider that stops on Settings' steps, with a notch at each.
 struct Notched: NSViewRepresentable {
     @Binding var value: Int
@@ -535,7 +522,6 @@ struct Notched: NSViewRepresentable {
 /// about://downloads: every download until Clear, newest first.
 struct DownloadsPage: View {
     @State private var items = Downloads.shared.items
-    @State private var confirmingClear = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -543,7 +529,11 @@ struct DownloadsPage: View {
             VStack(spacing: 0) {
                 HStack {
                     Spacer()
-                    Button("Clear Downloads") { confirmingClear = true }
+                    Button("Clear Downloads") {
+                        Task {
+                            if await Dialogs.ask("Clear the list of downloads?", detail: "The files stay where they are.", yes: "Clear") { Downloads.shared.clear() }
+                        }
+                    }
                         .controlSize(.large)
                         .buttonBorderShape(.capsule)
                         .disabled(items.allSatisfy { $0.state == .active })
@@ -563,12 +553,6 @@ struct DownloadsPage: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: Downloads.changed)) { _ in items = Downloads.shared.items }
-        .alert("Clear the list of downloads?", isPresented: $confirmingClear) {
-            Button("Clear", role: .destructive) { Downloads.shared.clear() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("The files stay where they are.")
-        }
     }
 }
 

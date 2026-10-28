@@ -24,7 +24,7 @@ Applied to upstream WebKit (`engine/patches/`).
 - Domains on the cookie list keep one jar on disk, shared by all tabs, with one fixed fingerprint seed.
 - `window.open` popups (sign-in, 3-D Secure) share their opener's identity and close with it; links opened in a new tab start fresh.
 - The user agent is Safari's for the installed macOS.
-- HTTPS-only: plain HTTP is upgraded, with a one-load fallback page if the site has no HTTPS.
+- HTTPS-only: plain HTTP is upgraded, with a one-load fallback page if the site has no HTTPS. Loopback (`localhost`) is left alone.
 - Tracking parameters (`utm_*`, `fbclid`, `gclid` and others) are removed from every navigation.
 - Ads and trackers are blocked inside WebKit's networking by content rules compiled from filter lists (uBlock Origin's, EasyList, EasyPrivacy, Peter Lowe's, URLhaus, AdGuard cookie notices), fetched daily without cookies.
 - Location, notifications, MIDI, USB, serial, HID, Bluetooth and sensors are always denied; camera and microphone ask every time and the answer isn't kept.
@@ -75,7 +75,7 @@ The UI self-test only works in debug builds:
 build/Browser.app/Contents/MacOS/Browser -browserStore /tmp/browser-test -browserSelfTest YES
 ```
 
-It logs PASS/FAIL per check. `-browserStore` uses a separate data folder; `-browserShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). `-browserProbe <url> -browserProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS.
+It logs PASS/FAIL per check and ends with a count. Every page it loads comes from a web server inside the test, on this Mac, so it needs no internet; each step waits for what it expects rather than a set time, and works with Browser in the background. `-browserStore` uses a separate data folder; `-browserShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). `-browserProbe <url> -browserProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS.
 
 ## Layout
 

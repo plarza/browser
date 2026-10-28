@@ -21,7 +21,7 @@ release/     build, sign, notarize, publish to Forgejo, update feed
 - Tabs run down the left, in a vertical list, in a pure white sidebar, flush with the page and with no dividing line, whose edge drags (200–420 pt). The page fills the rest of the window. There are no pinned tabs, no back/forward buttons and no New Tab button: ⌘T, ⌘[ and ⌘] do those, and a two-finger swipe goes back or forward.
 - Each tab is a separate identity, with its own web process and its own network session. The session holds the tab's cookies, localStorage, sessionStorage, IndexedDB, Cache API, service workers, HTTP cache, HSTS, TLS session cache, connection pool, DNS cache and its fingerprint seed.
 - **Wipe.** Every reload and every top-level navigation throws the whole session away and starts the next load in a brand-new one. That includes typed URLs, clicked links, back and forward, and redirects initiated by the page. Logins do not survive a reload.
-- **Persist** (⌘I, or right-click › Persist Tab). The tab keeps its session through reloads and navigation. The tab turns a soft sky blue while it is on. Persist belongs to the tab, not the site. Turning it on moves the tab into a jar of its own on disk, taking its cookies and the current page's storage with it, so the tab and its session survive quitting Browser. Closing the tab, or turning Persist off, deletes that jar; jars nothing refers to are deleted at launch.
+- **Persist** (⌘I, or right-click › Persist Tab). The tab keeps its session through reloads and navigation. The tab turns a soft sky blue while it is on. Persist belongs to the tab, not the site. Turning it on moves the tab into a jar of its own on disk, taking its cookies and the current page's storage with it, so the tab and its session survive quitting Browser. Closing the tab, or turning Persist off, deletes that jar; jars nothing refers to are deleted at launch. Closing a Persist tab yourself (⌘W, its ✕, its menu, middle-click) asks first; a page or extension closing it doesn't.
 - **Popups.** A `window.open` popup, such as an OAuth or 3-D Secure window, shares its opener's session and dies with it. Links opened in a new tab (⌘-click, middle-click) start fresh.
 - **Closing a tab** destroys its session. Quitting the app destroys every session.
 
@@ -47,7 +47,7 @@ Browser has one user, so there is no crowd of Browser users to hide in. It hides
 ## Network
 
 - No proxy or Tor is built in. The user brings their own VPN.
-- **HTTPS-only.** Every load is upgraded to HTTPS. If the upgrade fails, an interstitial offers to continue over HTTP for that one load in that tab.
+- **HTTPS-only.** Every load is upgraded to HTTPS, except to this Mac itself (`localhost`, `127.0.0.1`, `::1`), which never leaves the machine. If the upgrade fails, an interstitial offers to continue over HTTP for that one load in that tab.
 - **Third-party cookies** are never allowed. Referer is trimmed to the origin when the request crosses sites.
 - **Tracking parameters** (`utm_*`, `fbclid`, `gclid`, `mc_eid` and similar) are stripped from every navigation.
 - **Content blocking** happens in the engine, through WebKit content rule lists compiled from filter lists (split into lists of at most 150,000 rules, WebKit's limit). The defaults are uBO filters, EasyList, EasyPrivacy, Peter Lowe's list, URLhaus and AdGuard Cookie Notices. The lists are fetched once a day, and their URLs can be edited in Settings. Element-hiding (cosmetic) rules are applied too.
@@ -79,7 +79,7 @@ Browser has one user, so there is no crowd of Browser users to hide in. It hides
 
 ## Extensions
 
-- Only Safari web extensions run: Browser finds them inside the apps in /Applications and ~/Applications and loads them, unmodified, on WebKit's WKWebExtension engine. Settings lists them with a switch each. Bitwarden is the expected password manager. Browser has no built-in password store.
+- Only Safari web extensions run: Browser finds them inside the apps in /Applications and ~/Applications and loads them, unmodified, on WebKit's WKWebExtension engine. Settings lists them with a switch each. Their pages load from `safari-web-extension://`, as in Safari, at an address fixed per extension, so what they store survives a relaunch. Bitwarden is the expected password manager. Browser has no built-in password store.
 - Extension content scripts can change pages in ways that are visible, so turning an extension on is a fingerprinting trade-off the user chooses to make. Enabled extensions can access Browser’s ephemeral tabs within their requested site permissions.
 - Extension buttons can be dragged into a new order, which is saved. Popups fit their contents, with an opaque background unless the extension supplies its own.
 
@@ -106,7 +106,7 @@ Settings is a page, **about://settings** (⌘,), with: where new tabs open (belo
 
 ## Keyboard
 
-Listed at about://help (⇧⌘/), read from the menus.
+Listed at about://help (⇧⌘/), read from the menus. In every dialog, Return confirms and Escape cancels.
 
 ## Builds and updates
 

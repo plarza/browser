@@ -17,19 +17,12 @@ public final class Favicons {
 
     private var icons: [String: NSImage] = [:]
     private var loading: Set<String> = []
-    private let session: URLSession = {
-        let config = URLSessionConfiguration.ephemeral
-        config.httpCookieAcceptPolicy = .never
-        config.httpShouldSetCookies = false
-        config.urlCache = nil
-        config.timeoutIntervalForRequest = 15
-        config.httpAdditionalHeaders = [
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) \(Engine.applicationName)",
-            "Accept": "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5",
-            "Accept-Language": "en-US,en;q=0.9",
-        ]
-        return URLSession(configuration: config)
-    }()
+    /// An icon is being fetched.
+    public var isFetching: Bool { !loading.isEmpty }
+    private let session = Engine.session(timeout: 15, headers: [
+        "Accept": "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5",
+        "Accept-Language": "en-US,en;q=0.9",
+    ])
 
     public func icon(for url: URL?) -> NSImage? {
         if InternalPage.page(url) != nil { return Favicons.browser }
@@ -95,12 +88,7 @@ public final class Favicons {
                 }
             }
             candidates.sort { $0.1 > $1.1 }
-            var fallback = URLComponents()
-            fallback.scheme = url.scheme
-            fallback.host = url.host
-            fallback.port = url.port
-            fallback.path = "/favicon.ico"
-            if let ico = fallback.url { candidates.append((ico, 0)) }
+            if let ico = URL(string: "/favicon.ico", relativeTo: url)?.absoluteURL { candidates.append((ico, 0)) }
             Task { await self.fetch(candidates.map(\.0), host: host) }
         }
     }

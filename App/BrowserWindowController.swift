@@ -16,11 +16,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private(set) var selected: Tab?
     private var closed: [URL] = []
 
-    private let sidebar = Sidebar()
+    private let sidebar = Surface()
     fileprivate let address = AddressField()
     private let tabList = TabListView()
     private let actionBar = ActionBar()
-    fileprivate let content = PageArea()
+    fileprivate let content = Surface()
     private let progress = ProgressLine()
     private let findBar = FindBar()
     private let divider = SidebarDivider()
@@ -85,15 +85,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             backdrop.topAnchor.constraint(equalTo: content.topAnchor),
             backdrop.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
-        pageHost.translatesAutoresizingMaskIntoConstraints = false
         pageHost.isHidden = true
-        content.addSubview(pageHost, positioned: .below, relativeTo: progress)
-        NSLayoutConstraint.activate([
-            pageHost.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            pageHost.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            pageHost.topAnchor.constraint(equalTo: content.topAnchor),
-            pageHost.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-        ])
+        content.addPinned(pageHost, below: progress)
         shade.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(shade, positioned: .below, relativeTo: progress)
         NSLayoutConstraint.activate([
@@ -125,7 +118,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         fills = on
         backdropLeading.page.isActive = !on
         backdropLeading.window.isActive = on
-        sidebar.isFrosted = on
+        sidebar.isClear = on
         backdrop.glassWidth = on ? width : 0
         updateNewTabPage()
     }
@@ -145,16 +138,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         hostedPage = page
     }
 
-    /// A mouse's back and forward buttons do what ⌘[ and ⌘] do. WebKit
-    /// would otherwise take them for its own lists, which a wipe empties.
-    private var buttonMonitor: Any?
+    /// The window's local event monitors, kept for as long as it is.
+    private var monitors: [Any?] = []
 
     /// ⇧⌘/ is macOS's own "search the Help menu"; in Browser it opens
     /// about://help, before the system can take it.
-    private var helpMonitor: Any?
-
     private func watchHelpKey() {
-        helpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        monitors.append(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             MainActor.assumeIsolated { () -> NSEvent? in
                 let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
                 guard let self, event.window === self.window, mods == [.command, .shift],
@@ -163,21 +153,23 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
                 self.showHelp(nil)
                 return nil
             }
-        }
+        })
     }
 
     private func watchDownloads() {
         downloads.onShowAll = { [weak self] in self?.showDownloads(nil) }
     }
 
+    /// A mouse's back and forward buttons do what ⌘[ and ⌘] do. WebKit
+    /// would otherwise take them for its own lists, which a wipe empties.
     private func watchMouseButtons() {
-        buttonMonitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp]) { [weak self] event in
+        monitors.append(NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp]) { [weak self] event in
             MainActor.assumeIsolated { () -> NSEvent? in
                 guard let self, event.window === self.window, event.buttonNumber == 3 || event.buttonNumber == 4 else { return event }
                 if event.type == .otherMouseDown { self.mouseButton(event.buttonNumber) }
                 return nil
             }
-        }
+        })
     }
 
     fileprivate func mouseButton(_ number: Int) {
@@ -189,7 +181,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// out), so the swipe is followed here, from the scroll gesture's phases:
     /// a chevron follows the fingers in from the edge, and letting go past
     /// it navigates.
-    private var swipeMonitor: Any?
     private let swipeArrow = NSImageView()
     private var swipe: (back: Bool, distance: CGFloat)?
     private static let swipeDistance: CGFloat = 160
@@ -198,7 +189,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         swipeArrow.symbolConfiguration = .init(pointSize: 30, weight: .regular).applying(.init(hierarchicalColor: .secondaryLabelColor))
         swipeArrow.alphaValue = 0
         content.addSubview(swipeArrow)
-        swipeMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+        monitors.append(NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             MainActor.assumeIsolated {
                 guard let self, event.window === self.window, NSEvent.isSwipeTrackingFromScrollEventsEnabled,
                       self.content.bounds.contains(self.content.convert(event.locationInWindow, from: nil))
@@ -206,7 +197,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
                 self.follow(event.phase, dx: event.scrollingDeltaX, dy: event.scrollingDeltaY)
             }
             return event
-        }
+        })
     }
 
     fileprivate func follow(_ phase: NSEvent.Phase, dx: CGFloat, dy: CGFloat) {
@@ -251,10 +242,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// A click anywhere but the field, while editing it, leaves it: on the
     /// page, focus goes to the page; elsewhere, to nothing.
-    private var clickMonitor: Any?
-
     private func watchClicks() {
-        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+        monitors.append(NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             MainActor.assumeIsolated { () -> NSEvent? in
                 guard let self, let window = self.window, event.window === window else { return event }
                 let inside = self.address.bounds.contains(self.address.convert(event.locationInWindow, from: nil))
@@ -283,7 +272,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
                 }
                 return event
             }
-        }
+        })
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -298,7 +287,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         address.onEscape = { [weak self] in self?.focusPage() }
 
         tabList.onSelect = { [weak self] tab in self?.select(tab) }
-        tabList.onClose = { [weak self] tab in self?.close(tab) }
+        tabList.onClose = { [weak self] tab in self?.closeAsking(tab) }
         tabList.onPersist = { tab in tab.persist.toggle() }
         tabList.onMove = { [weak self] from, to in self?.move(from: from, to: to) }
         tabList.onDuplicate = { [weak self] tab in if let url = tab.url { self?.newTab(url, after: tab) } }
@@ -461,15 +450,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     private func show(_ view: WKWebView) {
-        guard view.superview !== content else { return }
-        view.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(view, positioned: .below, relativeTo: pageHost)
-        NSLayoutConstraint.activate([
-            view.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            view.topAnchor.constraint(equalTo: content.topAnchor),
-            view.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-        ])
+        if view.superview !== content { content.addPinned(view, below: pageHost) }
     }
 
     func close(_ tab: Tab) {
@@ -577,12 +558,23 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         focusPage()
     }
     @objc func focusAddress(_ sender: Any?) {
-        guard sidebarShown || toggleBrowserSidebarIfHidden() else { return }
+        if !sidebarShown { toggleBrowserSidebar(nil) }
         address.focus()
     }
-    private func toggleBrowserSidebarIfHidden() -> Bool { toggleBrowserSidebar(nil); return true }
     @objc func closeTabAction(_ sender: Any?) {
-        if let tab = selected { close(tab) }
+        if let tab = selected { closeAsking(tab) }
+    }
+
+    /// Closing a Persist tab deletes its jar, logins and all, so a person
+    /// closing one is asked first. Pages and extensions closing tabs aren't.
+    private func closeAsking(_ tab: Tab) {
+        guard tab.persist, tab.opener == nil else { return close(tab) }
+        let name = tab.title.isEmpty ? tab.url?.host ?? "this tab" : tab.title
+        Task {
+            guard await Dialogs.ask(in: window, "Close “\(name)”?", detail: "It’s a Persist tab: its cookies and site data are deleted when it closes.",
+                                    yes: "Close Tab") else { return }
+            close(tab)
+        }
     }
     @objc func reopenClosedTab(_ sender: Any?) {
         if let url = closed.popLast() { newTab(url) }
@@ -747,7 +739,7 @@ extension BrowserWindowController: TabDelegate {
     }
 
     func tab(_ tab: Tab, runConfirm message: String) async -> Bool {
-        await Dialogs.ask(in: window, tab.url?.host ?? "This page", detail: message, yes: "OK", no: "Cancel")
+        await Dialogs.ask(in: window, tab.url?.host ?? "This page", detail: message, yes: "OK")
     }
 
     func tab(_ tab: Tab, runPrompt message: String, defaultText: String?) async -> String? {
@@ -799,7 +791,7 @@ extension BrowserWindowController {
     var pageHostForTesting: NSView { pageHost }
     var downloadTilesForTesting: [DownloadTile] { ((downloads.subviews.first as? NSStackView)?.arrangedSubviews ?? []).compactMap { $0 as? DownloadTile } }
     var downloadRowsForTesting: Int { downloads.isHidden ? 0 : downloads.subviews.first?.subviews.count ?? 0 }
-    var fillsForTesting: Bool { fills && sidebar.isFrosted && !backdrop.isHidden && backdrop.frame.minX == 0 && backdrop.frame.width > content.frame.width }
+    var fillsForTesting: Bool { fills && sidebar.isClear && !backdrop.isHidden && backdrop.frame.minX == 0 && backdrop.frame.width > content.frame.width }
     var tabTableForTesting: NSTableView? { tabList.documentView as? NSTableView }
     var newTabPageShownForTesting: Bool { !backdrop.isHidden && backdrop.alphaValue > 0.5 }
     func mouseButtonForTesting(_ number: Int) { mouseButton(number) }
