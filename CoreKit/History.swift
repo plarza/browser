@@ -1,8 +1,7 @@
 import Foundation
 
 /// Pages visited: the address and the page's title, most recent first.
-/// No times, no icons, no page contents. It is there for the field to
-/// finish what you type, and for about://history.
+/// No times, no icons, no page contents. It is there for about://history.
 @MainActor
 public final class History {
     public static let shared = History()
@@ -69,25 +68,6 @@ public final class History {
             let text = (visit.url + " " + visit.title).lowercased()
             return words.allSatisfy(text.contains)
         }.prefix(limit))
-    }
-
-    /// The most recent address that starts with what was typed, ignoring
-    /// the scheme and `www.`.
-    public func complete(_ typed: String) -> String? {
-        let typed = typed.lowercased()
-        guard typed.count >= 2, !typed.contains(" ") else { return nil }
-        for visit in visits {
-            let bare = History.bare(visit.url)
-            if bare.lowercased().hasPrefix(typed) { return bare }
-        }
-        return nil
-    }
-
-    static func bare(_ url: String) -> String {
-        var s = url
-        for prefix in ["https://", "http://"] where s.hasPrefix(prefix) { s.removeFirst(prefix.count) }
-        if s.hasPrefix("www.") { s.removeFirst(4) }
-        return s
     }
 }
 

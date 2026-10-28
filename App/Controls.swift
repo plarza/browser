@@ -11,7 +11,6 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
     private(set) var isEditing = false
 
     private var url: URL?
-    private var completing = false
     private var flashing: DispatchWorkItem?
     private static let placeholder = "Search or enter website name"
 
@@ -24,7 +23,16 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
         sendsWholeSearchString = true
         lineBreakMode = .byTruncatingTail
         delegate = self
+        clear = (cell as? NSSearchFieldCell)?.cancelButtonCell
         show(nil)
+    }
+
+    /// The clear button, shown only while editing, as in Safari.
+    private var clear: NSButtonCell?
+
+    private func showClear(_ shown: Bool) {
+        (cell as? NSSearchFieldCell)?.cancelButtonCell = shown ? clear : nil
+        needsDisplay = true
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -56,6 +64,7 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
         guard !isEditing else { return }
         stringValue = url.map(Self.display) ?? ""
         alignment = .center
+        showClear(false)
     }
 
     static func display(_ url: URL) -> String {
@@ -69,26 +78,13 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
         guard !isEditing else { return }
         isEditing = true
         alignment = .left
+        showClear(true)
         stringValue = url?.absoluteString ?? ""
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
         isEditing = false
         show(url)
-    }
-
-    func controlTextDidChange(_ obj: Notification) {
-        guard !completing, let editor = currentEditor() as? NSTextView else { return }
-        let typed = editor.string
-        // Only when the caret is at the end and the person is adding text.
-        guard editor.selectedRange().location == (typed as NSString).length,
-              let match = History.shared.complete(typed), match.count > typed.count
-        else { return }
-        completing = true
-        let rest = String(match.dropFirst(typed.count))
-        editor.string = typed + rest
-        editor.setSelectedRange(NSRange(location: (typed as NSString).length, length: (rest as NSString).length))
-        completing = false
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
@@ -99,16 +95,6 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
         case #selector(NSResponder.cancelOperation(_:)):
             onEscape()
             return true
-        case #selector(NSResponder.deleteBackward(_:)):
-            // Delete the suggested part, not a character of what was typed.
-            let range = textView.selectedRange()
-            if range.length > 0, range.location + range.length == (textView.string as NSString).length {
-                completing = true
-                textView.string = (textView.string as NSString).substring(to: range.location)
-                completing = false
-                return true
-            }
-            return false
         default:
             return false
         }
@@ -127,6 +113,28 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
         flashing = restore
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: restore)
     }
+}
+
+/// Pure white (black in dark mode), flush with the page, with no line
+/// between them.
+@MainActor
+final class Sidebar: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+        }
+    }
+
+    // The window drags from the sidebar's empty top, around the traffic lights.
+    override var mouseDownCanMoveWindow: Bool { true }
 }
 
 /// Where the page goes. Switching tabs cross-fades.
@@ -155,10 +163,90 @@ final class PageArea: NSView {
     }
 }
 
-/// A split view whose divider takes the page's colour: the sidebar and the
-/// page meet with no line.
-final class InvisibleDividerSplitView: NSSplitView {
-    override var dividerColor: NSColor { .textBackgroundColor }
+/// The sidebar's edge: drag to resize.
+@MainActor
+final class SidebarDivider: NSView {
+    var onDrag: (CGFloat) -> Void = { _ in }
+    var onEnd: () -> Void = {}
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .columnResize) }
+
+    override func mouseDown(with event: NSEvent) {
+        var last = event.locationInWindow.x
+        window?.trackEvents(matching: [.leftMouseDragged, .leftMouseUp], timeout: .infinity, mode: .eventTracking) { event, stop in
+            guard let event else { stop.pointee = true; return }
+            if event.type == .leftMouseUp {
+                stop.pointee = true
+                self.onEnd()
+                return
+            }
+            let x = event.locationInWindow.x
+            self.onDrag(x - last)
+            last = x
+        }
+    }
+}
+
+/// Animates a layer property from its current value, the way a view's own
+/// animator would: short and eased.
+@MainActor
+enum Motion {
+    static let ease = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
+
+    static func set(_ layer: CALayer?, _ key: String, _ value: Any?, duration: CFTimeInterval = 0.18) {
+        guard let layer else { return }
+        let from = layer.presentation()?.value(forKeyPath: key) ?? layer.value(forKeyPath: key)
+        layer.setValue(value, forKeyPath: key)
+        let animation = CABasicAnimation(keyPath: key)
+        animation.fromValue = from
+        animation.toValue = value
+        animation.duration = duration
+        animation.timingFunction = ease
+        layer.add(animation, forKey: key)
+    }
+}
+
+/// A two-point line across the top of the page while it loads.
+@MainActor
+final class ProgressLine: NSView {
+    private let bar = CALayer()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        bar.backgroundColor = NSColor.controlAccentColor.cgColor
+        layer?.addSublayer(bar)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private var value = 1.0
+
+    func set(_ value: Double) {
+        let done = value >= 1
+        if !done && self.value >= 1 {
+            // A new load: start from nothing, without animating back.
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            bar.frame.size.width = 0
+            CATransaction.commit()
+        }
+        self.value = value
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = done ? 0.35 : 0.2
+            animator().alphaValue = done ? 0 : 1
+        }
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.25)
+        CATransaction.setAnimationTimingFunction(Motion.ease)
+        bar.frame = NSRect(x: 0, y: 0, width: bounds.width * max(0.06, value), height: bounds.height)
+        CATransaction.commit()
+    }
 }
 
 /// ⌘F: a small field over the top right of the page.

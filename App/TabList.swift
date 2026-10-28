@@ -24,10 +24,11 @@ final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegat
         let column = NSTableColumn(identifier: .init("tab"))
         table.addTableColumn(column)
         table.headerView = nil
-        table.rowHeight = 34
-        table.style = .sourceList
-        // White like the rest of the sidebar, not the source list's grey.
         table.backgroundColor = .clear
+        table.rowHeight = 34
+        table.intercellSpacing = NSSize(width: 0, height: 3)
+        table.selectionHighlightStyle = .none
+        table.style = .plain
         table.dataSource = self
         table.delegate = self
         table.registerForDraggedTypes([Self.drag])
@@ -61,18 +62,7 @@ final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegat
         } else {
             table.reloadData()
         }
-        syncSelection()
-    }
-
-    /// The table's own selection follows the selected tab.
-    private var syncing = false
-
-    private func syncSelection() {
-        guard let selected, let row = tabs.firstIndex(where: { $0 === selected }) else { return }
-        syncing = true
-        table.selectRowIndexes([row], byExtendingSelection: false)
-        syncing = false
-        table.scrollRowToVisible(row)
+        if let selected, let row = tabs.firstIndex(where: { $0 === selected }) { table.scrollRowToVisible(row) }
     }
 
     private func refreshAll(except skip: Set<Int>) {
@@ -99,9 +89,9 @@ final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegat
         return cell
     }
 
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        guard !syncing, tabs.indices.contains(table.selectedRow) else { return }
-        onSelect(tabs[table.selectedRow])
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        onSelect(tabs[row])
+        return false
     }
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
@@ -158,12 +148,13 @@ final class TabCell: NSTableCellView {
     private let spinner = NSProgressIndicator()
     private var tracking: NSTrackingArea?
     private var hovering = false { didSet { close.isHidden = !hovering } }
+    private var isSelected = false
     private var isPersist = false
 
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 6
+        layer?.cornerRadius = 10
         layer?.cornerCurve = .continuous
         label.font = .systemFont(ofSize: 13)
         label.lineBreakMode = .byTruncatingTail
@@ -206,26 +197,31 @@ final class TabCell: NSTableCellView {
     func configure(_ tab: Tab, selected: Bool) {
         let title = tab.title.isEmpty ? (tab.url.map(AddressField.display) ?? "New Tab") : tab.title
         label.stringValue = title
+        label.font = .systemFont(ofSize: 13, weight: selected ? .medium : .regular)
+        label.textColor = selected ? .labelColor : .secondaryLabelColor
         tile.set(icon: Favicons.shared.icon(for: tab.url), popup: tab.opener != nil)
         if tab.isLoading { spinner.startAnimation(nil); tile.alphaValue = 0 } else { spinner.stopAnimation(nil); tile.alphaValue = 1 }
+        isSelected = selected
         isPersist = tab.persist
         toolTip = tab.persist ? "Persist: reloads and navigation keep this tab's cookies and storage until it closes." : tab.url?.absoluteString
         needsDisplay = true
     }
 
-    /// Selection and hover are the table's own; this draws only Persist's
-    /// blue glow.
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             let glow = NSColor.systemBlue
-            layer?.backgroundColor = glow.withAlphaComponent(isPersist ? 0.12 : 0).cgColor
+            let fill: NSColor = isPersist
+                ? glow.withAlphaComponent(isSelected ? 0.16 : hovering ? 0.11 : 0.08)
+                : isSelected ? NSColor.labelColor.withAlphaComponent(0.07)
+                : hovering ? NSColor.labelColor.withAlphaComponent(0.035) : NSColor.labelColor.withAlphaComponent(0)
+            Motion.set(layer, "backgroundColor", fill.cgColor)
             layer?.shadowColor = glow.cgColor
             layer?.shadowRadius = 8
             layer?.shadowOffset = .zero
-            layer?.shadowOpacity = isPersist ? 0.55 : 0
-            layer?.borderColor = glow.withAlphaComponent(isPersist ? 0.35 : 0).cgColor
+            Motion.set(layer, "shadowOpacity", Float(isPersist ? 0.55 : 0), duration: 0.3)
+            Motion.set(layer, "borderColor", glow.withAlphaComponent(isPersist ? 0.35 : 0).cgColor, duration: 0.3)
             layer?.borderWidth = 0.5
         }
     }
@@ -238,8 +234,8 @@ final class TabCell: NSTableCellView {
         tracking = area
     }
 
-    override func mouseEntered(with event: NSEvent) { hovering = true }
-    override func mouseExited(with event: NSEvent) { hovering = false }
+    override func mouseEntered(with event: NSEvent) { hovering = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovering = false; needsDisplay = true }
 
     override func otherMouseUp(with event: NSEvent) {
         if event.buttonNumber == 2 { onClose() } else { super.otherMouseUp(with: event) }

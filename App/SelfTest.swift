@@ -118,7 +118,22 @@ enum SelfTest {
             check("the filter lists compile into the blocker", Blocker.shared.ruleCount > 100_000 && Blocker.shared.trouble == nil,
                   "rules=\(Blocker.shared.ruleCount) trouble=\(Blocker.shared.trouble ?? "none")")
 
+            // Pauses on each screen, for a screenshot from outside.
+            if UserDefaults.standard.bool(forKey: "coreScreens") {
+                let wiki = browser.newTab(URL(string: "https://en.wikipedia.org/wiki/WebKit")!)
+                try? await Task.sleep(for: .seconds(4))
+                swiper.persist = true
+                browser.select(wiki)
+                NSLog("Core self-test: SHOT page")
+                try? await Task.sleep(for: .seconds(4))
+                browser.showHistory(nil)
+                try? await Task.sleep(for: .seconds(1))
+                NSLog("Core self-test: SHOT history")
+                try? await Task.sleep(for: .seconds(4))
+            }
             browser.showSettings(nil)
+            try? await Task.sleep(for: .seconds(1))
+            NSLog("Core self-test: SHOT settings")
             NSLog("Core self-test: done")
         }
     }

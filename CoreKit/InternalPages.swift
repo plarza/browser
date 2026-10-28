@@ -110,7 +110,7 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
     private func respond(_ task: any WKURLSchemeTask, _ url: URL, _ type: String, _ data: Data) {
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [
             "Content-Type": "\(type); charset=utf-8",
-            "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src core:",
+            "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src core:",
         ])!
         task.didReceive(response)
         task.didReceive(data)
@@ -119,14 +119,23 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
 
     // MARK: Pages
 
-    /// Native controls wherever there are some: WebKit draws a plain
-    /// `<button>`, `<input>` or `<textarea>` as macOS's own.
+    /// One look for every control on Core's pages, the address field's: a
+    /// 28-point white capsule with a hairline edge, and the system focus ring.
     static let style = """
-    :root { color-scheme: light dark; --dim: #86868b; --hover: #00000008; --mark: #ffd60a66; }
-    @media (prefers-color-scheme: dark) { :root { --dim: #98989d; --hover: #ffffff0d; --mark: #ffd60a44; } }
-    body { margin: 0; background: Canvas; color: CanvasText; font: 13px/1.4 -apple-system, system-ui; }
+    :root { color-scheme: light dark; --dim: #86868b; --edge: #0000001a; --hover: #0000000a; --mark: #ffd60a66; --ring: #0a84ff59; }
+    @media (prefers-color-scheme: dark) { :root { --dim: #98989d; --edge: #ffffff26; --hover: #ffffff12; --mark: #ffd60a44; } }
+    body { margin: 0; background: Canvas; color: CanvasText; font: 13px/1.4 -apple-system, system-ui; -webkit-font-smoothing: antialiased; }
     main { max-width: 680px; margin: 0 auto; padding: 32px 24px 64px; }
     a { color: inherit; text-decoration: none; }
+    input, button, textarea { -webkit-appearance: none; appearance: none; box-sizing: border-box; font: 13px -apple-system, system-ui; color: inherit; background: Canvas; border: 1px solid var(--edge); outline: none; transition: background .15s, box-shadow .15s, border-color .15s; }
+    input, button { height: 28px; border-radius: 14px; padding: 0 14px; }
+    textarea { border-radius: 10px; padding: 8px 12px; }
+    button { cursor: default; white-space: nowrap; }
+    button:hover { background: var(--hover); }
+    button:active { background: var(--edge); }
+    input:focus, textarea:focus { border-color: transparent; box-shadow: 0 0 0 3px var(--ring); }
+    input[type=search] { padding-left: 30px; background: Canvas url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%2386868b' stroke-width='1.6' stroke-linecap='round'%3E%3Ccircle cx='6' cy='6' r='4.6'/%3E%3Cpath d='M9.4 9.4l3.4 3.4'/%3E%3C/svg%3E") no-repeat 11px center; }
+    input::placeholder, textarea::placeholder { color: var(--dim); }
     """
 
     static func document(_ page: String) -> String {
@@ -137,7 +146,7 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
     static let history = """
     <style>
     .bar { display: flex; gap: 8px; position: sticky; top: 0; background: Canvas; padding: 8px 0 12px; }
-    .bar input { flex: 1; font-size: 14px; }
+    .bar input { flex: 1; }
     ol { list-style: none; margin: 0; padding: 0; }
     li { display: flex; align-items: center; border-radius: 8px; animation: in .2s ease-out both; }
     li:hover, li.active { background: var(--hover); }
@@ -147,7 +156,7 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
     .t { font-weight: 500; }
     .u { color: var(--dim); font-size: 12px; }
     mark { background: var(--mark); color: inherit; border-radius: 2px; }
-    li button { visibility: hidden; margin-right: 6px; }
+    li button { visibility: hidden; margin-right: 6px; height: 24px; padding: 0 10px; font-size: 12px; }
     li:hover button { visibility: visible; }
     .none { color: var(--dim); text-align: center; padding: 48px 0; }
     </style>
@@ -187,7 +196,11 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
       await fetch('core://history/remove?u=' + encodeURIComponent(results[+e.target.closest('li').dataset.i].url));
       search();
     });
-    document.getElementById('clear').addEventListener('click', async () => { await fetch('core://history/clear'); search(); });
+    document.getElementById('clear').addEventListener('click', async () => {
+      if (!confirm('Clear all history?')) return;
+      await fetch('core://history/clear');
+      search();
+    });
     search();
     </script>
     """
@@ -196,11 +209,10 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
     <style>
     section { margin-bottom: 28px; }
     h2 { font-size: 13px; font-weight: 600; margin: 0 0 8px; }
-    input[type=text], textarea { width: 100%; box-sizing: border-box; font: 12px ui-monospace, monospace; }
-    textarea { min-height: 96px; resize: vertical; }
+    input[type=text], textarea { width: 100%; }
+    textarea { min-height: 96px; resize: vertical; font: 12px/1.5 ui-monospace, monospace; }
     .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
     .row input { flex: 1; }
-    .picks button { font-size: 12px; }
     .dim { color: var(--dim); font-size: 12px; }
     .spacer { flex: 1; }
     ul { list-style: none; padding: 0; margin: 8px 0 0; }

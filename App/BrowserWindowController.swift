@@ -11,17 +11,23 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private(set) var selected: Tab?
     private var closed: [URL] = []
 
-    private let sidebar = NSView()
+    private let sidebar = Sidebar()
     fileprivate let address = AddressField()
     private let tabList = TabListView()
     private let actionBar = ActionBar()
     fileprivate let content = PageArea()
-    private let progress = NSProgressIndicator()
+    private let progress = ProgressLine()
     private let notice = NSTextField(labelWithString: "")
     private let findBar = FindBar()
-    private let split = NSSplitViewController()
-    private var sidebarItem: NSSplitViewItem!
+    private let divider = SidebarDivider()
+    private var sidebarWidth: NSLayoutConstraint!
+    private var sidebarLeading: NSLayoutConstraint!
     private var popover: NSPopover?
+    private static let widths: ClosedRange<CGFloat> = 200 ... 420
+    private var width: CGFloat = {
+        let saved = CGFloat(UserDefaults.standard.double(forKey: "sidebarWidth"))
+        return saved > 0 ? min(max(saved, widths.lowerBound), widths.upperBound) : 248
+    }()
 
     init() {
         let window = BrowserWindow(
@@ -138,11 +144,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// The sidebar (traffic lights, the field, the tabs) and the page, in a
-    /// split view: AppKit drags, clamps, remembers and collapses the sidebar.
-    /// Both are white, with no visible divider.
+    /// White, flush, nothing floating: the sidebar (traffic lights, the
+    /// field, the tabs) and the page filling everything else. The edge
+    /// between them drags.
     private func layout() {
-        guard let window else { return }
+        guard let root = window?.contentView else { return }
 
         address.onSubmit = { [weak self] text in self?.go(text) }
         address.onEscape = { [weak self] in self?.focusPage() }
@@ -157,6 +163,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             for other in self.tabs where other !== tab { self.close(other) }
         }
 
+        divider.onDrag = { [weak self] delta in self?.resizeSidebar(by: delta) }
+        divider.onEnd = { [weak self] in
+            guard let self else { return }
+            UserDefaults.standard.set(Double(self.width), forKey: "sidebarWidth")
+        }
+
         notice.font = .systemFont(ofSize: 11)
         notice.textColor = .systemOrange
         notice.lineBreakMode = .byWordWrapping
@@ -164,69 +176,70 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         notice.isHidden = Engine.isPatched
         notice.stringValue = "System WebKit: fingerprint protection is not active in this build."
 
-        progress.style = .bar
-        progress.controlSize = .mini
-        progress.isIndeterminate = false
-        progress.minValue = 0
-        progress.maxValue = 1
-        progress.isHidden = true
-
         actionBar.onClick = { [weak self] action, button in self?.perform(action, from: button) }
 
-        for view in [address, progress, actionBar, tabList, notice, findBar] as [NSView] {
+        for view in [sidebar, content, divider, address, actionBar, tabList, notice, progress, findBar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
-        for view in [address, progress, actionBar, tabList, notice] as [NSView] { sidebar.addSubview(view) }
+        root.addSubview(content)
+        root.addSubview(sidebar)
+        root.addSubview(divider)
+        for view in [address, actionBar, tabList, notice] as [NSView] { sidebar.addSubview(view) }
+        content.addSubview(progress)
         content.addSubview(findBar)
         findBar.isHidden = true
         findBar.onClose = { [weak self] in self?.hideFind() }
         findBar.onSearch = { [weak self] text, back in self?.find(text, backwards: back) }
 
+        sidebarWidth = sidebar.widthAnchor.constraint(equalToConstant: width)
+        sidebarLeading = sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor)
         NSLayoutConstraint.activate([
+            sidebarLeading,
+            sidebar.topAnchor.constraint(equalTo: root.topAnchor),
+            sidebar.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            sidebarWidth,
+
+            content.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+            content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            content.topAnchor.constraint(equalTo: root.topAnchor),
+            content.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+
+            divider.centerXAnchor.constraint(equalTo: sidebar.trailingAnchor),
+            divider.topAnchor.constraint(equalTo: root.topAnchor),
+            divider.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            divider.widthAnchor.constraint(equalToConstant: 8),
+
             // Below the traffic lights.
-            address.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 40),
+            address.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 42),
             address.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
             address.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
 
-            progress.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 3),
-            progress.leadingAnchor.constraint(equalTo: address.leadingAnchor, constant: 12),
-            progress.trailingAnchor.constraint(equalTo: address.trailingAnchor, constant: -12),
-
-            actionBar.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 10),
+            actionBar.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 8),
             actionBar.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 12),
             actionBar.trailingAnchor.constraint(lessThanOrEqualTo: sidebar.trailingAnchor, constant: -12),
 
             tabList.topAnchor.constraint(equalTo: actionBar.bottomAnchor, constant: 8),
-            tabList.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
-            tabList.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+            tabList.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 8),
+            tabList.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -8),
             tabList.bottomAnchor.constraint(equalTo: notice.topAnchor, constant: -6),
 
             notice.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 14),
             notice.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14),
             notice.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: -10),
 
+            progress.topAnchor.constraint(equalTo: content.topAnchor),
+            progress.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            progress.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            progress.heightAnchor.constraint(equalToConstant: 2),
+
             findBar.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
             findBar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
         ])
+    }
 
-        let side = NSViewController()
-        side.view = sidebar
-        let page = NSViewController()
-        page.view = content
-        sidebarItem = NSSplitViewItem(viewController: side)
-        sidebarItem.minimumThickness = 200
-        sidebarItem.maximumThickness = 420
-        sidebarItem.canCollapse = true
-        sidebarItem.holdingPriority = .defaultLow + 10
-        split.splitView = InvisibleDividerSplitView()
-        split.splitView.isVertical = true
-        split.splitView.dividerStyle = .thin
-        split.splitView.autosaveName = "CoreSidebar"
-        split.addSplitViewItem(sidebarItem)
-        split.addSplitViewItem(NSSplitViewItem(viewController: page))
-        window.contentViewController = split
-        window.setContentSize(NSSize(width: 1320, height: 860))
-        window.setFrameAutosaveName("Core")
+    private func resizeSidebar(by delta: CGFloat) {
+        width = min(max(width + delta, Self.widths.lowerBound), Self.widths.upperBound)
+        sidebarWidth.constant = width
     }
 
     // MARK: Tabs
@@ -292,7 +305,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private func show(_ view: WKWebView) {
         guard view.superview !== content else { return }
         view.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(view, positioned: .below, relativeTo: findBar)
+        content.addSubview(view, positioned: .below, relativeTo: progress)
         NSLayoutConstraint.activate([
             view.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             view.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -334,8 +347,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private func refreshChrome() {
         guard let tab = selected else { return }
         if !address.isEditing { address.show(tab.url) }
-        progress.doubleValue = tab.progress
-        progress.animator().isHidden = !tab.isLoading
+        progress.set(tab.isLoading ? tab.progress : 1)
         window?.title = tab.title.isEmpty ? "Core" : tab.title
     }
 
@@ -426,15 +438,24 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func zoomIn(_ sender: Any?) { selected.map { $0.webView.pageZoom = min(3, $0.webView.pageZoom + 0.1) } }
     @objc func zoomOut(_ sender: Any?) { selected.map { $0.webView.pageZoom = max(0.3, $0.webView.pageZoom - 0.1) } }
     @objc func togglePersist(_ sender: Any?) { selected?.persist.toggle() }
-    fileprivate var sidebarShown: Bool { !sidebarItem.isCollapsed }
+    fileprivate private(set) var sidebarShown = true
 
     /// ⌘S. Hidden, the page has the whole window, traffic lights and all.
     @objc func toggleCoreSidebar(_ sender: Any?) {
         let show = !sidebarShown
+        sidebarShown = show
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             window?.standardWindowButton(kind)?.animator().alphaValue = show ? 1 : 0
         }
-        sidebarItem.animator().isCollapsed = !show
+        divider.isHidden = !show
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.32
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
+            context.allowsImplicitAnimation = true
+            sidebarLeading.constant = show ? 0 : -width
+            sidebar.animator().alphaValue = show ? 1 : 0
+            window?.contentView?.layoutSubtreeIfNeeded()
+        }
     }
 
     /// ⇧⌘S: the page as a web archive, wherever you say.
@@ -550,7 +571,9 @@ extension BrowserWindowController: TabDelegate {
     }
 
     func tab(_ tab: Tab, runConfirm message: String) async -> Bool {
-        await Dialogs.ask(in: window, tab.url?.host ?? "This page", detail: message, yes: "OK", no: "Cancel")
+        // Core's own pages ask in their own voice; a website is named.
+        if tab.url?.scheme == "about" { return await Dialogs.ask(in: window, message, detail: "", yes: "OK", no: "Cancel") }
+        return await Dialogs.ask(in: window, tab.url?.host ?? "This page", detail: message, yes: "OK", no: "Cancel")
     }
 
     func tab(_ tab: Tab, runPrompt message: String, defaultText: String?) async -> String? {
