@@ -9,7 +9,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Blocker.shared.start()
         browser = BrowserWindowController()
         NSApp.mainMenu = Menus.build(target: self, browser: browser)
-        InternalPage.shortcuts = { NSApp.mainMenu.map(Menus.shortcuts(in:)) ?? [] }
         Extensions.shared.host = browser
         Extensions.shared.windowOpened()
         Extensions.shared.start()

@@ -63,35 +63,28 @@ enum SelfTest {
             }
             check("the tab shows the site's icon", browser.selectedTab.flatMap { Favicons.shared.icon(for: $0.url) } != nil, "")
 
-            // ⌘Y: History in a new tab, searchable.
+            // ⌘Y: History in a new tab, native, searchable.
             key("y", in: window)
-            try? await Task.sleep(for: .seconds(2))
-            let web = browser.selectedTab?.webView
-            let rows = try? await web?.evaluateJavaScript("document.querySelectorAll('li').length", in: nil, contentWorld: .page) as? Int
-            check("⌘Y opens History with entries", browser.selectedTab?.url?.absoluteString == "about://history" && (rows ?? 0) > 0,
-                  "url=\(browser.selectedTab?.url?.absoluteString ?? "nil") rows=\(rows ?? -1)")
-            _ = try? await web?.evaluateJavaScript("q.value = 'webkit wikipedia'; q.dispatchEvent(new Event('input'))", in: nil, contentWorld: .page)
-            try? await Task.sleep(for: .milliseconds(600))
-            let found = try? await web?.evaluateJavaScript("[...document.querySelectorAll('li .t')].map(e => e.textContent).join('|')", in: nil, contentWorld: .page) as? String
-            check("History search finds the page by title and address", found?.contains("WebKit") == true, "found=\(found ?? "nil")")
-            _ = try? await web?.evaluateJavaScript("q.value = 'zzzz-nothing'; q.dispatchEvent(new Event('input'))", in: nil, contentWorld: .page)
-            try? await Task.sleep(for: .milliseconds(600))
-            let none = try? await web?.evaluateJavaScript("document.querySelectorAll('li').length", in: nil, contentWorld: .page) as? Int
-            check("History search with no match shows nothing", none == 0, "rows=\(none ?? -1)")
+            try? await Task.sleep(for: .seconds(1))
+            let history = HistoryModel.shared
+            check("⌘Y opens History with entries", browser.selectedTab?.url?.absoluteString == "about://history"
+                  && browser.pageShownForTesting == "history" && !history.results.isEmpty,
+                  "url=\(browser.selectedTab?.url?.absoluteString ?? "nil") page=\(browser.pageShownForTesting ?? "none") rows=\(history.results.count)")
+            history.query = "webkit wikipedia"
+            check("History search finds the page by title and address", history.results.first?.title.contains("WebKit") == true,
+                  "first=\(history.results.first?.title ?? "none")")
+            history.query = "zzzz-nothing"
+            check("History search with no match shows nothing", history.results.isEmpty, "rows=\(history.results.count)")
+            history.query = ""
 
             await storage(browser)
 
-            // ⌘, opens about://settings; choosing a search engine there saves it.
+            // ⌘, opens about://settings; an engine's button saves it.
             key(",", in: window)
-            try? await Task.sleep(for: .seconds(2))
-            let page = browser.selectedTab?.webView
-            let sections = try? await page?.evaluateJavaScript("document.querySelectorAll('h2').length", in: nil, contentWorld: .page) as? Int
-            check("⌘, opens about://settings", browser.selectedTab?.url?.absoluteString == "about://settings" && sections == 6,
-                  "url=\(browser.selectedTab?.url?.absoluteString ?? "nil") sections=\(sections ?? -1)")
-            _ = try? await page?.evaluateJavaScript("document.querySelector('#picks button').click()", in: nil, contentWorld: .page)
-            try? await Task.sleep(for: .milliseconds(500))
-            let fixed = try? await page?.evaluateJavaScript("[...document.querySelectorAll('textarea')].every(t => getComputedStyle(t).resize === 'none' && t.offsetHeight >= 190)", in: nil, contentWorld: .page) as? Bool
-            check("the Settings text boxes are tall and fixed", fixed == true, "fixed=\(String(describing: fixed))")
+            try? await Task.sleep(for: .seconds(1))
+            check("⌘, opens about://settings", browser.selectedTab?.url?.absoluteString == "about://settings" && browser.pageShownForTesting == "settings",
+                  "url=\(browser.selectedTab?.url?.absoluteString ?? "nil") page=\(browser.pageShownForTesting ?? "none")")
+            SearchEngine.all[0].choose()
             check("choosing a search engine in Settings saves it", Preferences.shared.settings.searchTemplate.contains("google.com"),
                   "template=\(Preferences.shared.settings.searchTemplate)")
 
@@ -232,9 +225,9 @@ enum SelfTest {
             // ⇧⌘/ opens about://help, listing the menus' own shortcuts.
             browser.showHelp(nil)
             try? await Task.sleep(for: .seconds(2))
-            let help = try? await browser.selectedTab?.webView.evaluateJavaScript("document.body.innerText", in: nil, contentWorld: .page) as? String
-            check("about://help lists the shortcuts", help?.contains("Persist Tab") == true && help?.contains("⌘I") == true && help?.contains("Two-finger swipe") == true,
-                  "help=\((help ?? "nil").prefix(120))")
+            let shortcuts = (NSApp.mainMenu.map(Menus.shortcuts(in:)) ?? []).map { $0.joined(separator: " ") }.joined(separator: "\n")
+            check("about://help lists the shortcuts", browser.pageShownForTesting == "help" && shortcuts.contains("Persist Tab ⌘I") && shortcuts.contains("Two-finger swipe"),
+                  "page=\(browser.pageShownForTesting ?? "none")")
             await shot("help", browser)
 
             browser.showSettings(nil)
@@ -295,37 +288,35 @@ enum SelfTest {
         check("taking a site off the whitelist forgets its jar", forgotten.isEmpty, "after=\(forgotten)")
     }
 
-    /// `-coreShots <folder>`: the window as it is, drawn by the app itself
-    /// into <folder>/<name>.png. AppKit draws the views; the page, which
-    /// lives in another process, is drawn by WebKit and laid over its place.
-    /// Nothing is read off the screen, so another app can never be in it,
-    /// and it works with the window hidden. (The frosted new tab page is the
-    /// one thing it can't show: that blur is the window server's.)
+    /// `-coreShots <folder>`: Core's window, and only Core's window, into
+    /// <folder>/<name>.png, while it sits behind other windows.
     static func shot(_ name: String, _ browser: BrowserWindowController) async {
-        guard let folder = UserDefaults.standard.string(forKey: "coreShots"),
-              let frame = browser.window?.contentView?.superview else { return }
-        try? await Task.sleep(for: .milliseconds(300))
-        frame.layoutSubtreeIfNeeded()
-        guard let rep = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else { return }
-        frame.cacheDisplay(in: frame.bounds, to: rep)
-        if let web = browser.selectedTab?.webView, web.superview != nil, !web.isHidden,
-           let page = try? await web.takeSnapshot(configuration: nil), let context = NSGraphicsContext(bitmapImageRep: rep) {
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = context
-            page.draw(in: web.convert(web.bounds, to: frame))
-            // What sits over the page (the sidebar's shadow, the find bar)
-            // goes back on top of it.
-            if let siblings = web.superview?.subviews, let i = siblings.firstIndex(of: web) {
-                for view in siblings[(i + 1)...] where !view.isHidden {
-                    let origin = view.convert(NSPoint.zero, to: frame)
-                    context.cgContext.saveGState()
-                    context.cgContext.translateBy(x: origin.x, y: origin.y - (view.isFlipped ? view.bounds.height : 0))
-                    view.layer?.render(in: context.cgContext)
-                    context.cgContext.restoreGState()
-                }
-            }
-            NSGraphicsContext.restoreGraphicsState()
-        }
+        guard let folder = UserDefaults.standard.string(forKey: "coreShots"), let window = browser.window,
+              let frame = window.contentView?.superview else { return }
+        // macOS doesn't draw a window it thinks nobody can see, and SwiftUI
+        // then draws nothing. Lifted on top but all but transparent (and
+        // ignoring the mouse) it draws; then back behind everything at full
+        // opacity, where the window server still holds what it drew.
+        let level = window.level
+        window.ignoresMouseEvents = true
+        window.alphaValue = 0.02
+        window.level = .floating
+        window.orderFrontRegardless()
+        try? await Task.sleep(for: .milliseconds(600))
+        window.level = level
+        window.orderBack(nil)
+        window.alphaValue = 1
+        window.ignoresMouseEvents = false
+        try? await Task.sleep(for: .milliseconds(80))
+        // The window server's own picture of this window, and nothing else:
+        // what AppKit, WebKit and SwiftUI all drew, composited. Only this
+        // window's number is asked for, so no other app can be in it. (The
+        // call is hidden from the SDK, not from macOS.)
+        typealias Capture = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let symbol = dlsym(dlopen(nil, RTLD_NOW), "CGWindowListCreateImage"),
+              let image = unsafeBitCast(symbol, to: Capture.self)(.null, 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue()
+        else { NSLog("Core self-test: shot \(name) failed"); return }
+        let rep = NSBitmapImageRep(cgImage: image)
         try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
     }

@@ -33,6 +33,7 @@ xcrun actool "$PWD/release/Core.icon" --compile "$PWD/$APP/Contents/Resources" -
 rm "$APP/Contents/icon.plist"
 # The picture blank tabs show until someone chooses their own.
 cp release/morning.webp "$APP/Contents/Resources/"
+cp -R release/engines "$APP/Contents/Resources/Engines"
 
 IDENTITY="-"
 RUNTIME=()

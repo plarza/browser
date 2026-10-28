@@ -114,7 +114,7 @@ public final class Tab: NSObject {
         observations = [
             webView.observe(\.title) { [weak self] view, _ in
                 MainActor.assumeIsolated {
-                    guard let self, !self.isInternal else { return }
+                    guard let self, self.internalPage == nil else { return }
                     self.update(.title) { $0.title = view.title ?? "" }
                     if let url = self.url, url.scheme == "https" || url.scheme == "http" {
                         History.shared.setTitle(self.title, for: url)
@@ -200,18 +200,14 @@ public final class Tab: NSObject {
         return own
     }
 
-    /// about://history or about://settings, in this tab: its own web view,
-    /// which alone can reach Core's `core:` scheme, in an identity of its own.
-    private var isInternal = false
+    /// One of Core's own pages, shown by the shell in place of the web view.
+    public private(set) var internalPage: String?
 
     private func showInternal(_ page: String, direction: Direction) {
-        identity = .fresh()
-        let config = Engine.configuration(for: identity, content: WKUserContentController())
-        config.setURLSchemeHandler(InternalPage.shared, forURLScheme: InternalPage.scheme)
-        replaceWebView(with: config)
-        isInternal = true
+        // An empty web view underneath: nothing of the last page stays.
+        replaceWebView(with: .fresh())
+        internalPage = page
         pendingDirection = direction
-        webView.load(URLRequest(url: InternalPage.start(page)))
         let address = InternalPage.address(page)
         recordEntry(address)
         update(.URL) { $0.url = address }
@@ -224,6 +220,7 @@ public final class Tab: NSObject {
             showInternal(page, direction: direction)
             return
         }
+        internalPage = nil
         url = CleanLink.clean(url)
         upgradedFrom = nil
         if url.scheme?.lowercased() == "http", url != httpAllowed {
@@ -250,7 +247,7 @@ public final class Tab: NSObject {
     }
 
     private func replaceWebView(with configuration: WKWebViewConfiguration) {
-        isInternal = false
+        internalPage = nil
         let old = webView
         observations = []
         old.stopLoading()
@@ -298,7 +295,6 @@ public final class Tab: NSObject {
             navigate(URLRequest(url: target), direction: .reload)
             return .cancel
         }
-        if scheme == InternalPage.scheme { return isInternal ? .allow : .cancel }
         if scheme == "about" || scheme == "blob" || scheme == "data" { return .allow }
         if scheme == "mailto" || scheme == "tel" || scheme == "facetime" {
             if action.navigationType == .linkActivated { NSWorkspace.shared.open(url) }

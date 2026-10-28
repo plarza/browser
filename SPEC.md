@@ -70,7 +70,7 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 ## Remembered on disk
 
-- **History:** each page's address, title and visit count, most recent first, with no visit times, icons or page contents. It feeds the address field (inline completion of a visited site's name, and a ranked list of matching pages underneath) and **about://history** (⌘Y): a page of its own, opened in a new tab, that searches every word across addresses and titles, removes entries one at a time, or clears everything. It runs on a `core:` scheme that only that page's web view can reach.
+- **History:** each page's address, title and visit count, most recent first, with no visit times, icons or page contents. It feeds the address field (inline completion of a visited site's name, and a ranked list of matching pages underneath) and **about://history** (⌘Y): a page of its own, opened in a new tab, that searches every word across addresses and titles, removes entries one at a time, or clears everything. Like about://settings and about://help, it is a native view in the tab, not a web page.
 - **Open tabs:** URLs only. They come back on the next launch, each in a fresh session.
 - **Whitelist jars**, as described under Whitelist.
 - **Extension data.** Extensions' own storage, such as the Bitwarden vault, is kept.

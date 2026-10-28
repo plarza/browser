@@ -1,8 +1,12 @@
 import AppKit
 import Combine
+import SwiftUI
 import CoreKit
 import UniformTypeIdentifiers
 import WebKit
+
+/// Core's tab, not SwiftUI's.
+typealias Tab = CoreKit.Tab
 
 /// The one window: tabs down the left, the page on the right, one field
 /// above the tabs.
@@ -27,6 +31,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// Behind a blank tab: the new tab page.
     private let backdrop = NewTabBackdrop()
     fileprivate let shade = SidebarShadow()
+    /// Core's own pages, native, where the web view would be.
+    private let pageHost = NSHostingView(rootView: AnyView(EmptyView()))
+    private var hostedPage: String?
     private var watching: Set<AnyCancellable> = []
     private static let widths: ClosedRange<CGFloat> = 200 ... 420
     private var width: CGFloat = {
@@ -69,6 +76,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             backdrop.topAnchor.constraint(equalTo: content.topAnchor),
             backdrop.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
+        pageHost.translatesAutoresizingMaskIntoConstraints = false
+        pageHost.isHidden = true
+        content.addSubview(pageHost, positioned: .below, relativeTo: progress)
+        NSLayoutConstraint.activate([
+            pageHost.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            pageHost.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            pageHost.topAnchor.constraint(equalTo: content.topAnchor),
+            pageHost.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
         shade.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(shade, positioned: .below, relativeTo: progress)
         NSLayoutConstraint.activate([
@@ -89,10 +105,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// The new tab page shows while the tab has nothing in it.
     private func updateNewTabPage() {
         let blank = selected.map { $0.url == nil && $0.pending == nil && !$0.isLoading } ?? false
-        selected?.webView.isHidden = blank
+        let page = selected?.internalPage
+        selected?.webView.isHidden = blank || page != nil
         content.isClear = blank
         backdrop.isHidden = !blank
         backdrop.alphaValue = 1
+        pageHost.isHidden = page == nil
+        if let page, page != hostedPage {
+            pageHost.rootView = Pages.view(page) { [weak self] url in self?.selected?.load(url) }
+        }
+        hostedPage = page
     }
 
     /// A mouse's back and forward buttons do what ⌘[ and ⌘] do. WebKit
@@ -655,9 +677,7 @@ extension BrowserWindowController: TabDelegate {
     }
 
     func tab(_ tab: Tab, runConfirm message: String) async -> Bool {
-        // Core's own pages ask in their own voice; a website is named.
-        if tab.url?.scheme == "about" { return await Dialogs.ask(in: window, message, detail: "", yes: "OK", no: "Cancel") }
-        return await Dialogs.ask(in: window, tab.url?.host ?? "This page", detail: message, yes: "OK", no: "Cancel")
+        await Dialogs.ask(in: window, tab.url?.host ?? "This page", detail: message, yes: "OK", no: "Cancel")
     }
 
     func tab(_ tab: Tab, runPrompt message: String, defaultText: String?) async -> String? {
@@ -722,6 +742,7 @@ extension BrowserWindowController {
     var selectedWebViewForTesting: NSView { selected?.webView ?? content }
     var sidebarShownForTesting: Bool { sidebarShown }
     var selectedTab: Tab? { selected }
+    var pageShownForTesting: String? { pageHost.isHidden ? nil : hostedPage }
     var newTabPageShownForTesting: Bool { !backdrop.isHidden && backdrop.alphaValue > 0.5 }
     func mouseButtonForTesting(_ number: Int) { mouseButton(number) }
     func swipeForTesting(_ phase: NSEvent.Phase, dx: CGFloat) { follow(phase, dx: dx, dy: 0) }
