@@ -1,242 +1,185 @@
-import Foundation
 import CryptoKit
+import Foundation
 import Security
 
-// Copyright (c) 2026 Office Commun. MIT License (see LICENSES/MIT-Office-Commun.txt).
-//
-// Chrome extensions, straight from the Chrome Web Store.
-//
-// An extension there is a .crx: a zip with a signed header in front of it.
-// It is fetched from the same public update address every Chromium browser
-// asks, the header is checked, and the zip is unpacked into the app's own
-// folder for WebKit to load.
-//
-// The check that matters: a Chrome extension's id is not a name anybody
-// chose — it is the first sixteen bytes of the SHA-256 of its public key,
-// written as letters a to p. So the header must carry a public key that
-// hashes to the id that was asked for, and a signature by that key over the
-// zip that came with it. A file that was altered on the way, or an
-// extension passed off under another's id, fails one or the other.
-
+/// Extensions from the Chrome Web Store: the store's CRX3 package, checked
+/// and unpacked into Core's own folder.
+///
+/// A CRX3 file is `Cr24`, a version, a header length, a protobuf header and
+/// then the zip. The header carries the extension's public key and an RSA
+/// signature over the zip; an extension's id is the first 16 bytes of the
+/// SHA-256 of that key, spelled with the letters a to p. So a package is
+/// accepted only if its key spells the id that was asked for and its
+/// signature holds over what came with it.
 enum Crx {
     enum Refused: LocalizedError {
-        case notAnID, download(Int), empty, notCrx, unsignedOrWrong, unpack
+        case notAnID, http(Int), notCrx, badSignature, unzip
 
         var errorDescription: String? {
             switch self {
-            case .notAnID: return "That isn't a Chrome Web Store link or extension id"
-            case .download(let code): return "The Chrome Web Store answered \(code)"
-            case .empty: return "The Chrome Web Store has nothing for that id — it may have been taken down, or only exist for old versions of Chrome"
-            case .notCrx: return "What came back isn't a Chrome extension"
-            case .unsignedOrWrong: return "The extension's signature doesn't hold up"
-            case .unpack: return "The extension couldn't be unpacked"
+            case .notAnID: "That isn't a Chrome Web Store link or extension ID"
+            case .http(let status): "The Chrome Web Store answered \(status)"
+            case .notCrx: "That isn't a Chrome extension package"
+            case .badSignature: "The package's signature doesn't match the extension"
+            case .unzip: "The package couldn't be unpacked"
             }
         }
     }
 
-    /// The version of Chrome the store is told it is talking to, and the one
-    /// extensions see in navigator.userAgent . Some set a
-    /// minimum; the store refuses to hand those to a browser that says it
-    /// is older, and some turn a feature off below a version: 1Password
-    /// opens its popup to unlock only from Chrome 149, so at 140 its button
-    /// in a field did nothing while it was locked (#685). Kept at Chrome's
-    /// stable version (156 on 24 Oct 2026); look again every few releases.
+    /// Chrome's version as told to the store; some extensions are only
+    /// offered to recent versions.
     static let chromeVersion = "156.0.0.0"
 
-    /// The id Chrome gives a folder loaded unpacked, from its real path:
-    /// native messaging hosts shipped for such a folder list this id. The
-    /// manifest's "key" is ignored, as nothing checks it and store keys are
-    /// public, so a folder could otherwise take any extension's id.
-    static func unpackedID(for folder: URL) -> String {
-        letters(Array(SHA256.hash(data: Data(realPath(of: folder).utf8)).prefix(16)))
-    }
-
-    /// Where a folder really is, every link on the way resolved.
-    static func realPath(of folder: URL) -> String {
-        realpath(folder.path, nil).map { real in defer { free(real) }; return String(cString: real) } ?? folder.standardizedFileURL.path
-    }
-
-    /// Thirty-two letters from a to p, wherever they are — a bare id, a store
-    /// link, an old chrome.google.com/webstore link.
+    /// The id in a store link, or a bare id.
     static func id(in text: String) -> String? {
-        let pattern = try! NSRegularExpression(pattern: "(?<![a-z])([a-p]{32})(?![a-z])")
-        let range = NSRange(text.startIndex..., in: text)
-        guard let match = pattern.firstMatch(in: text.lowercased(), range: range),
-              let found = Range(match.range(at: 1), in: text)
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isID: (Substring) -> Bool = { $0.count == 32 && $0.allSatisfy { ("a"..."p").contains($0) } }
+        if isID(Substring(text)) { return text }
+        guard let url = URL(string: text), let host = url.host,
+              host == "chromewebstore.google.com" || host == "chrome.google.com"
         else { return nil }
-        return text[found].lowercased()
+        return url.pathComponents.first { isID(Substring($0)) }
     }
 
-    /// The extension a store page is about: the id in its /detail/ path
-    /// and nowhere else — the listing the page shows is that one. Only on
-    /// the store itself, over https, with nothing before its host.
-    static func storeID(of url: URL) -> String? {
-        guard url.scheme?.lowercased() == "https", url.user == nil, url.password == nil else { return nil }
-        let host = url.host()?.lowercased() ?? ""
-        let pattern: String
-        switch host {
-        case "chromewebstore.google.com": pattern = #"^/detail/(?:[^/]+/)?([a-p]{32})(?:/.*)?$"#
-        case "chrome.google.com": pattern = #"^/webstore/detail/(?:[^/]+/)?([a-p]{32})(?:/.*)?$"#
-        default: return nil
-        }
-        let path = url.path
-        guard let match = try? NSRegularExpression(pattern: pattern).firstMatch(in: path, range: NSRange(path.startIndex..., in: path)),
-              let found = Range(match.range(at: 1), in: path)
-        else { return nil }
-        return String(path[found])
+    /// An id for a folder loaded from disk, from its full path, so the same
+    /// folder always gets the same one.
+    static func unpackedID(for folder: URL) -> String {
+        spell(Array(SHA256.hash(data: Data(folder.resolvingSymlinksInPath().path.utf8)).prefix(16)))
     }
 
-    static func downloadURL(for id: String) -> URL {
-        var parts = URLComponents(string: "https://clients2.google.com/service/update2/crx")!
-        parts.queryItems = [
-            URLQueryItem(name: "response", value: "redirect"),
-            URLQueryItem(name: "prodversion", value: chromeVersion),
-            URLQueryItem(name: "acceptformat", value: "crx3"),
-            URLQueryItem(name: "x", value: "id=\(id)&installsource=ondemand&uc"),
-        ]
-        return parts.url!
+    static func spell(_ bytes: [UInt8]) -> String {
+        let letters = Array("abcdefghijklmnop")
+        return String(bytes.flatMap { [letters[Int($0 >> 4)], letters[Int($0 & 0xF)]] })
     }
 
     static func fetch(_ id: String) async throws -> Data {
-        var request = URLRequest(url: downloadURL(for: id))
-        request.timeoutInterval = 60
-        let (data, response) = try await URLSession.shared.data(for: request)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw Refused.download(http.statusCode)
-        }
-        guard !data.isEmpty else { throw Refused.empty }
+        var url = URLComponents(string: "https://clients2.google.com/service/update2/crx")!
+        url.queryItems = [
+            URLQueryItem(name: "response", value: "redirect"),
+            URLQueryItem(name: "prodversion", value: chromeVersion),
+            URLQueryItem(name: "acceptformat", value: "crx3"),
+            URLQueryItem(name: "x", value: "id=\(id)&uc"),
+        ]
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.finishTasksAndInvalidate() }
+        let (data, response) = try await session.data(from: url.url!)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200, !data.isEmpty else { throw Refused.http(status) }
         return data
     }
 
-    /// The zip inside a CRX3, once its signature has been checked against
-    /// `id`.
-    static func verifiedZip(_ crx: Data, id: String) throws -> Data {
-        let bytes = [UInt8](crx)
-        guard bytes.count > 12, Array(bytes[0..<4]) == Array("Cr24".utf8) else { throw Refused.notCrx }
-        let version = le32(bytes, 4)
-        guard version == 3 else { throw Refused.notCrx }
-        let headerSize = Int(le32(bytes, 8))
-        guard 12 + headerSize <= bytes.count else { throw Refused.notCrx }
-        let header = Array(bytes[12..<(12 + headerSize)])
-        let zip = Data(bytes[(12 + headerSize)...])
+    /// The zip inside a CRX3 package whose key and signature match `id`.
+    static func verifiedZip(_ package: Data, id: String) throws -> Data {
+        let bytes = [UInt8](package)
+        func uint32(at i: Int) -> Int { Int(bytes[i]) | Int(bytes[i + 1]) << 8 | Int(bytes[i + 2]) << 16 | Int(bytes[i + 3]) << 24 }
+        guard bytes.count > 12, bytes[0 ..< 4] == [0x43, 0x72, 0x32, 0x34], uint32(at: 4) == 3 else { throw Refused.notCrx }
+        let headerEnd = 12 + uint32(at: 8)
+        guard headerEnd <= bytes.count else { throw Refused.notCrx }
+        let header = Protobuf(Array(bytes[12 ..< headerEnd]))
+        let zip = Data(bytes[headerEnd...])
 
-        // CrxFileHeader: 2 = sha256_with_rsa proofs, 3 = sha256_with_ecdsa
-        // proofs, 10000 = signed_header_data (SignedData: 1 = crx_id).
-        let fields = protobuf(header)
-        guard let signedHeader = fields.first(where: { $0.0 == 10000 })?.1 else { throw Refused.unsignedOrWrong }
-        guard let crxID = protobuf(signedHeader).first(where: { $0.0 == 1 })?.1,
-              letters(crxID) == id
-        else { throw Refused.unsignedOrWrong }
+        // Field 10000: the signed header data, whose field 1 is the crx id.
+        guard let signedData = header.fields(10000).first,
+              let crxID = Protobuf(signedData).fields(1).first, spell(crxID) == id
+        else { throw Refused.badSignature }
 
-        // What is signed: a fixed prefix, the signed header, and the zip.
-        var message = Data("CRX3 SignedData".utf8)
-        message.append(0)
-        var length = UInt32(signedHeader.count).littleEndian
-        message.append(Data(bytes: &length, count: 4))
-        message.append(Data(signedHeader))
-        message.append(zip)
+        // What each proof signs: a fixed label, the signed data, the zip.
+        var signed = Data("CRX3 SignedData\0".utf8)
+        withUnsafeBytes(of: UInt32(signedData.count).littleEndian) { signed.append(contentsOf: $0) }
+        signed.append(contentsOf: signedData)
+        signed.append(zip)
 
-        // One RSA proof, whose key is the one the id is made from, and whose
-        // signature holds over the message. The store adds a proof of its
-        // own; that one is fine to hold too but is not the one that counts.
-        let proofs = fields.filter { $0.0 == 2 }.map { protobuf($0.1) }
-        let owns = proofs.contains { proof in
-            guard let key = proof.first(where: { $0.0 == 1 })?.1,
-                  let signature = proof.first(where: { $0.0 == 2 })?.1,
-                  letters(Array(SHA256.hash(data: Data(key)).prefix(16))) == id
+        // Field 2: RSA proofs (1 = public key, 2 = signature). One of them
+        // must be by the key the id is made from.
+        let trusted = header.fields(2).map(Protobuf.init).contains { proof in
+            guard let key = proof.fields(1).first, let signature = proof.fields(2).first,
+                  spell(Array(SHA256.hash(data: Data(key)).prefix(16))) == id
             else { return false }
-            return verify(rsaSPKI: Data(key), signature: Data(signature), message: message)
+            return rsaVerifies(key: Data(key), signature: Data(signature), message: signed)
         }
-        guard owns else { throw Refused.unsignedOrWrong }
+        guard trusted else { throw Refused.badSignature }
         return zip
     }
 
-    /// Unpacks a zip into `folder`, which is replaced whole.
+    static func rsaVerifies(key: Data, signature: Data, message: Data) -> Bool {
+        let attributes: [CFString: Any] = [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeyClass: kSecAttrKeyClassPublic]
+        guard let publicKey = SecKeyCreateWithData(key as CFData, attributes as CFDictionary, nil)
+                ?? SecKeyCreateWithData(subjectPublicKey(key) as CFData, attributes as CFDictionary, nil)
+        else { return false }
+        return SecKeyVerifySignature(publicKey, .rsaSignatureMessagePKCS1v15SHA256, message as CFData, signature as CFData, nil)
+    }
+
+    /// The RSA key inside a DER SubjectPublicKeyInfo, which is how CRX
+    /// stores it and not how Security wants it.
+    static func subjectPublicKey(_ der: Data) -> Data {
+        let bytes = [UInt8](der)
+        // The key is the BIT STRING's contents: find 0x03, its length, then
+        // skip the "unused bits" byte.
+        var i = 0
+        while i < bytes.count, bytes[i] != 0x03 { i += 1 }
+        guard i + 2 < bytes.count else { return der }
+        var length = Int(bytes[i + 1]), start = i + 2
+        if length & 0x80 != 0 {
+            let count = length & 0x7F
+            length = bytes[(i + 2) ..< (i + 2 + count)].reduce(0) { $0 << 8 | Int($1) }
+            start = i + 2 + count
+        }
+        guard start + length <= bytes.count, length > 1 else { return der }
+        return Data(bytes[(start + 1) ..< (start + length)])
+    }
+
+    /// Unpacks `zip` into `folder`, replacing what was there.
     static func unpack(_ zip: Data, into folder: URL) throws {
         let files = FileManager.default
-        let scratch = files.temporaryDirectory.appendingPathComponent("core-crx-\(UUID().uuidString)")
-        try files.createDirectory(at: scratch, withIntermediateDirectories: true)
-        defer { try? files.removeItem(at: scratch) }
-        let archive = scratch.appendingPathComponent("x.zip")
+        let work = files.temporaryDirectory.appendingPathComponent("core-extension-\(UUID().uuidString)", isDirectory: true)
+        try files.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? files.removeItem(at: work) }
+        let archive = work.appendingPathComponent("package.zip")
         try zip.write(to: archive)
-        let out = scratch.appendingPathComponent("out", isDirectory: true)
+        let out = work.appendingPathComponent("unpacked", isDirectory: true)
         let ditto = Process()
         ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
         ditto.arguments = ["-x", "-k", archive.path, out.path]
         try ditto.run()
         ditto.waitUntilExit()
-        guard ditto.terminationStatus == 0,
-              files.fileExists(atPath: out.appendingPathComponent("manifest.json").path)
-        else { throw Refused.unpack }
-        // `ditto` keeps a symbolic link as a link, and the shim is installed
-        // by rewriting the pages a package ships: a link among them would
-        // have that rewrite land wherever it points. Nothing an extension
-        // needs is a link, so one is refused whole.
-        let carried = files.enumerator(at: out, includingPropertiesForKeys: [.isSymbolicLinkKey])
-        while let item = carried?.nextObject() as? URL {
-            guard (try? item.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true
-            else { throw Refused.unpack }
-        }
+        guard ditto.terminationStatus == 0, files.fileExists(atPath: out.appendingPathComponent("manifest.json").path) else { throw Refused.unzip }
         try? files.removeItem(at: folder)
         try files.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
         try files.moveItem(at: out, to: folder)
     }
+}
 
-    // MARK: - pieces
+/// Just enough protobuf to read a CRX header: length-delimited fields by
+/// number, skipping the rest.
+struct Protobuf {
+    private var entries: [(Int, [UInt8])] = []
 
-    private static func le32(_ b: [UInt8], _ at: Int) -> UInt32 {
-        UInt32(b[at]) | UInt32(b[at + 1]) << 8 | UInt32(b[at + 2]) << 16 | UInt32(b[at + 3]) << 24
-    }
-
-    /// The id's letters: each half-byte is a letter from a (0) to p (15).
-    static func letters(_ bytes: [UInt8]) -> String {
-        String(bytes.flatMap { [$0 >> 4, $0 & 0x0f] }.map { Character(UnicodeScalar(UInt8(97) + $0)) })
-    }
-
-    /// Length-delimited fields only, which is all a CRX header holds.
-    private static func protobuf(_ b: [UInt8]) -> [(Int, [UInt8])] {
-        var out: [(Int, [UInt8])] = []
+    init(_ bytes: [UInt8]) {
         var i = 0
         func varint() -> Int? {
             var value = 0, shift = 0
-            while i < b.count {
-                let byte = Int(b[i]); i += 1
-                value |= (byte & 0x7f) << shift
+            while i < bytes.count, shift < 63 {
+                let byte = bytes[i]
+                i += 1
+                value |= Int(byte & 0x7F) << shift
                 if byte & 0x80 == 0 { return value }
                 shift += 7
-                if shift > 56 { return nil }
             }
             return nil
         }
-        while i < b.count {
-            guard let key = varint() else { break }
-            let field = key >> 3, wire = key & 7
-            switch wire {
-            case 2:
-                guard let length = varint(), i + length <= b.count else { return out }
-                out.append((field, Array(b[i..<(i + length)])))
-                i += length
+        while i < bytes.count, let tag = varint() {
+            switch tag & 7 {
             case 0: _ = varint()
             case 1: i += 8
+            case 2:
+                guard let length = varint(), length >= 0, i + length <= bytes.count else { return }
+                entries.append((tag >> 3, Array(bytes[i ..< i + length])))
+                i += length
             case 5: i += 4
-            default: return out
+            default: return
             }
         }
-        return out
     }
 
-    /// An RSA public key as Chrome writes it (SubjectPublicKeyInfo DER),
-    /// checked against a PKCS#1 v1.5 SHA-256 signature.
-    private static func verify(rsaSPKI: Data, signature: Data, message: Data) -> Bool {
-        var format = SecExternalFormat.formatOpenSSL
-        var type = SecExternalItemType.itemTypePublicKey
-        var items: CFArray?
-        guard SecItemImport(rsaSPKI as CFData, nil, &format, &type, [], nil, nil, &items) == errSecSuccess,
-              let key = (items as? [Any])?.first
-        else { return false }
-        return SecKeyVerifySignature(
-            key as! SecKey, .rsaSignatureMessagePKCS1v15SHA256,
-            message as CFData, signature as CFData, nil
-        )
-    }
+    func fields(_ number: Int) -> [[UInt8]] { entries.filter { $0.0 == number }.map(\.1) }
 }

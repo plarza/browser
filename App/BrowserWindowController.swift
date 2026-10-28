@@ -61,6 +61,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         super.init(window: window)
         window.delegate = self
         layout()
+        alignActionBar()
         watchNewTabPage()
         watchClicks()
         watchSwipes()
@@ -314,7 +315,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             address.suggestions.trailingAnchor.constraint(equalTo: address.trailingAnchor, constant: 2),
 
             // In the traffic lights' row, after them.
-            actionBar.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 3),
             actionBar.heightAnchor.constraint(equalToConstant: 22),
             actionBar.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 78),
             actionBar.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -8),
@@ -336,6 +336,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             findBar.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
             findBar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
         ])
+    }
+
+    /// The extensions' row shares the traffic lights' centre line.
+    private func alignActionBar() {
+        guard let close = window?.standardWindowButton(.closeButton) else { return }
+        actionBar.centerYAnchor.constraint(equalTo: close.centerYAnchor).isActive = true
     }
 
     private func resizeSidebar(by delta: CGFloat) {
@@ -724,7 +730,7 @@ extension BrowserWindowController: ExtensionHost {
         popover.delegate = PopoverCloser.shared
         PopoverCloser.shared.action = action
         let anchor = actionBar.anchor ?? actionBar
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxX)
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
         self.popover = popover
     }
 }

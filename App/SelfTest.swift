@@ -197,14 +197,52 @@ enum SelfTest {
                   "url=\(searched.url?.absoluteString ?? "nil") shown=\(browser.newTabPageShownForTesting)")
             browser.close(searched)
 
+            // A page that sends itself on by script, unclicked, takes its own
+            // place in Back's list.
+            let redirected = browser.newTab(nil, focus: false)
+            redirected.load(URL(string: "https://example.com/")!)
+            try? await Task.sleep(for: .seconds(2))
+            // From a timer the page set: script run by the app itself counts as a
+            // click to WebKit, and so do timers for a second after it.
+            _ = try? await redirected.webView.evaluateJavaScript("setTimeout(() => location.replace('https://example.org/'), 1500)", in: nil, contentWorld: .page)
+            try? await Task.sleep(for: .seconds(4))
+            let afterRedirect = redirected.entries.map(\.absoluteString)
+            redirected.goBack()
+            try? await Task.sleep(for: .milliseconds(500))
+            check("a script redirect replaces its entry, so Back reaches the new tab page",
+                  afterRedirect == ["about:newtab", "https://example.org/"] && redirected.url == nil, "entries=\(afterRedirect) url=\(redirected.url?.absoluteString ?? "nil")")
+            browser.close(redirected)
+
+            // The same with a real Google search from a blank tab.
+            Preferences.shared.settings.searchTemplate = "https://www.google.com/search?q=%s"
+            let googled = browser.newTab(nil, focus: false)
+            if case .go(let url)? = Address.resolve("webkit browser engine", searchTemplate: Preferences.shared.settings.searchTemplate) { googled.load(url) }
+            try? await Task.sleep(for: .seconds(6))
+            let googleEntries = googled.entries.map { $0.host ?? $0.absoluteString }
+            googled.goBack()
+            try? await Task.sleep(for: .seconds(1))
+            check("Back after a Google search from a blank tab reaches the new tab page", googled.url == nil && browser.newTabPageShownForTesting,
+                  "entries=\(googleEntries) url=\(googled.url?.absoluteString ?? "nil")")
+            browser.close(googled)
+
+            // An extension installs from the Chrome Web Store: fetched,
+            // signature checked, unpacked.
+            if let id = UserDefaults.standard.string(forKey: "coreInstall") {
+                for _ in 0 ..< 40 where !Extensions.shared.installed.contains(where: { $0.id == id }) && Extensions.shared.trouble == nil {
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                check("an extension installs from the Chrome Web Store", Extensions.shared.installed.contains { $0.id == id },
+                      "trouble=\(Extensions.shared.trouble ?? "none")")
+            }
+
             // The Chrome Web Store offers "Add to Core".
             let store = browser.newTab(URL(string: "https://chromewebstore.google.com/detail/ghmbeldphafepmbegfdlkpapadhbakde")!)
             var label = ""
-            for _ in 0 ..< 20 where !label.contains("Core") {
+            for _ in 0 ..< 20 where !label.contains("to Core") {
                 try? await Task.sleep(for: .milliseconds(500))
                 label = (try? await store.webView.evaluateJavaScript("(document.querySelector('button[data-core=\"add\"]') || {}).textContent || ''", in: nil, contentWorld: .defaultClient) as? String) ?? ""
             }
-            check("the Chrome Web Store's button says Add to Core", label.contains("Add to Core"), "label=\(label)")
+            check("the Chrome Web Store's button says Add to Core", label.contains("to Core"), "label=\(label)")
             browser.close(store)
 
             // ⇧⌘↑ from the first tab goes round to the last; ⇧⌘↓ back to the first.

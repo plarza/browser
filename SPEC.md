@@ -101,7 +101,7 @@ Settings is a page, **about://settings** (⌘,), with: where new tabs open (belo
 
 ## Keyboard
 
-The same as Search, wherever the feature exists in Core, plus ⌘I for Persist, ⌘S to show or hide the sidebar and ⇧⌘S to save the page as a web archive.
+Listed at about://help (⇧⌘/), read from the menus.
 
 ## Builds and updates
 

@@ -116,6 +116,7 @@ struct HistoryRow: View {
 
 struct SiteIcon: View {
     let url: URL?
+    @State private var version = 0
 
     var body: some View {
         Group {
@@ -127,6 +128,9 @@ struct SiteIcon: View {
         }
         .frame(width: 16, height: 16)
         .clipShape(RoundedRectangle(cornerRadius: 3))
+        .id(version)
+        .onAppear { if let url { Favicons.shared.fetch(site: url) } }
+        .onReceive(NotificationCenter.default.publisher(for: Favicons.changed)) { _ in version += 1 }
     }
 }
 
@@ -195,18 +199,14 @@ struct SearchEngine: Identifiable {
 
 struct SettingsPage: View {
     @ObservedObject private var prefs = Preferences.shared
-    @State private var whitelist = ""
-    @State private var lists = ""
     @State private var link = ""
     @State private var installing = false
     @State private var rules = Blocker.shared.ruleCount
     @State private var trouble: String?
     @State private var installed = Extensions.shared.installed
-    @State private var forgetting: [String] = []
     @State private var confirmingDefaults = false
     @State private var confirmingDefaultImage = false
     @State private var removing: Extensions.Installed?
-    @FocusState private var editingWhitelist: Bool
     private let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -268,22 +268,20 @@ struct SettingsPage: View {
             }
 
             Section("Keep Cookies For") {
-                TextEditor(text: $whitelist)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(height: 200)
-                    .focused($editingWhitelist)
+                RowList(items: prefs.settings.whitelist, placeholder: "Add domain", icon: { URL(string: "https://\($0)") },
+                        removal: { "Delete the cookies and data kept for \($0)?" },
+                        normalise: { Whitelist.normalise([$0]).first }) { prefs.settings.whitelist = $0 }
             }
 
             Section("Filter Lists") {
-                TextEditor(text: $lists)
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(height: 200)
+                RowList(items: prefs.settings.filterLists, placeholder: "Add filter list URL", icon: { URL(string: $0) },
+                        removal: { "Remove \($0)?" },
+                        normalise: { URL(string: $0)?.scheme == "https" ? $0 : nil }) {
+                    prefs.settings.filterLists = $0
+                    Blocker.shared.refresh(force: true)
+                }
                 HStack {
-                    Button("Save and Update") {
-                        prefs.settings.filterLists = lines(lists)
-                        Blocker.shared.refresh(force: true)
-                    }
-                    .buttonBorderShape(.capsule)
+                    Button("Update Now") { Blocker.shared.refresh(force: true) }.buttonBorderShape(.capsule)
                     Button("Defaults") { confirmingDefaults = true }.buttonBorderShape(.capsule)
                     Spacer()
                     if rules > 0 { Text("\(rules.formatted()) rules").foregroundStyle(.secondary) }
@@ -319,23 +317,9 @@ struct SettingsPage: View {
             rules = Blocker.shared.ruleCount
             trouble = Blocker.shared.trouble ?? Extensions.shared.trouble
         }
-        .onChange(of: editingWhitelist) { _, editing in if !editing { saveWhitelist() } }
-        .alert("Delete the cookies and data kept for \(forgetting.joined(separator: ", "))?", isPresented: Binding(
-            get: { !forgetting.isEmpty }, set: { if !$0 { forgetting = [] } }
-        )) {
-            Button("Delete", role: .destructive) {
-                prefs.settings.whitelist = lines(whitelist)
-                forgetting = []
-            }
-            Button("Cancel", role: .cancel) {
-                whitelist = prefs.settings.whitelist.joined(separator: "\n")
-                forgetting = []
-            }
-        }
         .alert("Replace your filter lists with the defaults?", isPresented: $confirmingDefaults) {
             Button("Replace", role: .destructive) {
                 prefs.settings.filterLists = Settings.defaultFilterLists
-                lists = Settings.defaultFilterLists.joined(separator: "\n")
                 Blocker.shared.refresh(force: true)
             }
             Button("Cancel", role: .cancel) {}
@@ -363,21 +347,8 @@ struct SettingsPage: View {
         }
     }
 
-    private func lines(_ text: String) -> [String] {
-        text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-    }
-
     private func load() {
-        whitelist = prefs.settings.whitelist.joined(separator: "\n")
-        lists = prefs.settings.filterLists.joined(separator: "\n")
         installed = Extensions.shared.installed
-    }
-
-    /// Taking a domain off deletes its jar for good, so that asks first.
-    private func saveWhitelist() {
-        let now = Whitelist.normalise(lines(whitelist))
-        let gone = prefs.settings.whitelist.filter { !now.contains($0) }
-        if gone.isEmpty { prefs.settings.whitelist = now } else { forgetting = gone }
     }
 
     private func chooseImage() {
@@ -412,6 +383,61 @@ struct SettingsPage: View {
             installed = Extensions.shared.installed
             trouble = Extensions.shared.trouble
         }
+    }
+}
+
+/// A list edited a row at a time: each row with its site's icon and a ✕
+/// that shows on hover; the last row is where a new one is typed. Taking a
+/// row away asks first.
+struct RowList: View {
+    let items: [String]
+    let placeholder: String
+    let icon: (String) -> URL?
+    let removal: (String) -> String
+    let normalise: (String) -> String?
+    let save: ([String]) -> Void
+    @State private var adding = ""
+    @State private var removing: String?
+    @State private var hovered: String?
+
+    var body: some View {
+        ForEach(items, id: \.self) { item in
+            HStack(spacing: 10) {
+                SiteIcon(url: icon(item))
+                Text(item).lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Button {
+                    removing = item
+                } label: {
+                    Image(systemName: "xmark").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .opacity(hovered == item ? 1 : 0)
+                .help("Remove")
+            }
+            .contentShape(Rectangle())
+            .onHover { hovered = $0 ? item : (hovered == item ? nil : hovered) }
+        }
+        HStack(spacing: 10) {
+            Image(systemName: "plus").foregroundStyle(.secondary).frame(width: 16)
+            TextField(placeholder, text: $adding)
+                .textFieldStyle(.plain)
+                .onSubmit(add)
+        }
+        .alert(removing.map(removal) ?? "", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+            Button("Remove", role: .destructive) {
+                if let item = removing { save(items.filter { $0 != item }) }
+                removing = nil
+            }
+            Button("Cancel", role: .cancel) { removing = nil }
+        }
+    }
+
+    private func add() {
+        let text = adding.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let item = normalise(text), !items.contains(item) else { return }
+        save(items + [item])
+        adding = ""
     }
 }
 

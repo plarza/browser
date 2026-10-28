@@ -60,6 +60,15 @@ public final class Favicons {
         }
     }
 
+    /// For a site not open in any tab (Settings' lists): its /favicon.ico,
+    /// fetched the same cookie-free way, once.
+    public func fetch(site url: URL) {
+        guard let host = url.host?.lowercased(), icons[host] == nil, !loading.contains(host),
+              let ico = URL(string: "https://\(host)/favicon.ico") else { return }
+        loading.insert(host)
+        Task { await fetch([ico], host: host) }
+    }
+
     /// 32 px and up is what a tab wants; SVG scales to anything.
     static func score(sizes: String, type: String, url: URL) -> Int {
         if type.contains("svg") || url.pathExtension.lowercased() == "svg" { return 1000 }

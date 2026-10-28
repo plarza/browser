@@ -78,7 +78,10 @@ public final class Tab: NSObject {
     private var pendingDirection: Direction = .new
     private var lastCrash: Date?
 
-    private enum Direction { case new, back, forward, reload }
+    /// `replace`: a page sending itself somewhere without a click (a script
+    /// redirect) takes the place of its entry instead of adding one, so Back
+    /// doesn't land on a page that sends you straight forward again.
+    private enum Direction { case new, back, forward, reload, replace }
 
     public init(delegate: TabDelegate?) {
         self.delegate = delegate
@@ -301,7 +304,7 @@ public final class Tab: NSObject {
             index = entries.count - 1
         case .back: index = max(0, index - 1); entries[index] = url
         case .forward: index = min(entries.count - 1, index + 1); entries[index] = url
-        case .reload: if index >= 0 { entries[index] = url }
+        case .reload, .replace: if index >= 0 { entries[index] = url }
         }
         pendingDirection = .new
         delegate?.tabDidChange(self)
@@ -354,9 +357,16 @@ public final class Tab: NSObject {
                 pendingDirection = .new
                 return .allow
             }
-            navigate(action.request, direction: .new)
+            navigate(action.request, direction: Tab.isUserInitiated(action) || action.navigationType != .other ? .new : .replace)
         }
         return .cancel
+    }
+
+    static func isUserInitiated(_ action: WKNavigationAction) -> Bool {
+        let selector = NSSelectorFromString("_isUserInitiated")
+        guard action.responds(to: selector) else { return true }
+        typealias Getter = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(action.method(for: selector), to: Getter.self)(action, selector)
     }
 
     static func sameDocument(_ a: URL, _ b: URL) -> Bool {
