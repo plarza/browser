@@ -198,40 +198,53 @@ enum SelfTest {
                   "rules=\(Blocker.shared.ruleCount) trouble=\(Blocker.shared.trouble ?? "none")")
 
             // Pauses on each screen, for a screenshot from outside.
-            if UserDefaults.standard.bool(forKey: "coreScreens") {
+            if UserDefaults.standard.string(forKey: "coreShots") != nil {
                 let wiki = browser.newTab(URL(string: "https://en.wikipedia.org/wiki/WebKit")!)
                 try? await Task.sleep(for: .seconds(4))
                 swiper.persist = true
                 browser.select(wiki)
-                NSLog("Core self-test: SHOT page")
+                await shot("page", browser)
+                for n in 0 ..< SidebarShadow.styles.count {
+                    browser.sidebarShadowForTesting(n)
+                    await shot("shadow-\(n + 1)", browser)
+                }
+                browser.sidebarShadowForTesting(0)
                 try? await Task.sleep(for: .seconds(4))
                 let field = browser.addressFieldForTesting
                 field.focus()
                 let editor = window.fieldEditor(true, for: field) as? NSTextView
                 await type("wik", in: window)
                 try? await Task.sleep(for: .milliseconds(500))
-                NSLog("Core self-test: SHOT suggest")
+                await shot("suggest", browser)
                 try? await Task.sleep(for: .seconds(4))
                 window.makeFirstResponder(nil)
                 browser.showHistory(nil)
                 try? await Task.sleep(for: .seconds(1))
-                NSLog("Core self-test: SHOT history")
+                await shot("history", browser)
                 try? await Task.sleep(for: .seconds(4))
                 let empty = browser.newTab(nil, focus: false)
                 Preferences.shared.settings.newTabPage = .image
                 try? await Task.sleep(for: .seconds(1))
-                NSLog("Core self-test: SHOT newtab")
+                await shot("newtab", browser)
                 try? await Task.sleep(for: .seconds(4))
                 Preferences.shared.settings.newTabPage = .blank
                 try? await Task.sleep(for: .seconds(1))
-                NSLog("Core self-test: SHOT frosted")
+                await shot("frosted", browser)
                 try? await Task.sleep(for: .seconds(4))
                 Preferences.shared.settings.newTabPage = .image
                 browser.close(empty)
             }
+            // ⇧⌘/ opens about://help, listing the menus' own shortcuts.
+            browser.showHelp(nil)
+            try? await Task.sleep(for: .seconds(2))
+            let help = try? await browser.selectedTab?.webView.evaluateJavaScript("document.body.innerText", in: nil, contentWorld: .page) as? String
+            check("about://help lists the shortcuts", help?.contains("Persist Tab") == true && help?.contains("⌘I") == true && help?.contains("Two-finger swipe") == true,
+                  "help=\((help ?? "nil").prefix(120))")
+            await shot("help", browser)
+
             browser.showSettings(nil)
             try? await Task.sleep(for: .seconds(1))
-            NSLog("Core self-test: SHOT settings")
+            await shot("settings", browser)
             NSLog("Core self-test: done")
         }
     }
@@ -285,6 +298,41 @@ enum SelfTest {
         await settle(other)
         let forgotten = await read(other)
         check("taking a site off the whitelist forgets its jar", forgotten.isEmpty, "after=\(forgotten)")
+    }
+
+    /// `-coreShots <folder>`: the window as it is, drawn by the app itself
+    /// into <folder>/<name>.png. AppKit draws the views; the page, which
+    /// lives in another process, is drawn by WebKit and laid over its place.
+    /// Nothing is read off the screen, so another app can never be in it,
+    /// and it works with the window hidden. (The frosted new tab page is the
+    /// one thing it can't show: that blur is the window server's.)
+    static func shot(_ name: String, _ browser: BrowserWindowController) async {
+        guard let folder = UserDefaults.standard.string(forKey: "coreShots"),
+              let frame = browser.window?.contentView?.superview else { return }
+        try? await Task.sleep(for: .milliseconds(300))
+        frame.layoutSubtreeIfNeeded()
+        guard let rep = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else { return }
+        frame.cacheDisplay(in: frame.bounds, to: rep)
+        if let web = browser.selectedTab?.webView, web.superview != nil, !web.isHidden,
+           let page = try? await web.takeSnapshot(configuration: nil), let context = NSGraphicsContext(bitmapImageRep: rep) {
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            page.draw(in: web.convert(web.bounds, to: frame))
+            // What sits over the page (the sidebar's shadow, the find bar)
+            // goes back on top of it.
+            if let siblings = web.superview?.subviews, let i = siblings.firstIndex(of: web) {
+                for view in siblings[(i + 1)...] where !view.isHidden {
+                    let origin = view.convert(NSPoint.zero, to: frame)
+                    context.cgContext.saveGState()
+                    context.cgContext.translateBy(x: origin.x, y: origin.y - (view.isFlipped ? view.bounds.height : 0))
+                    view.layer?.render(in: context.cgContext)
+                    context.cgContext.restoreGState()
+                }
+            }
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
     }
 
     /// `-coreProbe <url> -coreProbeOut <file>`: loads the page, lets it

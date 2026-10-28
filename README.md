@@ -2,36 +2,42 @@
 
 # Core
 
-A private browser for macOS on a patched WebKit.
+A private macOS browser on its own build of WebKit. None of what follows can be turned off.
 
-- Each tab has its own cookies, storage, cache and fingerprint seed, wiped on every reload and navigation.
-- ⌘I (Persist) keeps a tab's session until the tab closes.
-- Whitelisted domains keep their cookies on disk.
-- Fingerprinting protections are always on. Pages see Safari's user agent, UTC and en-US.
-- WebRTC is relay-only. No JIT, no WebAssembly.
-- Built-in ad and tracker blocking from filter lists, updated daily.
-- HTTPS-only. Tracking parameters are stripped from links.
-- Bangs (`!w`, `!gh`, …) resolve locally. History search is at `about://history`.
-- Chrome Web Store extensions run on WebKit's extension engine.
-- No settings turn any of this off. No proxy or Tor: use a VPN.
+## Engine patches
 
-## Shortcuts
+Applied to upstream WebKit (`engine/patches/`), so they hold for every page, frame and worker regardless of what the app asks for.
 
-| Key | Action |
-|---|---|
-| ⌘T / ⌘W / ⇧⌘T | New tab / close / reopen closed |
-| ⌘L | Address field |
-| ⌘I | Persist tab |
-| ⌘S | Toggle sidebar |
-| ⇧⌘S | Save page |
-| ⌘Y | History |
-| ⌘R | Reload (wipes the tab) |
-| ⌘[ / ⌘] | Back / forward |
-| ⇧⌘[ / ⇧⌘] or ⇧⌘↑ / ⇧⌘↓ | Previous / next tab (wraps around) |
-| ⌘1–⌘9 | Jump to tab |
-| ⌘F | Find |
-| ⌘, | Settings (`about://settings`) |
-| Two-finger swipe, mouse back/forward buttons | Back / forward |
+- Safari's Private Browsing fingerprinting protections are forced on: canvas and audio readouts get noise, `screen` reports the window's size, and link-decoration parameters are stripped.
+- `navigator.hardwareConcurrency` is always 8.
+- Each tab identity carries a seed; every site's noise is derived from that seed and the site, so the fingerprint changes on every wipe and differs between sites.
+- No JIT and no WebAssembly: JavaScriptCore runs on its interpreters only, set before the engine starts.
+- Every web process runs in UTC.
+- Every WebKit process reports en-US, so `navigator.language`, `Accept-Language` and `Intl` agree.
+- WebRTC gathers relay candidates only, so neither your LAN address nor your public IP reaches a page or a peer.
+- Smooth scrolling is always on.
+
+## Browser
+
+- Each tab gets its own data store and network session (cookies, all storage, HTTP cache, HSTS, TLS sessions, connections) and its own web process.
+- Every reload and navigation, back and forward included, throws that identity away and loads into a new one.
+- Persist (⌘I) keeps a tab's identity until the tab closes.
+- Domains on the cookie list keep one jar on disk, shared by all tabs, with one fixed fingerprint seed.
+- `window.open` popups (sign-in, 3-D Secure) share their opener's identity and close with it; links opened in a new tab start fresh.
+- The user agent is Safari's for the installed macOS.
+- HTTPS-only: plain HTTP is upgraded, with a one-load fallback page if the site has no HTTPS.
+- Tracking parameters (`utm_*`, `fbclid`, `gclid` and others) are removed from every navigation.
+- Ads and trackers are blocked inside WebKit's networking by content rules compiled from filter lists (uBlock Origin's, EasyList, EasyPrivacy, Peter Lowe's, URLhaus, AdGuard cookie notices), fetched daily without cookies.
+- Location, notifications, MIDI, USB, serial, HID, Bluetooth and sensors are always denied; camera and microphone ask every time and the answer isn't kept.
+- Downloads ask first and keep macOS's quarantine flag.
+- Bangs (`!w`, `!gh`, `!yt` and about 300 more) resolve from a table inside the app.
+- Favicons are read from the page through WebKit's isolated script world, fetched without cookies, and kept in memory only.
+- History keeps addresses, titles and visit counts, for address-bar completion and `about://history`.
+- Extensions install from the Chrome Web Store onto WebKit's extension engine; their own storage is kept.
+- No telemetry and no update checks. The only request Core makes by itself is the daily filter-list fetch.
+- No proxy or Tor: use a VPN.
+
+Keyboard shortcuts are at `about://help` (⇧⌘/).
 
 ## Build
 
@@ -62,7 +68,7 @@ The self-test only works in debug builds:
 build/Core.app/Contents/MacOS/Core -coreStore /tmp/core-test -coreSelfTest YES
 ```
 
-It logs PASS/FAIL per check. `-coreStore` uses a separate data folder. `-coreProbe <url> -coreProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS.
+It logs PASS/FAIL per check. `-coreStore` uses a separate data folder; `-coreShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). `-coreProbe <url> -coreProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS.
 
 ## Layout
 

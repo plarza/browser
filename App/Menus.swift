@@ -97,7 +97,50 @@ enum Menus {
         ])
         NSApp.windowsMenu = window.submenu
         main.addItem(window)
+        main.addItem(submenu("Help", [
+            item("Keyboard Shortcuts", #selector(BrowserWindowController.showHelp(_:)), "/", [.command, .shift]),
+        ]))
         return main
+    }
+
+    /// Every shortcut in the menus, for about://help: [menu, item, keys].
+    /// A command with several keys is one row.
+    static func shortcuts(in main: NSMenu) -> [[String]] {
+        var rows: [[String]] = []
+        var seen: [String: Int] = [:]
+        for top in main.items {
+            guard let menu = top.submenu else { continue }
+            // Not the ones macOS adds to every Edit menu.
+            let system: Set<Selector?> = [Selector(("startDictation:")), Selector(("orderFrontCharacterPalette:"))]
+            for item in menu.items where !item.keyEquivalent.isEmpty && !system.contains(item.action) {
+                let keys = describe(item)
+                let id = menu.title + item.title
+                if let i = seen[id] { rows[i][2] += " or " + keys; continue }
+                seen[id] = rows.count
+                rows.append([menu.title, item.title, keys])
+            }
+        }
+        rows.append(["Gestures", "Back / Forward", "Two-finger swipe or Mouse back / forward buttons"])
+        return rows
+    }
+
+    static func describe(_ item: NSMenuItem) -> String {
+        var key = item.keyEquivalent
+        var mods = item.keyEquivalentModifierMask
+        if key.count == 1, let c = key.first, c.isUppercase { mods.insert(.shift); key = key.lowercased() }
+        let shifted: [String: String] = ["{": "[", "}": "]", "+": "=", "_": "-", "?": "/"]
+        if let base = shifted[key] { mods.insert(.shift); key = base }
+        let names: [String: String] = [
+            "\t": "⇥", "\r": "↩", " ": "Space",
+            String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)): "↑", String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)): "↓",
+            String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!)): "←", String(Character(UnicodeScalar(NSRightArrowFunctionKey)!)): "→",
+        ]
+        var text = ""
+        if mods.contains(.control) { text += "⌃" }
+        if mods.contains(.option) { text += "⌥" }
+        if mods.contains(.shift) { text += "⇧" }
+        if mods.contains(.command) { text += "⌘" }
+        return text + (names[key] ?? key.uppercased())
     }
 
     /// Browser commands go straight to the browser, not up the responder

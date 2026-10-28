@@ -26,6 +26,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private var popover: NSPopover?
     /// Behind a blank tab: the new tab page.
     private let backdrop = NewTabBackdrop()
+    fileprivate let shade = SidebarShadow()
     private var watching: Set<AnyCancellable> = []
     private static let widths: ClosedRange<CGFloat> = 200 ... 420
     private var width: CGFloat = {
@@ -67,6 +68,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             backdrop.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             backdrop.topAnchor.constraint(equalTo: content.topAnchor),
             backdrop.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        shade.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(shade, positioned: .below, relativeTo: progress)
+        NSLayoutConstraint.activate([
+            shade.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            shade.topAnchor.constraint(equalTo: content.topAnchor),
+            shade.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            shade.widthAnchor.constraint(equalToConstant: 40),
         ])
         let prefs = Preferences.shared
         prefs.$settings.combineLatest(prefs.$newTabImageVersion)
@@ -479,6 +488,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// ⌘Y: about://history.
     @objc func showHistory(_ sender: Any?) { showInternal(InternalPage.address("history")) }
 
+    /// ⇧⌘/: about://help.
+    @objc func showHelp(_ sender: Any?) { showInternal(InternalPage.address("help")) }
+
     /// ⌘,: about://settings.
     @objc func showSettings(_ sender: Any?) { showInternal(InternalPage.address("settings")) }
 
@@ -717,6 +729,7 @@ extension BrowserWindowController {
     var selectedWebViewForTesting: NSView { selected?.webView ?? content }
     var sidebarShownForTesting: Bool { sidebarShown }
     var selectedTab: Tab? { selected }
+    func sidebarShadowForTesting(_ n: Int) { shade.apply(SidebarShadow.styles[n]) }
     var newTabPageShownForTesting: Bool { !backdrop.isHidden && backdrop.alphaValue > 0.5 }
     func mouseButtonForTesting(_ number: Int) { mouseButton(number) }
     func swipeForTesting(_ phase: NSEvent.Phase, dx: CGFloat) { follow(phase, dx: dx, dy: 0) }

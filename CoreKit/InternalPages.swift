@@ -8,7 +8,11 @@ import WebKit
 public final class InternalPage: NSObject, WKURLSchemeHandler {
     static let shared = InternalPage()
     static let scheme = "core"
-    static let pages = ["history", "settings"]
+    static let pages = ["history", "settings", "help"]
+
+    /// Every shortcut, as [section, action, keys]: the shell fills this in
+    /// from its own menus, so the help page can't drift from them.
+    public static var shortcuts: () -> [[String]] = { [] }
 
     /// The page an about: address names, if it is one of Core's.
     nonisolated public static func page(_ url: URL?) -> String? {
@@ -39,6 +43,8 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
             History.shared.clear()
             respond(task, url, "application/json", ok)
 
+        case ("help", "/shortcuts"):
+            json(task, url, Self.shortcuts())
         case ("settings", "/state"):
             json(task, url, state())
         case ("settings", "/search"):
@@ -176,7 +182,7 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
     """
 
     static func document(_ page: String) -> String {
-        let (title, body) = page == "settings" ? ("Settings", settings) : ("History", history)
+        let (title, body) = page == "settings" ? ("Settings", settings) : page == "help" ? ("Help", help) : ("History", history)
         return "<!doctype html><html lang=en><head><meta charset=utf-8><title>\(title)</title><style>\(style)</style></head><body>\(body)</body></html>"
     }
 
@@ -239,6 +245,26 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
       search();
     });
     search();
+    </script>
+    """
+
+    static let help = """
+    <style>
+    h2 { font-size: 13px; font-weight: 600; margin: 24px 0 6px; }
+    h2:first-child { margin-top: 0; }
+    .k { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--edge); }
+    kbd { font: 12px -apple-system, system-ui; border: 1px solid var(--edge); border-radius: 6px; padding: 2px 7px; margin-left: 4px; }
+    </style>
+    <main id=list></main>
+    <script>
+    const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    fetch('core://help/shortcuts').then(r => r.json()).then(rows => {
+      const groups = {};
+      for (const [section, action, keys] of rows) (groups[section] ||= []).push([action, keys]);
+      document.getElementById('list').innerHTML = Object.entries(groups).map(([section, items]) =>
+        '<h2>' + esc(section) + '</h2>' + items.map(([action, keys]) =>
+          '<div class=k><span>' + esc(action) + '</span><span>' + keys.split(' or ').map(k => '<kbd>' + esc(k) + '</kbd>').join(' ') + '</span></div>').join('')).join('');
+    });
     </script>
     """
 

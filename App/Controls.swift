@@ -420,6 +420,54 @@ extension NSColor {
     }
 }
 
+/// The sidebar's shadow along the page's left edge, so the sidebar reads
+/// as lying on top of the page. Clicks go through it.
+@MainActor
+final class SidebarShadow: NSView {
+    struct Style { var darkness: CGFloat; var width: CGFloat; var falloff: [NSNumber] }
+
+    static let styles: [Style] = [
+        Style(darkness: 0.06, width: 6, falloff: [0, 1]),
+        Style(darkness: 0.09, width: 10, falloff: [0, 1]),
+        Style(darkness: 0.05, width: 18, falloff: [0, 0.35, 1]),
+        Style(darkness: 0.12, width: 4, falloff: [0, 1]),
+        Style(darkness: 0.08, width: 26, falloff: [0, 0.2, 1]),
+    ]
+
+    private let gradient = CAGradientLayer()
+    private(set) var style = SidebarShadow.styles[0]
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        gradient.startPoint = CGPoint(x: 0, y: 0.5)
+        gradient.endPoint = CGPoint(x: 1, y: 0.5)
+        layer?.addSublayer(gradient)
+        apply(style)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func apply(_ style: Style) {
+        self.style = style
+        let dark = NSColor.black.withAlphaComponent(style.darkness).cgColor
+        let clear = NSColor.black.withAlphaComponent(0).cgColor
+        gradient.colors = style.falloff.count == 3 ? [dark, NSColor.black.withAlphaComponent(style.darkness * 0.4).cgColor, clear] : [dark, clear]
+        gradient.locations = style.falloff
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradient.frame = NSRect(x: 0, y: 0, width: style.width, height: bounds.height)
+        CATransaction.commit()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// The sidebar's edge: drag to resize.
 @MainActor
 final class SidebarDivider: NSView {
