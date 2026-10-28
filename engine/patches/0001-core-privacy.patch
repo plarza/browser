@@ -1,0 +1,285 @@
+diff --git a/Source/WebCore/Modules/mediastream/libwebrtc/LibWebRTCPeerConnectionBackend.cpp b/Source/WebCore/Modules/mediastream/libwebrtc/LibWebRTCPeerConnectionBackend.cpp
+index 2eb4b831b9..bf0a32da6c 100644
+--- a/Source/WebCore/Modules/mediastream/libwebrtc/LibWebRTCPeerConnectionBackend.cpp
++++ b/Source/WebCore/Modules/mediastream/libwebrtc/LibWebRTCPeerConnectionBackend.cpp
+@@ -140,17 +140,12 @@ static inline webrtc::PeerConnectionInterface::RtcpMuxPolicy LEGACY_NODELETE rtc
+     return webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
+ }
+ 
+-static inline webrtc::PeerConnectionInterface::IceTransportsType LEGACY_NODELETE iceTransportPolicyfromConfiguration(const MediaEndpointConfiguration& configuration)
++// Core: relay only, whatever the page asked for. Host and server-reflexive
++// candidates are never gathered, so neither the LAN address nor the public
++// one (the one a VPN is there to hide) reaches the page or the peer.
++static inline webrtc::PeerConnectionInterface::IceTransportsType LEGACY_NODELETE iceTransportPolicyfromConfiguration(const MediaEndpointConfiguration&)
+ {
+-    switch (configuration.iceTransportPolicy) {
+-    case RTCIceTransportPolicy::Relay:
+-        return webrtc::PeerConnectionInterface::kRelay;
+-    case RTCIceTransportPolicy::All:
+-        return webrtc::PeerConnectionInterface::kAll;
+-    }
+-
+-    ASSERT_NOT_REACHED();
+-    return webrtc::PeerConnectionInterface::kNone;
++    return webrtc::PeerConnectionInterface::kRelay;
+ }
+ 
+ webrtc::PeerConnectionInterface::RTCConfiguration configurationFromMediaEndpointConfiguration(MediaEndpointConfiguration&& configuration)
+diff --git a/Source/WebCore/loader/DocumentLoader.h b/Source/WebCore/loader/DocumentLoader.h
+index ca37fbe30b..f443050e71 100644
+--- a/Source/WebCore/loader/DocumentLoader.h
++++ b/Source/WebCore/loader/DocumentLoader.h
+@@ -478,10 +478,10 @@ public:
+     WEBCORE_EXPORT void applyPoliciesToSettings();
+ 
+     void setAdvancedPrivacyProtections(OptionSet<AdvancedPrivacyProtections> policy) { m_advancedPrivacyProtections = policy; }
+-    OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections() const { return m_advancedPrivacyProtections; }
++    OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections() const { return m_advancedPrivacyProtections | coreAlwaysOnProtections(); }
+ 
+     void setOriginatorAdvancedPrivacyProtections(OptionSet<AdvancedPrivacyProtections> policy) { m_originatorAdvancedPrivacyProtections = policy; }
+-    OptionSet<AdvancedPrivacyProtections> navigationalAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections.value_or(m_advancedPrivacyProtections); }
++    OptionSet<AdvancedPrivacyProtections> navigationalAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections.value_or(m_advancedPrivacyProtections) | coreAlwaysOnProtections(); }
+     std::optional<OptionSet<AdvancedPrivacyProtections>> originatorAdvancedPrivacyProtections() const { return m_originatorAdvancedPrivacyProtections; }
+ 
+     void setGlobalPrivacyControlEnabled(std::optional<bool> enabled) { m_globalPrivacyControlEnabled = enabled; }
+diff --git a/Source/WebCore/page/Page.cpp b/Source/WebCore/page/Page.cpp
+index 60a9887a1a..035aa41fc9 100644
+--- a/Source/WebCore/page/Page.cpp
++++ b/Source/WebCore/page/Page.cpp
+@@ -4360,11 +4360,26 @@ std::optional<uint64_t> Page::noiseInjectionHashSaltForDomain(const RegistrableD
+     if (!m_noiseInjectionHashSalts.isValidKey(domain))
+         return std::nullopt;
+ 
+-    return m_noiseInjectionHashSalts.ensure(domain, [] {
+-        return cryptographicallyRandomNumber<uint64_t>();
++    return m_noiseInjectionHashSalts.ensure(domain, [&] {
++        if (!m_coreFingerprintSeed)
++            return cryptographicallyRandomNumber<uint64_t>();
++        // splitmix64 over the seed and the site: stable for this identity,
++        // unrelated across sites and across identities.
++        uint64_t z = m_coreFingerprintSeed ^ (static_cast<uint64_t>(domain.string().hash()) * 0x9E3779B97F4A7C15ull);
++        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
++        z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
++        return z ^ (z >> 31);
+     }).iterator->value;
+ }
+ 
++void Page::setCoreFingerprintSeed(uint64_t seed)
++{
++    if (seed == m_coreFingerprintSeed)
++        return;
++    m_coreFingerprintSeed = seed;
++    m_noiseInjectionHashSalts.clear();
++}
++
+ PAL::SessionID LEGACY_NODELETE Page::sessionID() const
+ {
+     return m_sessionID;
+diff --git a/Source/WebCore/page/Page.h b/Source/WebCore/page/Page.h
+index 751267b4b0..ecbb836b9f 100644
+--- a/Source/WebCore/page/Page.h
++++ b/Source/WebCore/page/Page.h
+@@ -1067,6 +1067,10 @@ public:
+     WEBCORE_EXPORT void setVisitedLinkStore(Ref<VisitedLinkStore>&&);
+ 
+     std::optional<uint64_t> noiseInjectionHashSaltForDomain(const RegistrableDomain&);
++    // Core: every site's noise salt derives from this, so one identity keeps
++    // one fingerprint and the next identity gets a different one.
++    WEBCORE_EXPORT void setCoreFingerprintSeed(uint64_t);
++    uint64_t coreFingerprintSeed() const { return m_coreFingerprintSeed; }
+ 
+     WEBCORE_EXPORT PAL::SessionID LEGACY_NODELETE sessionID() const;
+     WEBCORE_EXPORT void setSessionID(PAL::SessionID);
+@@ -1910,6 +1914,7 @@ private:
+     const Ref<HistoryItemClient> m_historyItemClient;
+ 
+     HashMap<RegistrableDomain, uint64_t> m_noiseInjectionHashSalts;
++    uint64_t m_coreFingerprintSeed { 0 };
+ 
+ #if PLATFORM(IOS_FAMILY)
+     String m_sceneIdentifier;
+diff --git a/Source/WebCore/platform/network/AdvancedPrivacyProtections.h b/Source/WebCore/platform/network/AdvancedPrivacyProtections.h
+index d1c33ac6e3..eb1b6e70b5 100644
+--- a/Source/WebCore/platform/network/AdvancedPrivacyProtections.h
++++ b/Source/WebCore/platform/network/AdvancedPrivacyProtections.h
+@@ -25,6 +25,8 @@
+ 
+ #pragma once
+ 
++#include <wtf/OptionSet.h>
++
+ namespace WebCore {
+ 
+ // FIXME: WebSearchContent is only used for debugging, and is unrelated to these other privacy protections;
+@@ -45,4 +47,18 @@ enum class AdvancedPrivacyProtections : uint16_t {
+     OverrideHardwareConcurrency = 1 << 12,
+ };
+ 
++// Core: on for every page and every frame, whatever the embedder asked for.
++// There is no way to turn them off.
++inline OptionSet<AdvancedPrivacyProtections> coreAlwaysOnProtections()
++{
++    return {
++        AdvancedPrivacyProtections::BaselineProtections,
++        AdvancedPrivacyProtections::FingerprintingProtections,
++        AdvancedPrivacyProtections::EnhancedNetworkPrivacy,
++        AdvancedPrivacyProtections::LinkDecorationFiltering,
++        AdvancedPrivacyProtections::ScriptTrackingPrivacy,
++        AdvancedPrivacyProtections::OverrideHardwareConcurrency,
++    };
++}
++
+ }
+diff --git a/Source/WebKit/Shared/WebsitePoliciesData.cpp b/Source/WebKit/Shared/WebsitePoliciesData.cpp
+index 9d9ea6035f..d8135a0785 100644
+--- a/Source/WebKit/Shared/WebsitePoliciesData.cpp
++++ b/Source/WebKit/Shared/WebsitePoliciesData.cpp
+@@ -217,6 +217,12 @@ void WebsitePoliciesData::applyToDocumentLoader(WebsitePoliciesData&& websitePol
+     documentLoader.setModalContainerObservationPolicy(websitePolicies.modalContainerObservationPolicy);
+     documentLoader.setColorSchemePreference(websitePolicies.colorSchemePreference);
+     documentLoader.setAdvancedPrivacyProtections(websitePolicies.advancedPrivacyProtections);
++    if (websitePolicies.coreFingerprintSeed) {
++        if (RefPtr frame = documentLoader.frame()) {
++            if (RefPtr page = frame->page())
++                page->setCoreFingerprintSeed(websitePolicies.coreFingerprintSeed);
++        }
++    }
+     if (!documentLoader.originatorAdvancedPrivacyProtections())
+         documentLoader.setOriginatorAdvancedPrivacyProtections(websitePolicies.advancedPrivacyProtections);
+     documentLoader.setGlobalPrivacyControlEnabled(websitePolicies.globalPrivacyControlEnabled);
+diff --git a/Source/WebKit/Shared/WebsitePoliciesData.h b/Source/WebKit/Shared/WebsitePoliciesData.h
+index 3474c0a851..ae2f5c6411 100644
+--- a/Source/WebKit/Shared/WebsitePoliciesData.h
++++ b/Source/WebKit/Shared/WebsitePoliciesData.h
+@@ -67,6 +67,7 @@ public:
+     String customNavigatorPlatform;
+     String applicationNameForDesktopUserAgent;
+     OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections;
++    uint64_t coreFingerprintSeed { 0 };
+     OptionSet<WebsiteAutoplayQuirk> allowedAutoplayQuirks;
+     WebCore::ContentExtensionEnablement contentExtensionEnablement { WebCore::ContentExtensionDefaultEnablement::Enabled, { } };
+ #if ENABLE(TOUCH_EVENTS)
+diff --git a/Source/WebKit/Shared/WebsitePoliciesData.serialization.in b/Source/WebKit/Shared/WebsitePoliciesData.serialization.in
+index ff5de21ac6..33a8208124 100644
+--- a/Source/WebKit/Shared/WebsitePoliciesData.serialization.in
++++ b/Source/WebKit/Shared/WebsitePoliciesData.serialization.in
+@@ -65,6 +65,7 @@ struct WebKit::WebsitePoliciesData {
+     String customNavigatorPlatform;
+     String applicationNameForDesktopUserAgent;
+     OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections;
++    uint64_t coreFingerprintSeed;
+     OptionSet<WebKit::WebsiteAutoplayQuirk> allowedAutoplayQuirks;
+     WebCore::ContentExtensionEnablement contentExtensionEnablement;
+ #if ENABLE(TOUCH_EVENTS)
+diff --git a/Source/WebKit/UIProcess/API/APIWebsitePolicies.h b/Source/WebKit/UIProcess/API/APIWebsitePolicies.h
+index bded93d545..446811021c 100644
+--- a/Source/WebKit/UIProcess/API/APIWebsitePolicies.h
++++ b/Source/WebKit/UIProcess/API/APIWebsitePolicies.h
+@@ -131,6 +131,8 @@ public:
+ 
+     OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections() const { return m_data.advancedPrivacyProtections; }
+     void setAdvancedPrivacyProtections(OptionSet<WebCore::AdvancedPrivacyProtections> policy) { m_data.advancedPrivacyProtections = policy; }
++    uint64_t coreFingerprintSeed() const { return m_data.coreFingerprintSeed; }
++    void setCoreFingerprintSeed(uint64_t seed) { m_data.coreFingerprintSeed = seed; }
+ 
+     bool idempotentModeAutosizingOnlyHonorsPercentages() const { return m_data.idempotentModeAutosizingOnlyHonorsPercentages; }
+     void setIdempotentModeAutosizingOnlyHonorsPercentages(bool idempotentModeAutosizingOnlyHonorsPercentages) { m_data.idempotentModeAutosizingOnlyHonorsPercentages = idempotentModeAutosizingOnlyHonorsPercentages; }
+diff --git a/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferences.mm b/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferences.mm
+index 78a8c405b1..c1a49ce3dd 100644
+--- a/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferences.mm
++++ b/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferences.mm
+@@ -661,6 +661,16 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+     return WebKit::upgradeToHTTPSPolicy(_websitePolicies->httpsByDefaultMode());
+ }
+ 
++- (NSNumber *)_coreFingerprintSeed
++{
++    return @(_websitePolicies->coreFingerprintSeed());
++}
++
++- (void)_setCoreFingerprintSeed:(NSNumber *)seed
++{
++    _websitePolicies->setCoreFingerprintSeed(seed.unsignedLongLongValue);
++}
++
+ - (BOOL)_networkConnectionIntegrityEnabled
+ {
+     return _websitePolicies->advancedPrivacyProtections().containsAll({
+diff --git a/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferencesPrivate.h b/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferencesPrivate.h
+index ca4c970162..04a1f0378c 100644
+--- a/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferencesPrivate.h
++++ b/Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferencesPrivate.h
+@@ -120,6 +120,8 @@ typedef NS_OPTIONS(NSUInteger, _WKWebsiteNetworkConnectionIntegrityPolicy) {
+ @property (nonatomic, setter=_setColorSchemePreference:) _WKWebsiteColorSchemePreference _colorSchemePreference;
+ 
+ @property (nonatomic, setter=_setNetworkConnectionIntegrityEnabled:) BOOL _networkConnectionIntegrityEnabled WK_API_AVAILABLE(macos(13.3), ios(16.4));
++// Core: the identity's fingerprint seed; 0 means a random salt per page.
++@property (nonatomic, copy, setter=_setCoreFingerprintSeed:) NSNumber *_coreFingerprintSeed;
+ @property (nonatomic, setter=_setNetworkConnectionIntegrityPolicy:) _WKWebsiteNetworkConnectionIntegrityPolicy _networkConnectionIntegrityPolicy WK_API_AVAILABLE(macos(13.3), ios(16.4));
+ 
+ @property (nonatomic, copy, setter=_setVisibilityAdjustmentSelectorsIncludingShadowHosts:) NSArray<NSArray<NSSet<NSString *> *> *> *_visibilityAdjustmentSelectorsIncludingShadowHosts WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+diff --git a/Source/WebKit/WebProcess/WebProcess.cpp b/Source/WebKit/WebProcess/WebProcess.cpp
+index 40987671f9..f784b8a09d 100644
+--- a/Source/WebKit/WebProcess/WebProcess.cpp
++++ b/Source/WebKit/WebProcess/WebProcess.cpp
+@@ -437,6 +437,11 @@ WebProcess::WebProcess()
+     });
+ }
+ 
++static Vector<String> coreLanguages()
++{
++    return { "en-US"_s };
++}
++
+ WebProcess::~WebProcess()
+ {
+     ASSERT_NOT_REACHED();
+@@ -452,6 +457,10 @@ void WebProcess::initializeProcess(const AuxiliaryProcessInitializationParameter
+     {
+         JSC::Options::AllowUnfinalizedAccessScope scope;
+         JSC::Options::allowNonSPTagging() = false;
++        // Core: the interpreters only. No JIT, no WebAssembly: a large class
++        // of exploits gone, and two timing surfaces with it.
++        JSC::Options::useJIT() = false;
++        JSC::Options::useWasm() = false;
+         JSC::Options::notifyOptionsChanged();
+     }
+ 
+@@ -649,14 +658,9 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
+ 
+     setCacheModel(parameters.cacheModel);
+ 
+-    if (!parameters.timeZoneOverride.isEmpty())
+-        setTimeZoneOverride(parameters.timeZoneOverride);
+-
+-    if (!parameters.overrideLanguages.isEmpty()) {
+-        LOG_WITH_STREAM(Language, stream << "Web Process initialization is setting overrideLanguages: " << parameters.overrideLanguages);
+-        overrideUserPreferredLanguages(parameters.overrideLanguages);
+-    } else
+-        LOG(Language, "Web process initialization is not setting overrideLanguages");
++    // Core: every page is in UTC and speaks en-US, whatever the Mac says.
++    setTimeZoneOverride("UTC"_s);
++    overrideUserPreferredLanguages(coreLanguages());
+ 
+     m_textCheckerState = parameters.textCheckerState;
+ 
+@@ -744,6 +748,8 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
+ #define WEBKIT_APPLY_JSC_OPTION_FROM_SHARED_PREFERENCE(jscOption, preferenceField) JSC::Options::jscOption() = jscOptions.preferenceField;
+         FOR_EACH_JSC_OPTION_SHARED_PREFERENCE(WEBKIT_APPLY_JSC_OPTION_FROM_SHARED_PREFERENCE)
+ #undef WEBKIT_APPLY_JSC_OPTION_FROM_SHARED_PREFERENCE
++        JSC::Options::useJIT() = false;
++        JSC::Options::useWasm() = false;
+         JSC::Options::notifyOptionsChanged();
+     }
+ 
+@@ -1042,8 +1048,8 @@ void WebProcess::setDisableFontSubpixelAntialiasingForTesting(bool disable)
+ 
+ void WebProcess::userPreferredLanguagesChanged(const Vector<String>& languages) const
+ {
+-    LOG_WITH_STREAM(Language, stream << "The web process's userPreferredLanguagesChanged: " << languages);
+-    overrideUserPreferredLanguages(languages);
++    UNUSED_PARAM(languages);
++    overrideUserPreferredLanguages(coreLanguages());
+ }
+ 
+ void WebProcess::fullKeyboardAccessModeChanged(bool fullKeyboardAccessEnabled)

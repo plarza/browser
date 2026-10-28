@@ -29,23 +29,22 @@ release/     build, sign, notarize, publish to Forgejo, update feed
 
 ## Whitelist
 
-- Settings holds a list of domains, meant for your self-hosted sites. A whitelisted domain and its subdomains get one encrypted jar on disk, shared by every tab, that survives refresh, close and quit. The jar holds both cookies and site storage.
+- Settings holds a list of domains, meant for your self-hosted sites. A whitelisted domain and its subdomains get one jar on disk (encrypted at rest by FileVault), shared by every tab, that survives refresh, close and quit. The jar holds both cookies and site storage.
 - Each whitelisted domain has one fixed fingerprint seed.
 
 ## Fingerprinting
 
-Core has one user, so there is no crowd of Core users to hide in. It hides in the biggest crowd available instead: **stock Safari on the same macOS version**. The values below are fixed, or bucketed into coarse ranges, to match what that crowd shows. The values that identify a device most are **re-rolled for every new session** from a seed, inside the engine. Because no JS is injected and no prototypes are patched, CreepJS finds no "lies" to report.
+Core has one user, so there is no crowd of Core users to hide in. It hides in the biggest crowd available instead: **stock Safari on the same macOS version**, with Safari's Private Browsing fingerprinting protections switched on permanently in the engine. Nothing is injected into pages and no prototype is patched, so CreepJS finds no "lies" to report. Whatever varies is derived from the identity's **seed**, so it changes on every wipe.
 
-- **Seeds.** A wiped tab gets a fresh seed. A Persist tab keeps its seed until it is closed. A whitelisted domain keeps its own fixed seed.
-- **User agent and client hints:** exactly Safari's for this macOS version.
-- **Language:** `en-US` everywhere: `navigator.language(s)`, `Accept-Language` and `Intl`. Timezone is UTC.
-- **Screen.** `screen.*` reports a common Mac display size. `window.inner*` and `outer*` are rounded down into 100-px buckets, and `devicePixelRatio` is 2. The window itself stays freely resizable; there is no letterboxing.
-- **Hardware.** `hardwareConcurrency` is fixed at 8 and `deviceMemory` is absent, as in Safari. Battery, gamepad, sensors, MIDI, USB, serial, HID and Bluetooth are all absent.
-- **Canvas, WebGL and audio.** Canvas 2D, WebGL `readPixels`, `OfflineAudioContext` and AnalyserNode output get deterministic per-seed noise, added in the engine at the readback points. WebGL vendor and renderer report `Apple Inc.` / `Apple GPU`, and the parameters and extensions match the common Apple Silicon set.
-- **Fonts.** Only a bundled allow-list of system fonts can be seen. Local font enumeration is absent.
-- **Timers.** `performance.now()` and event timestamps are clamped to 1 ms with jitter. SharedArrayBuffer is off without COOP/COEP, as in Safari.
-- **Media.** `enumerateDevices` returns generic labels and no device IDs until permission is granted. Speech-synthesis voices are limited to a fixed list.
-- **WebRTC.** WebRTC is on, but ICE uses TURN relay only. Host and srflx candidates are never gathered, so neither the LAN IP nor the public IP leaks around the VPN.
+- **Seeds.** A wiped tab gets a fresh seed. A Persist tab keeps its seed until it is closed. A whitelisted domain keeps its own fixed seed. Each site's noise salt is derived from the seed and the site, so two sites in one identity can't match their readings either.
+- **Protections that are always on**, whatever the embedder asks for: WebKit's baseline protections, fingerprinting protections (with canvas, WebGL, audio and screen noise), enhanced network privacy, link-decoration filtering, script-tracking privacy, and `hardwareConcurrency` reported as 8.
+- **User agent:** exactly Safari's for this macOS version.
+- **Language and time zone:** `en-US` everywhere, set in every child process, so `navigator.language(s)`, `Accept-Language` and `Intl` all agree. The time zone is UTC.
+- **Screen.** `screen.*` reports the window's own size, as Safari Private Browsing does. The page's viewport sizes are the real ones: rounding them would disagree with CSS media queries, and that disagreement is exactly the kind of lie CreepJS looks for. The window stays freely resizable; there is no letterboxing.
+- **Fonts.** Fonts you installed yourself are invisible to pages; only macOS's own fonts can be seen.
+- **JavaScript engine.** No JIT and no WebAssembly. That shuts out a large class of exploits and removes two timing surfaces.
+- **WebRTC.** WebRTC stays on, but ICE uses TURN relay only, whatever the page asks for. Host and srflx candidates are never gathered, so neither the LAN IP nor the public IP leaks around the VPN.
+- **Media devices.** WebKit's default applies: no labels and no IDs until permission is granted.
 
 ## Network
 
@@ -57,7 +56,7 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 ## JavaScript
 
-- JavaScript is on everywhere. **JIT is off** (JSC runs on the interpreter only) and **WebAssembly is off**. Neither has a setting.
+- JavaScript is on everywhere. **JIT is off** (JSC runs on its interpreters only) and **WebAssembly is off**. Neither has a setting.
 
 ## Permissions
 
