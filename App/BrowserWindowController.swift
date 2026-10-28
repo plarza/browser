@@ -753,6 +753,8 @@ extension BrowserWindowController {
     var sidebarShownForTesting: Bool { sidebarShown }
     var selectedTab: Tab? { selected }
     var pageShownForTesting: String? { pageHost.isHidden ? nil : hostedPage }
+    var pageHostForTesting: NSView { pageHost }
+    var tabTableForTesting: NSTableView? { tabList.documentView as? NSTableView }
     var newTabPageShownForTesting: Bool { !backdrop.isHidden && backdrop.alphaValue > 0.5 }
     func mouseButtonForTesting(_ number: Int) { mouseButton(number) }
     func swipeForTesting(_ phase: NSEvent.Phase, dx: CGFloat) { follow(phase, dx: dx, dy: 0) }

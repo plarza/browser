@@ -84,7 +84,6 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 ## Mouse and trackpad
 
 - The mouse's back and forward buttons, and two-finger swipes, go through Core's own back and forward lists, the same as ⌘[ and ⌘].
-- Scrolling is smooth: mouse-wheel notches glide to their destination (patched into WebKit's macOS wheel handling), and keyboard scrolling animates.
 
 ## Downloads
 

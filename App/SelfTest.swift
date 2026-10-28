@@ -84,6 +84,13 @@ enum SelfTest {
             try? await Task.sleep(for: .seconds(1))
             check("⌘, opens about://settings", browser.selectedTab?.url?.absoluteString == "about://settings" && browser.pageShownForTesting == "settings",
                   "url=\(browser.selectedTab?.url?.absoluteString ?? "nil") page=\(browser.pageShownForTesting ?? "none")")
+            // Its "Add domain" row is a text field taking the row's width, not
+            // a label beside a sliver of field.
+            try? await Task.sleep(for: .milliseconds(500))
+            func fields(_ v: NSView) -> [NSTextField] { (v as? NSTextField).map { [$0] } ?? [] + v.subviews.flatMap(fields) }
+            let adder = fields(browser.pageHostForTesting).first { $0.placeholderString == "Add domain" || $0.placeholderAttributedString?.string == "Add domain" }
+            check("Settings' Add domain row is a full-width field", adder.map { $0.isEditable && $0.frame.width > 200 } == true,
+                  "field=\(adder.map { "\($0.frame)" } ?? "none")")
             SearchEngine.all[0].choose()
             check("choosing a search engine in Settings saves it", Preferences.shared.settings.searchTemplate.contains("google.com"),
                   "template=\(Preferences.shared.settings.searchTemplate)")
@@ -134,37 +141,8 @@ enum SelfTest {
             window.makeFirstResponder(nil)
             check("leaving the field hides the suggestions", !field.suggestions.isShown || field.suggestions.alphaValue < 1, "shown=\(field.suggestions.isShown)")
 
-            // Scrolling animates: a Space on a long page passes through several
-            // positions on its way down instead of jumping there.
             let long = browser.newTab(URL(string: "https://en.wikipedia.org/wiki/WebKit")!)
             try? await Task.sleep(for: .seconds(4))
-            window.makeFirstResponder(long.webView)
-            let space = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                         windowNumber: window.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ",
-                                         isARepeat: false, keyCode: 49)!
-            window.sendEvent(space)
-            var positions: [Double] = []
-            for _ in 0 ..< 15 {
-                if let y = try? await long.webView.evaluateJavaScript("scrollY", in: nil, contentWorld: .defaultClient) as? Double { positions.append(y) }
-                try? await Task.sleep(for: .milliseconds(25))
-            }
-            let steps = Set(positions.filter { $0 > 0 && $0 < (positions.last ?? 0) }).count
-            check("keyboard scrolling is smooth", steps >= 3, "positions=\(positions.map { Int($0) })")
-
-            // A mouse wheel's notch (line deltas, not a trackpad's) glides too.
-            _ = try? await long.webView.evaluateJavaScript("scrollTo(0, 0)", in: nil, contentWorld: .defaultClient)
-            try? await Task.sleep(for: .milliseconds(500))
-            if let cg = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: -5, wheel2: 0, wheel3: 0),
-               let wheel = NSEvent(cgEvent: cg) {
-                long.webView.scrollWheel(with: wheel)
-            }
-            var wheelPositions: [Double] = []
-            for _ in 0 ..< 15 {
-                if let y = try? await long.webView.evaluateJavaScript("scrollY", in: nil, contentWorld: .defaultClient) as? Double { wheelPositions.append(y) }
-                try? await Task.sleep(for: .milliseconds(20))
-            }
-            let wheelSteps = Set(wheelPositions.filter { $0 > 0 && $0 < (wheelPositions.last ?? 0) }).count
-            check("mouse-wheel scrolling is smooth", wheelSteps >= 3, "positions=\(wheelPositions.map { Int($0) })")
 
             // Find on page counts every match and steps through them.
             var found: (Int, Int?) = (0, nil)
@@ -244,6 +222,25 @@ enum SelfTest {
             }
             check("the Chrome Web Store's button says Add to Core", label.contains("to Core"), "label=\(label)")
             browser.close(store)
+
+            // Dragging the first tab down two places moves it there; the
+            // selected tab stays selected.
+            if let table = browser.tabTableForTesting, browser.tabs.count >= 3 {
+                let moving = browser.tabs[0], keep = browser.selectedTab
+                let rowHeight = table.rowHeight + table.intercellSpacing.height
+                func point(_ y: CGFloat) -> NSPoint { table.convert(NSPoint(x: 40, y: y), to: nil) }
+                func mouse(_ type: NSEvent.EventType, _ y: CGFloat) -> NSEvent {
+                    NSEvent.mouseEvent(with: type, location: point(y), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                       windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+                }
+                let start = rowHeight / 2
+                for step in 1 ... 10 { NSApp.postEvent(mouse(.leftMouseDragged, start + rowHeight * 2.2 * CGFloat(step) / 10), atStart: false) }
+                NSApp.postEvent(mouse(.leftMouseUp, start + rowHeight * 2.2), atStart: false)
+                table.mouseDown(with: mouse(.leftMouseDown, start))
+                try? await Task.sleep(for: .milliseconds(400))
+                check("dragging a tab moves it, keeping the selection", browser.tabs[2] === moving && browser.selectedTab === keep,
+                      "index=\(browser.tabs.firstIndex { $0 === moving } ?? -1)")
+            }
 
             // ⇧⌘↑ from the first tab goes round to the last; ⇧⌘↓ back to the first.
             let up = String(Character(UnicodeScalar(NSUpArrowFunctionKey)!))

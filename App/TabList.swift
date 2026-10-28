@@ -11,10 +11,9 @@ final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegat
     var onDuplicate: (Tab) -> Void = { _ in }
     var onCloseOthers: (Tab) -> Void = { _ in }
 
-    private let table = NSTableView()
+    private let table = TabTable()
     private var tabs: [Tab] = []
     private weak var selected: Tab?
-    private static let drag = NSPasteboard.PasteboardType("net.aza.core.tab")
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -31,8 +30,16 @@ final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegat
         table.style = .plain
         table.dataSource = self
         table.delegate = self
-        table.registerForDraggedTypes([Self.drag])
-        table.draggingDestinationFeedbackStyle = .gap
+        table.onClick = { [weak self] row in
+            guard let self, self.tabs.indices.contains(row) else { return }
+            self.onSelect(self.tabs[row])
+        }
+        table.onMove = { [weak self] from, to in
+            guard let self, self.tabs.indices.contains(from) else { return }
+            self.tabs.insert(self.tabs.remove(at: from), at: to)
+            // The window's own list takes "above this row" positions.
+            self.onMove(from, to > from ? to + 1 : to)
+        }
         table.menu = NSMenu()
         table.menu?.delegate = self
         documentView = table
@@ -89,26 +96,77 @@ final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegat
         return cell
     }
 
-    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-        onSelect(tabs[row])
-        return false
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
+}
+
+/// The tab list's table. Pressing a row selects it; dragging lifts the row
+/// out to follow the pointer, held where it was grabbed, while the others
+/// slide out of its way.
+@MainActor
+final class TabTable: NSTableView {
+    var onClick: (Int) -> Void = { _ in }
+    var onMove: (Int, Int) -> Void = { _, _ in }
+
+    override func mouseDown(with event: NSEvent) {
+        let start = convert(event.locationInWindow, from: nil)
+        let grabbed = row(at: start)
+        guard grabbed >= 0, let window else { return super.mouseDown(with: event) }
+        var current = grabbed
+        var lifted: NSImageView?
+        let rowFrame = rect(ofRow: grabbed)
+        window.trackEvents(matching: [.leftMouseDragged, .leftMouseUp], timeout: .infinity, mode: .eventTracking) { event, stop in
+            guard let event, event.type == .leftMouseDragged else { stop.pointee = true; return }
+            let point = self.convert(event.locationInWindow, from: nil)
+            if lifted == nil {
+                guard abs(point.y - start.y) > 3 else { return }
+                lifted = self.lift(row: current, frame: rowFrame)
+            }
+            // The lifted row keeps the grab point under the pointer.
+            let y = min(max(rowFrame.minY + point.y - start.y, -rowFrame.height / 2), self.bounds.height - rowFrame.height / 2)
+            lifted?.frame.origin.y = y
+            let target = min(max(Int((y + rowFrame.height / 2) / (self.rowHeight + self.intercellSpacing.height)), 0), self.numberOfRows - 1)
+            if target != current {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.15
+                    self.moveRow(at: current, to: target)
+                }
+                self.onMove(current, target)
+                current = target
+            }
+        }
+        if let lifted {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.12
+                lifted.animator().frame.origin.y = rect(ofRow: current).minY
+            } completionHandler: {
+                MainActor.assumeIsolated {
+                    lifted.removeFromSuperview()
+                    self.view(atColumn: 0, row: current, makeIfNecessary: false)?.alphaValue = 1
+                }
+            }
+        } else {
+            onClick(grabbed)
+        }
     }
 
-    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-        let item = NSPasteboardItem()
-        item.setString(String(row), forType: Self.drag)
-        return item
-    }
-
-    func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int, proposedDropOperation op: NSTableView.DropOperation) -> NSDragOperation {
-        op == .above ? .move : []
-    }
-
-    func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
-        guard let text = info.draggingPasteboard.pasteboardItems?.first?.string(forType: Self.drag),
-              let from = Int(text) else { return false }
-        onMove(from, row)
-        return true
+    /// A picture of the row, over the table; the row itself is left empty.
+    private func lift(row: Int, frame: NSRect) -> NSImageView? {
+        guard let cell = view(atColumn: 0, row: row, makeIfNecessary: false), let layer = cell.layer else { return nil }
+        // The row's layer, background and all (selection, Persist's blue).
+        let image = NSImage(size: cell.bounds.size, flipped: false) { _ in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            layer.render(in: context)
+            return true
+        }
+        let view = NSImageView(frame: frame)
+        view.image = image
+        view.wantsLayer = true
+        view.layer?.shadowOpacity = 0.15
+        view.layer?.shadowRadius = 6
+        view.layer?.shadowOffset = NSSize(width: 0, height: -2)
+        addSubview(view)
+        cell.alphaValue = 0
+        return view
     }
 }
 
@@ -218,7 +276,7 @@ final class TabCell: NSTableCellView {
                 ? (isSelected ? [NSColor(red: 0.16, green: 0.30, blue: 0.50, alpha: 1), NSColor(red: 0.12, green: 0.25, blue: 0.44, alpha: 1)]
                               : [NSColor(red: 0.12, green: 0.22, blue: 0.36, alpha: 1), NSColor(red: 0.10, green: 0.19, blue: 0.32, alpha: 1)])
                 : (isSelected ? [NSColor(red: 0.83, green: 0.91, blue: 1, alpha: 1), NSColor(red: 0.89, green: 0.94, blue: 1, alpha: 1)]
-                              : [NSColor(red: 0.89, green: 0.945, blue: 1, alpha: 1), NSColor(red: 0.933, green: 0.965, blue: 1, alpha: 1)])
+                              : [NSColor(red: 0.925, green: 0.962, blue: 1, alpha: 1), NSColor(red: 0.955, green: 0.977, blue: 1, alpha: 1)])
             Motion.set(sky, "colors", colors.map(\.cgColor), duration: 0.25)
             Motion.set(sky, "opacity", Float(isPersist ? 1 : 0), duration: 0.25)
         }

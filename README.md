@@ -15,7 +15,6 @@ Applied to upstream WebKit (`engine/patches/`).
 - Every web process runs in UTC.
 - Every WebKit process reports en-US, so `navigator.language`, `Accept-Language` and `Intl` agree.
 - WebRTC gathers relay candidates only, so neither your LAN address nor your public IP reaches a page or a peer.
-- Mouse-wheel scrolling glides: each notch animates to where it's going (WebKit on macOS applies notches instantly), and keyboard scrolling is animated too.
 
 ## Browser
 

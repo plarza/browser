@@ -420,7 +420,10 @@ struct RowList: View {
         }
         HStack(spacing: 10) {
             Image(systemName: "plus").foregroundStyle(.secondary).frame(width: 16)
-            TextField(placeholder, text: $adding)
+            // In a form, a field's title is a label beside it; the prompt is
+            // the text inside it, which is what this row wants.
+            TextField("", text: $adding, prompt: Text(placeholder))
+                .labelsHidden()
                 .textFieldStyle(.plain)
                 .onSubmit(add)
         }
