@@ -20,8 +20,8 @@ public final class Blocker {
     public private(set) var trouble: String?
     public private(set) var ruleCount = 0
 
-    private static let filtersID = "core-filters"
-    private static let baseID = "core-base"
+    private static let filtersID = "azote-filters"
+    private static let baseID = "azote-base"
 
     private init() {
         let folder = Store.url("Rules")

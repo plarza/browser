@@ -1,5 +1,5 @@
 import AppKit
-import CoreKit
+import AzoteKit
 import Combine
 
 @MainActor
@@ -49,9 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showAbout(_ sender: Any?) {
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "Core",
+            .applicationName: "Azote",
             .credits: NSAttributedString(
-                string: "Core's own WebKit.",
+                string: "Azote's own WebKit.",
                 attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]
             ),
         ])

@@ -1,12 +1,12 @@
 import AppKit
 import Combine
 import SwiftUI
-import CoreKit
+import AzoteKit
 import UniformTypeIdentifiers
 import WebKit
 
-/// Core's tab, not SwiftUI's.
-typealias Tab = CoreKit.Tab
+/// Azote's tab, not SwiftUI's.
+typealias Tab = AzoteKit.Tab
 
 /// The one window: tabs down the left, the page on the right, one field
 /// above the tabs.
@@ -31,7 +31,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private let backdrop = NewTabBackdrop()
     private let downloads = DownloadDock()
     fileprivate let shade = SidebarShadow()
-    /// Core's own pages, native, where the web view would be.
+    /// Azote's own pages, native, where the web view would be.
     private let pageHost = NSHostingView(rootView: AnyView(EmptyView()))
     private var hostedPage: String?
     private var watching: Set<AnyCancellable> = []
@@ -55,7 +55,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         window.isOpaque = false
         window.backgroundColor = .clear
         window.minSize = NSSize(width: 640, height: 420)
-        window.setFrameAutosaveName("Core")
+        window.setFrameAutosaveName("Azote")
         if window.frame.origin == .zero { window.center() }
         window.isRestorable = false
         super.init(window: window)
@@ -149,7 +149,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// would otherwise take them for its own lists, which a wipe empties.
     private var buttonMonitor: Any?
 
-    /// ⇧⌘/ is macOS's own "search the Help menu"; in Core it opens
+    /// ⇧⌘/ is macOS's own "search the Help menu"; in Azote it opens
     /// about://help, before the system can take it.
     private var helpMonitor: Any?
 
@@ -185,7 +185,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     /// Two-finger swipes left and right go back and forward, as in Safari.
-    /// Core keeps its own back and forward lists (a wipe swaps the web view
+    /// Azote keeps its own back and forward lists (a wipe swaps the web view
     /// out), so the swipe is followed here, from the scroll gesture's phases:
     /// a chevron follows the fingers in from the edge, and letting go past
     /// it navigates.
@@ -508,7 +508,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         guard let tab = selected else { return }
         if !address.isEditing { address.show(tab.url) }
         progress.set(tab.isLoading ? tab.progress : 1)
-        window?.title = tab.title.isEmpty ? "Core" : tab.title
+        window?.title = tab.title.isEmpty ? "Azote" : tab.title
     }
 
     // MARK: Address
@@ -564,7 +564,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// ⌘,: about://settings.
     @objc func showSettings(_ sender: Any?) { showInternal(InternalPage.address("settings")) }
 
-    /// One of Core's own pages: the tab already showing it, else a new tab,
+    /// One of Azote's own pages: the tab already showing it, else a new tab,
     /// or this one if it's blank.
     private func showInternal(_ address: URL) {
         if let open = tabs.first(where: { $0.url == address }) {
@@ -577,10 +577,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         focusPage()
     }
     @objc func focusAddress(_ sender: Any?) {
-        guard sidebarShown || toggleCoreSidebarIfHidden() else { return }
+        guard sidebarShown || toggleAzoteSidebarIfHidden() else { return }
         address.focus()
     }
-    private func toggleCoreSidebarIfHidden() -> Bool { toggleCoreSidebar(nil); return true }
+    private func toggleAzoteSidebarIfHidden() -> Bool { toggleAzoteSidebar(nil); return true }
     @objc func closeTabAction(_ sender: Any?) {
         if let tab = selected { close(tab) }
     }
@@ -602,7 +602,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     fileprivate private(set) var sidebarShown = true
 
     /// ⌘S. Hidden, the page has the whole window, traffic lights and all.
-    @objc func toggleCoreSidebar(_ sender: Any?) {
+    @objc func toggleAzoteSidebar(_ sender: Any?) {
         let show = !sidebarShown
         sidebarShown = show
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
@@ -676,7 +676,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         case #selector(goBack(_:)): return selected?.canGoBack ?? false
         case #selector(goForward(_:)): return selected?.canGoForward ?? false
         case #selector(reopenClosedTab(_:)): return !closed.isEmpty
-        case #selector(toggleCoreSidebar(_:)):
+        case #selector(toggleAzoteSidebar(_:)):
             item.title = sidebarShown ? "Hide Sidebar" : "Show Sidebar"
             return true
         default: return true
@@ -724,13 +724,13 @@ extension BrowserWindowController: TabDelegate {
         default: "your camera and microphone"
         }
         return await Dialogs.ask(in: window, "Allow \(origin) to use \(what)?",
-                                 detail: "Only for this page load. Core doesn't remember the answer.",
+                                 detail: "Only for this page load. Azote doesn't remember the answer.",
                                  yes: "Allow", no: "Don't Allow")
     }
 
     func tab(_ tab: Tab, saveDownload name: String) async -> URL? {
         #if DEBUG
-        if let folder = UserDefaults.standard.string(forKey: "coreStore"), UserDefaults.standard.bool(forKey: "coreSelfTest") {
+        if let folder = UserDefaults.standard.string(forKey: "azoteStore"), UserDefaults.standard.bool(forKey: "azoteSelfTest") {
             return URL(fileURLWithPath: folder).appendingPathComponent(name)
         }
         #endif
@@ -807,7 +807,7 @@ extension BrowserWindowController {
 }
 #endif
 
-/// Core's shortcuts come before the page's: WKWebView takes every ⌘-key
+/// Azote's shortcuts come before the page's: WKWebView takes every ⌘-key
 /// it is offered (⌘S, ⌘L…) and hands back only some of them.
 final class BrowserWindow: NSWindow {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

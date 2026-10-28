@@ -1,22 +1,22 @@
 import AppKit
 
-/// The menu bar. Safari's shortcuts where Core has the feature, plus ⌘I for Persist.
+/// The menu bar. Safari's shortcuts where Azote has the feature, plus ⌘I for Persist.
 @MainActor
 enum Menus {
     static func build(target app: AppDelegate, browser: BrowserWindowController) -> NSMenu {
         let main = NSMenu()
         defer { aim(main, at: browser) }
 
-        main.addItem(submenu("Core", [
-            item("About Core", #selector(AppDelegate.showAbout(_:)), "", target: app),
+        main.addItem(submenu("Azote", [
+            item("About Azote", #selector(AppDelegate.showAbout(_:)), "", target: app),
             .separator(),
             item("Settings…", #selector(AppDelegate.showSettings(_:)), ",", target: app),
             .separator(),
-            item("Hide Core", #selector(NSApplication.hide(_:)), ""),
+            item("Hide Azote", #selector(NSApplication.hide(_:)), ""),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), ""),
             item("Show All", #selector(NSApplication.unhideAllApplications(_:)), ""),
             .separator(),
-            item("Quit Core", #selector(NSApplication.terminate(_:)), "q"),
+            item("Quit Azote", #selector(NSApplication.terminate(_:)), "q"),
         ]))
 
         main.addItem(submenu("File", [
@@ -51,7 +51,7 @@ enum Menus {
             item("Zoom In", #selector(BrowserWindowController.zoomIn(_:)), "+"),
             item("Zoom Out", #selector(BrowserWindowController.zoomOut(_:)), "-"),
             .separator(),
-            item("Hide Sidebar", #selector(BrowserWindowController.toggleCoreSidebar(_:)), "s"),
+            item("Hide Sidebar", #selector(BrowserWindowController.toggleAzoteSidebar(_:)), "s"),
             item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
             .separator(),
             item("Web Inspector", #selector(BrowserWindowController.showInspector(_:)), "i", [.command, .shift]),

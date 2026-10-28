@@ -1,12 +1,12 @@
-# Core
+# Azote
 
-Core is a macOS browser that gives you the privacy and anonymity of Mullvad Browser on a WebKit base. The name says what it is for: a core that other browsers can build on later. The UI is kept deliberately plain, just enough to use it as a browser.
+Azote is a macOS browser that gives you the privacy and anonymity of Mullvad Browser on a WebKit base. The UI is kept deliberately plain, just enough to use it as a browser.
 
 ## Shape
 
 ```
 engine/      patched WebKit: pinned upstream commit + our patch series
-CoreKit/     Swift framework: tabs, sessions, wipe, blocking, bangs, policy.
+AzoteKit/     Swift framework: tabs, sessions, wipe, blocking, bangs, policy.
              Every rule below lives here or in the engine. Its API has no
              switches that weaken them.
 App/         thin AppKit shell: window, vertical tabs, address field, settings
@@ -21,7 +21,7 @@ release/     build, sign, notarize, publish to Forgejo, update feed
 - Tabs run down the left, in a vertical list, in a pure white sidebar, flush with the page and with no dividing line, whose edge drags (200–420 pt). The page fills the rest of the window. There are no pinned tabs, no back/forward buttons and no New Tab button: ⌘T, ⌘[ and ⌘] do those, and a two-finger swipe goes back or forward.
 - Each tab is a separate identity, with its own web process and its own network session. The session holds the tab's cookies, localStorage, sessionStorage, IndexedDB, Cache API, service workers, HTTP cache, HSTS, TLS session cache, connection pool, DNS cache and its fingerprint seed.
 - **Wipe.** Every reload and every top-level navigation throws the whole session away and starts the next load in a brand-new one. That includes typed URLs, clicked links, back and forward, and redirects initiated by the page. Logins do not survive a reload.
-- **Persist** (⌘I, or right-click › Persist Tab). The tab keeps its session through reloads and navigation. The tab turns a soft sky blue while it is on. Persist belongs to the tab, not the site. Turning it on moves the tab into a jar of its own on disk, taking its cookies and the current page's storage with it, so the tab and its session survive quitting Core. Closing the tab, or turning Persist off, deletes that jar; jars nothing refers to are deleted at launch.
+- **Persist** (⌘I, or right-click › Persist Tab). The tab keeps its session through reloads and navigation. The tab turns a soft sky blue while it is on. Persist belongs to the tab, not the site. Turning it on moves the tab into a jar of its own on disk, taking its cookies and the current page's storage with it, so the tab and its session survive quitting Azote. Closing the tab, or turning Persist off, deletes that jar; jars nothing refers to are deleted at launch.
 - **Popups.** A `window.open` popup, such as an OAuth or 3-D Secure window, shares its opener's session and dies with it. Links opened in a new tab (⌘-click, middle-click) start fresh.
 - **Closing a tab** destroys its session. Quitting the app destroys every session.
 
@@ -32,7 +32,7 @@ release/     build, sign, notarize, publish to Forgejo, update feed
 
 ## Fingerprinting
 
-Core has one user, so there is no crowd of Core users to hide in. It hides in the biggest crowd available instead: **stock Safari on the same macOS version**, with Safari's Private Browsing fingerprinting protections switched on permanently in the engine. Nothing is injected into pages and no prototype is patched, so CreepJS finds no "lies" to report. Whatever varies is derived from the identity's **seed**, so it changes on every wipe.
+Azote has one user, so there is no crowd of Azote users to hide in. It hides in the biggest crowd available instead: **stock Safari on the same macOS version**, with Safari's Private Browsing fingerprinting protections switched on permanently in the engine. Nothing is injected into pages and no prototype is patched, so CreepJS finds no "lies" to report. Whatever varies is derived from the identity's **seed**, so it changes on every wipe.
 
 - **Seeds.** A wiped tab gets a fresh seed. A Persist tab keeps its seed until it is closed, across relaunches. A whitelisted domain keeps its own fixed seed. Each site's noise salt is derived from the seed and the site, so two sites in one identity can't match their readings either.
 - **Protections that are always on:** WebKit's baseline protections, fingerprinting protections (canvas, audio and screen), enhanced network privacy, link-decoration filtering, script-tracking privacy, and `hardwareConcurrency` reported as 8.
@@ -63,8 +63,8 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 ## Address field and search
 
-- One field takes both URLs and search terms. Core has **no default search engine**: until you set one in Settings, plain words show "Set a search engine in Settings".
-- **Bangs** (`!g`, `!w`, `!gh` and so on) come from Core's own table, compiled into the app and matched locally. Nothing is fetched for them. A bang works whether or not a search engine is set.
+- One field takes both URLs and search terms. Azote has **no default search engine**: until you set one in Settings, plain words show "Set a search engine in Settings".
+- **Bangs** (`!g`, `!w`, `!gh` and so on) come from Azote's own table, compiled into the app and matched locally. Nothing is fetched for them. A bang works whether or not a search engine is set.
 
 ## Remembered on disk
 
@@ -79,20 +79,20 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 ## Extensions
 
-- Only Safari web extensions run: Core finds them inside the apps in /Applications and ~/Applications and loads them, unmodified, on WebKit's WKWebExtension engine. Settings lists them with a switch each. Bitwarden is the expected password manager. Core has no built-in password store.
-- Extension content scripts can change pages in ways that are visible, so turning an extension on is a fingerprinting trade-off the user chooses to make. Enabled extensions can access Core’s ephemeral tabs within their requested site permissions.
+- Only Safari web extensions run: Azote finds them inside the apps in /Applications and ~/Applications and loads them, unmodified, on WebKit's WKWebExtension engine. Settings lists them with a switch each. Bitwarden is the expected password manager. Azote has no built-in password store.
+- Extension content scripts can change pages in ways that are visible, so turning an extension on is a fingerprinting trade-off the user chooses to make. Enabled extensions can access Azote’s ephemeral tabs within their requested site permissions.
 - Extension buttons can be dragged into a new order, which is saved. Popups fit their contents, with an opaque background unless the extension supplies its own.
 
 ## Mouse and trackpad
 
-- The mouse's back and forward buttons, and two-finger swipes, go through Core's own back and forward lists, the same as ⌘[ and ⌘].
+- The mouse's back and forward buttons, and two-finger swipes, go through Azote's own back and forward lists, the same as ⌘[ and ⌘].
 - Middle-clicking a link opens it in a fresh tab. Hovering a tab reveals an x to close it.
 
 ## Downloads
 
 - Every download opens the save panel at `~/Downloads`; Cancel stops it. Files keep their quarantine flag.
 - This session's downloads sit at the foot of the sidebar in the tabs' row style, newest first, each row's background filling as it downloads, its total size on the right. Hovering a download in progress turns the size into an x that cancels it; a finished one has a minus that takes it off, and goes by itself after a minute. Clicking a finished one shows it in Finder.
-- Core's own pages (about://history, downloads, settings, help) show the logo in grey as their icon.
+- Azote's own pages (about://history, downloads, settings, help) show the logo in grey as their icon.
 - **about://downloads** (⌘J) lists every download until it is cleared.
 
 ## Settings (the whole list)
@@ -110,14 +110,14 @@ Listed at about://help (⇧⌘/), read from the menus.
 
 ## Builds and updates
 
-- **Patched engine required.** Every build embeds Core’s patched WebKit. Missing or unpatched engines are build errors. The launcher checks its bundled frameworks, and the executable verifies the loaded engine before creating the application, including direct and debug launches. There is no system-WebKit browsing mode.
+- **Patched engine required.** Every build embeds Azote’s patched WebKit. Missing or unpatched engines are build errors. The launcher checks its bundled frameworks, and the executable verifies the loaded engine before creating the application, including direct and debug launches. There is no system-WebKit browsing mode.
 
 - **Source.** The repository lives on `git.aza.network` (Forgejo). A `forgejo-runner` in host mode runs on this Mac with the label `macos-arm64`.
 - **Releases.** Pushing a tag builds the engine and the app, signs them with the Developer ID, notarizes them, and uploads the DMG to Forgejo Releases.
-- **Updates** are manual: install the new DMG from the release. Core never checks for updates itself.
-- **Telemetry.** None. The only request Core makes on its own is the daily filter-list fetch.
+- **Updates** are manual: install the new DMG from the release. Azote never checks for updates itself.
+- **Telemetry.** None. The only request Azote makes on its own is the daily filter-list fetch.
 
-Appearance in Settings offers Light, Dark and System. System is the default and follows macOS, including changes while Core is open. Core’s internal pages use the grey logo glyph with no background.
+Appearance in Settings offers Light, Dark and System. System is the default and follows macOS, including changes while Azote is open. Azote’s internal pages use the grey logo glyph with no background.
 
 ## Known gaps
 

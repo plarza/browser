@@ -1,15 +1,15 @@
 #!/bin/bash
-# Builds Core's WebKit: upstream at the commit in WEBKIT_COMMIT, with every
+# Builds Azote's WebKit: upstream at the commit in WEBKIT_COMMIT, with every
 # patch in patches/ applied in order, as a release build.
 #
 #   engine/build.sh            fetch if needed, apply, build
 #   engine/build.sh rebase     move to upstream main, re-apply, record the commit
 #
-# The checkout lives outside the repository (CORE_ENGINE_SRC, default
-# ~/repos/core-engine/webkit): it is 8 GB and the build is 30+ GB more.
+# The checkout lives outside the repository (AZOTE_ENGINE_SRC, default
+# ~/repos/azote-engine/webkit): it is 8 GB and the build is 30+ GB more.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-SRC="${CORE_ENGINE_SRC:-$HOME/repos/core-engine/webkit}"
+SRC="${AZOTE_ENGINE_SRC:-$HOME/repos/azote-engine/webkit}"
 COMMIT="$(cat "$here/WEBKIT_COMMIT")"
 
 if [ ! -d "$SRC/.git" ]; then

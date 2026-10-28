@@ -1,15 +1,15 @@
 #if DEBUG
 import AppKit
-import CoreKit
+import AzoteKit
 import WebKit
 
-/// Debug builds only: `-coreSelfTest YES` drives the real window with real
+/// Debug builds only: `-azoteSelfTest YES` drives the real window with real
 /// key and mouse events, through AppKit's own dispatch (menus, responders,
 /// field editors), and logs PASS or FAIL for each thing a person would do.
 @MainActor
 enum SelfTest {
     static func run(_ browser: BrowserWindowController) {
-        guard UserDefaults.standard.bool(forKey: "coreSelfTest"), let window = browser.window else { return }
+        guard UserDefaults.standard.bool(forKey: "azoteSelfTest"), let window = browser.window else { return }
         Task { @MainActor in
             window.makeKeyAndOrderFront(nil)
             NSApp.activate()
@@ -247,7 +247,7 @@ enum SelfTest {
                             if let c = rep.colorAt(x: x, y: y), c.alphaComponent > 0.5, c.brightnessComponent < 0.5 { ink += 1 }
                         }
                     }
-                    if let folder = UserDefaults.standard.string(forKey: "coreShots") {
+                    if let folder = UserDefaults.standard.string(forKey: "azoteShots") {
                         try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
                         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appendingPathComponent("lifted-tab.png"))
                     }
@@ -294,7 +294,7 @@ enum SelfTest {
                   "rules=\(Blocker.shared.ruleCount) trouble=\(Blocker.shared.trouble ?? "none")")
 
             // Pauses on each screen, for a screenshot from outside.
-            if UserDefaults.standard.string(forKey: "coreShots") != nil {
+            if UserDefaults.standard.string(forKey: "azoteShots") != nil {
                 let wiki = browser.newTab(URL(string: "https://en.wikipedia.org/wiki/WebKit")!)
                 try? await Task.sleep(for: .seconds(4))
                 swiper.persist = true
@@ -331,12 +331,12 @@ enum SelfTest {
             let downloader = browser.newTab(URL(string: "https://example.com/")!)
             try? await Task.sleep(for: .seconds(3))
             _ = try? await downloader.webView.evaluateJavaScript(
-                "const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['core'])); a.download = 'core-test.txt'; document.body.append(a); a.click()",
+                "const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['azote'])); a.download = 'azote-test.txt'; document.body.append(a); a.click()",
                 in: nil, contentWorld: .page)
             for _ in 0 ..< 20 where Downloads.shared.items.first?.state != .finished { try? await Task.sleep(for: .milliseconds(250)) }
             let got = Downloads.shared.items.first
             check("a download saves where asked and shows in the sidebar",
-                  got?.name == "core-test.txt" && got?.state == .finished && got.map { FileManager.default.fileExists(atPath: $0.file.path) } == true && browser.downloadRowsForTesting >= 1,
+                  got?.name == "azote-test.txt" && got?.state == .finished && got.map { FileManager.default.fileExists(atPath: $0.file.path) } == true && browser.downloadRowsForTesting >= 1,
                   "name=\(got?.name ?? "none") state=\(got?.state.rawValue ?? "none") rows=\(browser.downloadRowsForTesting)")
             key("j", in: window)
             try? await Task.sleep(for: .seconds(1))
@@ -367,7 +367,7 @@ enum SelfTest {
             check("the minus takes a done download off the sidebar", browser.downloadRowsForTesting == 2, "rows=\(browser.downloadRowsForTesting)")
             Downloads.shared.dismissAllForTesting()
 
-            // ⇧⌘/ is Core's help page, not macOS's Help menu search.
+            // ⇧⌘/ is Azote's help page, not macOS's Help menu search.
             browser.select(browser.tabs[0])
             if let slash = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: ProcessInfo.processInfo.systemUptime,
                                             windowNumber: window.windowNumber, context: nil, characters: "?", charactersIgnoringModifiers: "/",
@@ -384,7 +384,7 @@ enum SelfTest {
             check("about://help lists the shortcuts", browser.pageShownForTesting == "help" && shortcuts.contains("Persist Tab ⌘I") && shortcuts.contains("Web Inspector ⇧⌘I") && !shortcuts.contains("Minimize"),
                   "page=\(browser.pageShownForTesting ?? "none") shortcuts=\(shortcuts.replacingOccurrences(of: "\n", with: " | "))")
             await shot("help", browser)
-            check("Core's pages show the grey logo as their icon", Favicons.core != nil && Favicons.shared.icon(for: URL(string: "about://help")) === Favicons.core, "")
+            check("Azote's pages show the grey logo as their icon", Favicons.azote != nil && Favicons.shared.icon(for: URL(string: "about://help")) === Favicons.azote, "")
 
             // Icons of sites in History are kept on disk; clearing History
             // deletes them.
@@ -414,7 +414,7 @@ enum SelfTest {
             try? await Task.sleep(for: .seconds(1))
             await shot("settings", browser)
             Preferences.shared.settings.fill = false
-            NSLog("Core self-test: done")
+            NSLog("Azote self-test: done")
         }
     }
 
@@ -428,10 +428,10 @@ enum SelfTest {
             try? await Task.sleep(for: .milliseconds(400))
         }
         func plant(_ tab: Tab) async {
-            _ = try? await tab.webView.evaluateJavaScript("document.cookie = 'core=1; max-age=3600; path=/'; localStorage.setItem('core', '1')", in: nil, contentWorld: .page)
+            _ = try? await tab.webView.evaluateJavaScript("document.cookie = 'azote=1; max-age=3600; path=/'; localStorage.setItem('azote', '1')", in: nil, contentWorld: .page)
         }
         func read(_ tab: Tab) async -> String {
-            (try? await tab.webView.evaluateJavaScript("(document.cookie.includes('core=1') ? 'cookie ' : '') + (localStorage.getItem('core') ? 'storage' : '')", in: nil, contentWorld: .page) as? String) ?? "?"
+            (try? await tab.webView.evaluateJavaScript("(document.cookie.includes('azote=1') ? 'cookie ' : '') + (localStorage.getItem('azote') ? 'storage' : '')", in: nil, contentWorld: .page) as? String) ?? "?"
         }
 
         let tab = browser.newTab(site)
@@ -486,10 +486,10 @@ enum SelfTest {
         return jar?.id
     }
 
-    /// `-coreShots <folder>`: Core's window, and only Core's window, into
+    /// `-azoteShots <folder>`: Azote's window, and only Azote's window, into
     /// <folder>/<name>.png, while it sits behind other windows.
     static func shot(_ name: String, _ browser: BrowserWindowController) async {
-        guard let folder = UserDefaults.standard.string(forKey: "coreShots"), let window = browser.window,
+        guard let folder = UserDefaults.standard.string(forKey: "azoteShots"), let window = browser.window,
               let frame = window.contentView?.superview else { return }
         // macOS doesn't draw a window it thinks nobody can see, and SwiftUI
         // then draws nothing. Lifted on top but all but transparent (and
@@ -513,17 +513,17 @@ enum SelfTest {
         typealias Capture = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(dlopen(nil, RTLD_NOW), "CGWindowListCreateImage"),
               let image = unsafeBitCast(symbol, to: Capture.self)(.null, 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue()
-        else { NSLog("Core self-test: shot \(name) failed"); return }
+        else { NSLog("Azote self-test: shot \(name) failed"); return }
         let rep = NSBitmapImageRep(cgImage: image)
         try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
     }
 
-    /// `-coreProbe <url> -coreProbeOut <file>`: loads the page, lets it
+    /// `-azoteProbe <url> -azoteProbeOut <file>`: loads the page, lets it
     /// settle, writes what it shows; then reloads (a wipe) and writes it again.
     static func probe(_ browser: BrowserWindowController) {
-        guard let address = UserDefaults.standard.string(forKey: "coreProbe"), let url = URL(string: address),
-              let out = UserDefaults.standard.string(forKey: "coreProbeOut") else { return }
+        guard let address = UserDefaults.standard.string(forKey: "azoteProbe"), let url = URL(string: address),
+              let out = UserDefaults.standard.string(forKey: "azoteProbeOut") else { return }
         Task { @MainActor in
             let tab = browser.newTab(url)
             var report = ""
@@ -534,12 +534,12 @@ enum SelfTest {
                 try? report.write(toFile: out, atomically: true, encoding: .utf8)
                 if pass == 1 { tab.reload() }
             }
-            NSLog("Core probe: done")
+            NSLog("Azote probe: done")
         }
     }
 
     static func check(_ name: String, _ ok: Bool, _ detail: String) {
-        NSLog("Core self-test: \(ok ? "PASS" : "FAIL") \(name)\(ok ? "" : " — \(detail)")")
+        NSLog("Azote self-test: \(ok ? "PASS" : "FAIL") \(name)\(ok ? "" : " — \(detail)")")
     }
 
     static func click(_ view: NSView, in window: NSWindow, at local: NSPoint? = nil) {

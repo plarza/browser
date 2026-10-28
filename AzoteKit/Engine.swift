@@ -2,16 +2,16 @@ import Darwin
 import Foundation
 import WebKit
 
-/// What CoreKit asks of the WebKit it runs on. The patched engine
-/// (engine/) adds `_coreFingerprintSeed` to the webpage preferences and does the
+/// What AzoteKit asks of the WebKit it runs on. The patched engine
+/// (engine/) adds `_azoteFingerprintSeed` to the webpage preferences and does the
 /// rest of the fingerprinting work itself: the screen, the clocks, the
 /// fonts, canvas, WebGL, audio, JIT and WebAssembly off, UTC and en-US.
 @MainActor
 public enum Engine {
     /// This applies to every build and to direct executable launches too.
     public static func requirePatched() {
-        guard WKWebpagePreferences.instancesRespond(to: NSSelectorFromString("_setCoreFingerprintSeed:")) else {
-            fputs("Core cannot start without its patched WebKit. Rebuild Core with the engine embedded.\n", stderr)
+        guard WKWebpagePreferences.instancesRespond(to: NSSelectorFromString("_setAzoteFingerprintSeed:")) else {
+            fputs("Azote cannot start without its patched WebKit. Rebuild Azote with the engine embedded.\n", stderr)
             exit(EX_CONFIG)
         }
     }
@@ -63,6 +63,6 @@ public enum Engine {
     /// The seed goes with every navigation; the engine derives each site's
     /// canvas, audio and WebGL noise and its reported hardware from it.
     static func harden(_ preferences: WKWebpagePreferences, seed: UInt64) {
-        preferences.perform(NSSelectorFromString("_setCoreFingerprintSeed:"), with: NSNumber(value: seed))
+        preferences.perform(NSSelectorFromString("_setAzoteFingerprintSeed:"), with: NSNumber(value: seed))
     }
 }

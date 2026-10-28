@@ -5,7 +5,7 @@ import WebKit
 @MainActor
 final class Links: NSObject, WKScriptMessageHandler {
     static let shared = Links()
-    private static let name = "coreOpenLink"
+    private static let name = "azoteOpenLink"
 
     static func install(in controller: WKUserContentController) {
         controller.add(shared, contentWorld: .defaultClient, name: name)
@@ -20,7 +20,7 @@ final class Links: NSObject, WKScriptMessageHandler {
           if (!link || !/^(https?:|about:)/i.test(link.href)) return;
           event.preventDefault();
           event.stopImmediatePropagation();
-          window.webkit.messageHandlers.coreOpenLink.postMessage(link.href);
+          window.webkit.messageHandlers.azoteOpenLink.postMessage(link.href);
         }, true);
         """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .defaultClient)
     }
