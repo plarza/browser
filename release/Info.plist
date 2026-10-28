@@ -30,7 +30,7 @@
 		<dict>
 			<key>CFBundleTypeName</key><string>Web page</string>
 			<key>CFBundleTypeRole</key><string>Viewer</string>
-			<key>LSItemContentTypes</key><array><string>public.html</string></array>
+			<key>LSItemContentTypes</key><array><string>public.html</string><string>public.xhtml</string></array>
 		</dict>
 	</array>
 </dict>
