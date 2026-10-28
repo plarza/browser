@@ -319,34 +319,17 @@ final class SuggestionRow: NSView {
 /// between them.
 @MainActor
 final class Sidebar: NSView {
-    private let frost = NSVisualEffectView()
-
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        // A heavy frost over what's behind it in the window: the new tab
-        // page's picture or colour, when that fills the window.
-        frost.material = .fullScreenUI
-        frost.blendingMode = .withinWindow
-        frost.state = .active
-        frost.autoresizingMask = [.width, .height]
-        frost.isHidden = true
-        addSubview(frost)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// White, or frosted glass over the window's backdrop.
+    /// White, or clear over the window's backdrop, which draws the glass
+    /// (see `NewTabBackdrop.glassWidth`).
     var isFrosted = false {
-        didSet {
-            frost.isHidden = !isFrosted
-            needsDisplay = true
-        }
-    }
-
-    override func layout() {
-        super.layout()
-        frost.frame = bounds
+        didSet { needsDisplay = true }
     }
 
     override var wantsUpdateLayer: Bool { true }
@@ -383,13 +366,23 @@ final class PageArea: NSView {
 }
 
 /// What a blank tab shows behind nothing: the chosen picture filling the
-/// page, a colour, or the desktop, frosted through the window.
+/// page, a colour, or the desktop, frosted through the window. With Fill on
+/// it spans the window, and the sidebar's part of it is glass: the picture
+/// blurred and tinted white, by Settings' amounts.
 @MainActor
 final class NewTabBackdrop: NSView {
     private let picture = CALayer()
     private let frost = NSVisualEffectView()
+    private let glass = NSView()
+    private let blurred = CALayer()
+    private let tint = CALayer()
     private var shownImage: URL?
     private var shownVersion = -1
+    private var blurKey = ""
+    private var settings = Settings()
+
+    /// How much of the left edge is under the sidebar; 0 without Fill.
+    var glassWidth: CGFloat = 0 { didSet { if glassWidth != oldValue { needsLayout = true } } }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -402,11 +395,18 @@ final class NewTabBackdrop: NSView {
         frost.state = .active
         frost.autoresizingMask = [.width, .height]
         addSubview(frost)
+        glass.wantsLayer = true
+        glass.layer?.masksToBounds = true
+        blurred.contentsGravity = .resizeAspectFill
+        glass.layer?.addSublayer(blurred)
+        glass.layer?.addSublayer(tint)
+        addSubview(glass)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     func update(_ settings: Settings, imageVersion: Int) {
+        self.settings = settings
         frost.isHidden = settings.newTabPage != .blank
         picture.isHidden = settings.newTabPage != .image
         layer?.backgroundColor = settings.newTabPage == .color ? NSColor(hex: settings.newTabColor).cgColor : NSColor.clear.cgColor
@@ -416,6 +416,31 @@ final class NewTabBackdrop: NSView {
             shownVersion = imageVersion
             picture.contents = image.flatMap(NSImage.init(contentsOf:))
         }
+        // White over the glass: none at full transparency, nearly opaque at none.
+        tint.backgroundColor = NSColor.white.withAlphaComponent(0.92 * (1 - CGFloat(settings.fillTransparency) / CGFloat(Settings.fillSteps))).cgColor
+        blurred.isHidden = settings.newTabPage != .image
+        let key = "\(image?.path ?? "") \(imageVersion) \(settings.fillBlur)"
+        if settings.newTabPage == .image, settings.fill, key != blurKey, let image {
+            blurKey = key
+            let radius = Double(settings.fillBlur) * 5
+            Task.detached(priority: .userInitiated) {
+                let cg = NewTabBackdrop.blur(image, radius: radius)
+                await MainActor.run { if self.blurKey == key { self.blurred.contents = cg } }
+            }
+        }
+        needsLayout = true
+    }
+
+    /// The picture at 1600 points wide, blurred with its edges held.
+    nonisolated static func blur(_ url: URL, radius: Double) -> CGImage? {
+        guard var image = CIImage(contentsOf: url) else { return nil }
+        let scale = min(1, 1600 / image.extent.width)
+        image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let extent = image.extent
+        if radius > 0 {
+            image = image.clampedToExtent().applyingGaussianBlur(sigma: radius).cropped(to: extent)
+        }
+        return CIContext().createCGImage(image, from: extent)
     }
 
     override func layout() {
@@ -424,6 +449,11 @@ final class NewTabBackdrop: NSView {
         CATransaction.setDisableActions(true)
         picture.frame = bounds
         frost.frame = bounds
+        glass.isHidden = glassWidth <= 0
+        glass.frame = NSRect(x: 0, y: 0, width: glassWidth, height: bounds.height)
+        // The blurred copy lies exactly over the picture, cut to the sidebar.
+        blurred.frame = bounds
+        tint.frame = glass.bounds
         CATransaction.commit()
     }
 }

@@ -62,6 +62,7 @@ enum Menus {
             item("Forward", #selector(BrowserWindowController.goForward(_:)), "]"),
             .separator(),
             item("Show All History", #selector(BrowserWindowController.showHistory(_:)), "h"),
+            item("Downloads", #selector(BrowserWindowController.showDownloads(_:)), "l", [.command, .option]),
         ]))
 
         var tabItems: [NSMenuItem] = [

@@ -28,7 +28,7 @@ Applied to upstream WebKit (`engine/patches/`).
 - Tracking parameters (`utm_*`, `fbclid`, `gclid` and others) are removed from every navigation.
 - Ads and trackers are blocked inside WebKit's networking by content rules compiled from filter lists (uBlock Origin's, EasyList, EasyPrivacy, Peter Lowe's, URLhaus, AdGuard cookie notices), fetched daily without cookies.
 - Location, notifications, MIDI, USB, serial, HID, Bluetooth and sensors are always denied; camera and microphone ask every time and the answer isn't kept.
-- Downloads ask first and keep macOS's quarantine flag.
+- Downloads open the save panel and keep macOS's quarantine flag; about://downloads lists them.
 - Bangs (`!w`, `!gh`, `!yt` and about 300 more) resolve from a table inside the app.
 - Favicons are read from the page through WebKit's isolated script world, fetched without cookies, and kept on disk only for sites in History.
 - History keeps addresses, titles and visit counts, for address-bar completion and `about://history`.

@@ -74,7 +74,8 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 - **Extension data.** Extensions' own storage, such as the Bitwarden vault, is kept.
 - Settings.
 - **Favicons** are read from the page's own `<link rel=icon>` through WebKit's isolated client world (invisible to the page) and fetched with no cookies. An icon is kept on disk, under a hashed name, only for a site already in History or on the whitelist, so it records nothing those don't. Removing a site from History removes its icon; clearing History clears them all. A kept icon is never fetched again.
-- Nothing else is written: no cache and no downloads list.
+- **Downloads:** each file's name, where it was saved, its size and the site it came from, for about://downloads, until Clear Downloads.
+- Nothing else is written: no cache.
 
 ## Extensions
 
@@ -87,11 +88,13 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 ## Downloads
 
-- Every download asks first, showing the file name and size. Files go to `~/Downloads` and keep their quarantine flag. No download history is kept.
+- Every download opens the save panel at `~/Downloads`; Cancel stops it. Files keep their quarantine flag.
+- This session's downloads sit at the foot of the sidebar in the tabs' row style, newest first, each row's background filling as it downloads. Clicking a finished one shows it in Finder.
+- **about://downloads** (⌥⌘L) lists every download until it is cleared.
 
 ## Settings (the whole list)
 
-Settings is a page, **about://settings** (⌘,), with: where new tabs open (below the current tab, at the top, or at the bottom); what a blank tab shows (a picture, the default or one chosen in Finder; a colour; or blank, the desktop frosted through the window), and whether that fills the whole window behind a frosted sidebar;
+Settings is a page, **about://settings** (⌘,), with: where new tabs open (below the current tab, at the top, or at the bottom); what a blank tab shows (a picture, the default or one chosen in Finder; a colour; or blank, the desktop frosted through the window), and whether that fills the whole window behind a frosted sidebar, with notched sliders for the sidebar's blur and transparency;
 
 1. Search engine (URL template)
 2. Cookie whitelist (domains)

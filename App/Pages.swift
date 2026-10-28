@@ -10,6 +10,7 @@ enum Pages {
         switch page {
         case "settings": AnyView(SettingsPage())
         case "help": AnyView(HelpPage())
+        case "downloads": AnyView(DownloadsPage())
         default: AnyView(HistoryPage(open: open))
         }
     }
@@ -61,7 +62,11 @@ struct HistoryPage: View {
             .padding(.horizontal, margin + 16)
             .padding(.vertical, 16)
             if model.results.isEmpty {
-                ContentUnavailableView(model.query.isEmpty ? "No History" : "No Results", systemImage: model.query.isEmpty ? "clock" : "magnifyingglass")
+                if model.query.isEmpty {
+                    Spacer()
+                } else {
+                    ContentUnavailableView("No Results", systemImage: "magnifyingglass")
+                }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -266,6 +271,12 @@ struct SettingsPage: View {
                     EmptyView()
                 }
                 Toggle("Fill Behind Sidebar", isOn: $prefs.settings.fill)
+                if prefs.settings.fill {
+                    if prefs.settings.newTabPage == .image {
+                        LabeledContent("Blur") { Notched(value: $prefs.settings.fillBlur) }
+                    }
+                    LabeledContent("Transparency") { Notched(value: $prefs.settings.fillTransparency) }
+                }
             }
 
             Section("Keep Cookies For") {
@@ -478,6 +489,7 @@ struct HelpPage: View {
     /// Core's own pages: typed into the address field, or by their keys.
     static let pages = [
         ("History", "about://history", "⌘H"),
+        ("Downloads", "about://downloads", "⌥⌘L"),
         ("Settings", "about://settings", "⌘,"),
         ("Help", "about://help", "⇧⌘/"),
     ]
@@ -525,5 +537,121 @@ struct HelpPage: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .readableWidth()
+    }
+}
+
+/// A slider that stops on Settings' steps, with a notch at each.
+struct Notched: NSViewRepresentable {
+    @Binding var value: Int
+
+    func makeNSView(context: Context) -> NSSlider {
+        let slider = NSSlider(value: Double(value), minValue: 0, maxValue: Double(Settings.fillSteps),
+                              target: context.coordinator, action: #selector(Coordinator.changed(_:)))
+        slider.numberOfTickMarks = Settings.fillSteps + 1
+        slider.allowsTickMarkValuesOnly = true
+        slider.controlSize = .regular
+        slider.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+        return slider
+    }
+
+    func updateNSView(_ slider: NSSlider, context: Context) {
+        context.coordinator.parent = self
+        if slider.integerValue != value { slider.integerValue = value }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var parent: Notched
+        init(parent: Notched) { self.parent = parent }
+        @objc func changed(_ slider: NSSlider) { parent.value = slider.integerValue }
+    }
+}
+
+// MARK: Downloads
+
+/// about://downloads: every download until Clear, newest first.
+struct DownloadsPage: View {
+    @State private var items = Downloads.shared.items
+    @State private var confirmingClear = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            let margin = Pages.margin(geometry.size.width)
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer()
+                    Button("Clear Downloads") { confirmingClear = true }
+                        .controlSize(.large)
+                        .buttonBorderShape(.capsule)
+                        .disabled(items.allSatisfy { $0.state == .active })
+                }
+                .padding(.horizontal, margin + 16)
+                .padding(.vertical, 16)
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(items) { item in
+                            DownloadRow(item: item)
+                            Divider()
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+                .contentMargins(.horizontal, margin, for: .scrollContent)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Downloads.changed)) { _ in items = Downloads.shared.items }
+        .alert("Clear the list of downloads?", isPresented: $confirmingClear) {
+            Button("Clear", role: .destructive) { Downloads.shared.clear() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The files stay where they are.")
+        }
+    }
+}
+
+struct DownloadRow: View {
+    let item: Downloads.Item
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(nsImage: NSWorkspace.shared.icon(for: .init(filenameExtension: item.file.pathExtension) ?? .data))
+                .resizable()
+                .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.name).lineLimit(1)
+                Text(DownloadRow.status(item)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            HStack(spacing: 6) {
+                if item.state == .active {
+                    Button("Cancel") { Downloads.shared.cancel(item) }.buttonBorderShape(.capsule)
+                } else {
+                    if FileManager.default.fileExists(atPath: item.file.path) {
+                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.file]) }.buttonBorderShape(.capsule)
+                    }
+                    Button("Remove") { Downloads.shared.remove(item) }.buttonBorderShape(.capsule)
+                }
+            }
+            .opacity(hovering ? 1 : 0)
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture(count: 2) { if item.state == .finished { NSWorkspace.shared.open(item.file) } }
+    }
+
+    static func status(_ item: Downloads.Item) -> String {
+        let size = { (n: Int64) in ByteCountFormatter.string(fromByteCount: n, countStyle: .file) }
+        let site = item.site.isEmpty ? "" : " · \(item.site)"
+        switch item.state {
+        case .active: return item.expected > 0 ? "\(size(item.received)) of \(size(item.expected))" : size(item.received)
+        case .failed: return "Stopped\(site)"
+        case .finished:
+            let gone = FileManager.default.fileExists(atPath: item.file.path) ? "" : " · moved or deleted"
+            return size(item.received) + site + gone
+        }
     }
 }

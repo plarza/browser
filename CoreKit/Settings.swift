@@ -19,6 +19,11 @@ public struct Settings: Codable, Equatable {
     /// The new tab page's picture or colour fills the whole window, behind
     /// a frosted sidebar.
     public var fill: Bool = false
+    /// How blurred and how see-through the sidebar is over a filled window,
+    /// in steps of `fillSteps`.
+    public var fillBlur: Int = 6
+    public var fillTransparency: Int = 4
+    public static let fillSteps = 10
 
     public enum NewTabPage: String, Codable, CaseIterable {
         case image, color, blank
@@ -60,6 +65,8 @@ public struct Settings: Codable, Equatable {
         newTabPage = try c.decodeIfPresent(NewTabPage.self, forKey: .newTabPage) ?? .image
         newTabColor = try c.decodeIfPresent(String.self, forKey: .newTabColor) ?? "#2E4B76"
         fill = try c.decodeIfPresent(Bool.self, forKey: .fill) ?? false
+        fillBlur = try c.decodeIfPresent(Int.self, forKey: .fillBlur) ?? 6
+        fillTransparency = try c.decodeIfPresent(Int.self, forKey: .fillTransparency) ?? 4
     }
 }
 

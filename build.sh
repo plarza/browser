@@ -35,7 +35,11 @@ rm "$APP/Contents/icon.plist"
 cp release/morning.webp "$APP/Contents/Resources/"
 cp -R release/engines "$APP/Contents/Resources/Engines"
 
-IDENTITY="-"
+# A stable certificate, so macOS remembers what it was allowed (the
+# microphone, the camera) across builds; an ad-hoc signature is a new app to
+# it every time.
+IDENTITY="${CORE_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | awk -F'"' '/Apple Development|Developer ID Application/ {print $2; exit}')}"
+IDENTITY="${IDENTITY:--}"
 RUNTIME=()
 if [ "$STEP" = "ship" ]; then
   IDENTITY="${CORE_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ {print $2; exit}')}"

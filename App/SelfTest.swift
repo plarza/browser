@@ -345,6 +345,48 @@ enum SelfTest {
                 Preferences.shared.settings.newTabPage = .image
                 browser.close(empty)
             }
+            // A download goes where the save panel says, is listed, and shows
+            // in the sidebar; ⌥⌘L opens about://downloads.
+            let downloader = browser.newTab(URL(string: "https://example.com/")!)
+            try? await Task.sleep(for: .seconds(3))
+            _ = try? await downloader.webView.evaluateJavaScript(
+                "const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['core'])); a.download = 'core-test.txt'; document.body.append(a); a.click()",
+                in: nil, contentWorld: .page)
+            for _ in 0 ..< 20 where Downloads.shared.items.first?.state != .finished { try? await Task.sleep(for: .milliseconds(250)) }
+            let got = Downloads.shared.items.first
+            check("a download saves where asked and shows in the sidebar",
+                  got?.name == "core-test.txt" && got?.state == .finished && got.map { FileManager.default.fileExists(atPath: $0.file.path) } == true && browser.downloadRowsForTesting >= 1,
+                  "name=\(got?.name ?? "none") state=\(got?.state.rawValue ?? "none") rows=\(browser.downloadRowsForTesting)")
+            key("l", in: window, modifiers: [.command, .option])
+            try? await Task.sleep(for: .seconds(1))
+            check("⌥⌘L opens about://downloads", browser.pageShownForTesting == "downloads", "page=\(browser.pageShownForTesting ?? "none")")
+            await shot("downloads", browser)
+            browser.close(downloader)
+
+            // The three styles for the sidebar's downloads, for choosing.
+            for style in ["plain", "percent", "twoLine"] {
+                UserDefaults.standard.set(style, forKey: "downloadStyle")
+                Downloads.shared.dismissAllForTesting()
+                Downloads.shared.addForTesting(name: "Quarterly Report.pdf", received: 2_400_000, expected: 2_400_000, state: .finished)
+                Downloads.shared.addForTesting(name: "ubuntu-26.04-desktop-arm64.iso", received: 1_900_000_000, expected: 6_100_000_000, state: .active)
+                Downloads.shared.addForTesting(name: "photos-export.zip", received: 412_000_000, expected: 580_000_000, state: .active)
+                browser.select(browser.tabs[0])
+                try? await Task.sleep(for: .milliseconds(600))
+                await shot("downloads-\(style)", browser)
+            }
+            Downloads.shared.dismissAllForTesting()
+            UserDefaults.standard.removeObject(forKey: "downloadStyle")
+
+            // ⇧⌘/ is Core's help page, not macOS's Help menu search.
+            browser.select(browser.tabs[0])
+            if let slash = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: window.windowNumber, context: nil, characters: "?", charactersIgnoringModifiers: "/",
+                                            isARepeat: false, keyCode: 44) {
+                NSApp.sendEvent(slash)
+            }
+            try? await Task.sleep(for: .seconds(1))
+            check("⇧⌘/ opens about://help", browser.pageShownForTesting == "help", "page=\(browser.pageShownForTesting ?? "none")")
+
             // ⇧⌘/ opens about://help, listing the menus' own shortcuts.
             browser.showHelp(nil)
             try? await Task.sleep(for: .seconds(2))
@@ -376,9 +418,11 @@ enum SelfTest {
             await shot("fill-page", browser)
             Preferences.shared.settings.fill = false
 
+            Preferences.shared.settings.fill = true
             browser.showSettings(nil)
             try? await Task.sleep(for: .seconds(1))
             await shot("settings", browser)
+            Preferences.shared.settings.fill = false
             NSLog("Core self-test: done")
         }
     }

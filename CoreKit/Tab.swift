@@ -15,8 +15,8 @@ public protocol TabDelegate: AnyObject {
     func tabWantsToClose(_ tab: Tab)
     /// Camera or microphone; asked every time, never remembered.
     func tab(_ tab: Tab, allowCapture type: WKMediaCaptureType, for origin: String) async -> Bool
-    /// Every download asks first.
-    func tab(_ tab: Tab, allowDownload name: String, size: Int64?) async -> Bool
+    /// Where a download goes: the save panel's answer, or nil to cancel it.
+    func tab(_ tab: Tab, saveDownload name: String) async -> URL?
     func tab(_ tab: Tab, runAlert message: String) async
     func tab(_ tab: Tab, runConfirm message: String) async -> Bool
     func tab(_ tab: Tab, runPrompt message: String, defaultText: String?) async -> String?

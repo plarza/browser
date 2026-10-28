@@ -30,6 +30,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private var popover: NSPopover?
     /// Behind a blank tab: the new tab page.
     private let backdrop = NewTabBackdrop()
+    private let downloads = DownloadDock()
     fileprivate let shade = SidebarShadow()
     /// Core's own pages, native, where the web view would be.
     private let pageHost = NSHostingView(rootView: AnyView(EmptyView()))
@@ -66,6 +67,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         watchClicks()
         watchSwipes()
         watchMouseButtons()
+        watchHelpKey()
+        watchDownloads()
     }
 
     private func watchNewTabPage() {
@@ -124,6 +127,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         backdropLeading.page.isActive = !on
         backdropLeading.window.isActive = on
         sidebar.isFrosted = on
+        backdrop.glassWidth = on ? width : 0
         updateNewTabPage()
     }
 
@@ -145,6 +149,27 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// A mouse's back and forward buttons do what ⌘[ and ⌘] do. WebKit
     /// would otherwise take them for its own lists, which a wipe empties.
     private var buttonMonitor: Any?
+
+    /// ⇧⌘/ is macOS's own "search the Help menu"; in Core it opens
+    /// about://help, before the system can take it.
+    private var helpMonitor: Any?
+
+    private func watchHelpKey() {
+        helpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            MainActor.assumeIsolated { () -> NSEvent? in
+                let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
+                guard let self, event.window === self.window, mods == [.command, .shift],
+                      event.charactersIgnoringModifiers == "/" || event.charactersIgnoringModifiers == "?" || event.keyCode == 44
+                else { return event }
+                self.showHelp(nil)
+                return nil
+            }
+        }
+    }
+
+    private func watchDownloads() {
+        downloads.onShowAll = { [weak self] in self?.showDownloads(nil) }
+    }
 
     private func watchMouseButtons() {
         buttonMonitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp]) { [weak self] event in
@@ -300,6 +325,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         notice.maximumNumberOfLines = 3
         notice.isHidden = Engine.isPatched
         notice.stringValue = "System WebKit: fingerprint protection is not active in this build."
+        // Hidden, it takes no room under the tabs and downloads.
+        if notice.isHidden { notice.heightAnchor.constraint(equalToConstant: 0).isActive = true }
 
         actionBar.onClick = { [weak self] action, button in self?.perform(action, from: button) }
 
@@ -309,7 +336,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         root.addSubview(content)
         root.addSubview(sidebar)
         root.addSubview(divider)
-        for view in [address, actionBar, tabList, notice] as [NSView] { sidebar.addSubview(view) }
+        downloads.translatesAutoresizingMaskIntoConstraints = false
+        for view in [address, actionBar, tabList, downloads, notice] as [NSView] { sidebar.addSubview(view) }
         // Over the tabs, under the field.
         address.suggestions.translatesAutoresizingMaskIntoConstraints = false
         sidebar.addSubview(address.suggestions)
@@ -354,11 +382,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             tabList.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 10),
             tabList.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 8),
             tabList.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -8),
-            tabList.bottomAnchor.constraint(equalTo: notice.topAnchor, constant: -6),
+            tabList.bottomAnchor.constraint(equalTo: downloads.topAnchor, constant: -6),
+            downloads.leadingAnchor.constraint(equalTo: tabList.leadingAnchor),
+            downloads.trailingAnchor.constraint(equalTo: tabList.trailingAnchor),
+            downloads.bottomAnchor.constraint(equalTo: notice.topAnchor, constant: -6),
 
             notice.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 14),
             notice.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14),
-            notice.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: -10),
+            notice.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: notice.isHidden ? -2 : -10),
 
             progress.topAnchor.constraint(equalTo: content.topAnchor),
             progress.leadingAnchor.constraint(equalTo: content.leadingAnchor),
@@ -379,6 +410,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private func resizeSidebar(by delta: CGFloat) {
         width = min(max(width + delta, Self.widths.lowerBound), Self.widths.upperBound)
         sidebarWidth.constant = width
+        if fills { backdrop.glassWidth = width }
     }
 
     // MARK: Tabs
@@ -545,6 +577,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// ⌘Y: about://history.
     @objc func showHistory(_ sender: Any?) { showInternal(InternalPage.address("history")) }
+
+    /// ⌥⌘L: about://downloads.
+    @objc func showDownloads(_ sender: Any?) { showInternal(InternalPage.address("downloads")) }
 
     /// ⇧⌘/: about://help.
     @objc func showHelp(_ sender: Any?) { showInternal(InternalPage.address("help")) }
@@ -716,11 +751,18 @@ extension BrowserWindowController: TabDelegate {
                                  yes: "Allow", no: "Don't Allow")
     }
 
-    func tab(_ tab: Tab, allowDownload name: String, size: Int64?) async -> Bool {
-        let detail = size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "Unknown size"
-        return await Dialogs.ask(in: window, "Download “\(name)”?",
-                                 detail: "\(detail) · from \(tab.url?.host ?? "this page") · saved to Downloads",
-                                 yes: "Download", no: "Cancel")
+    func tab(_ tab: Tab, saveDownload name: String) async -> URL? {
+        #if DEBUG
+        if let folder = UserDefaults.standard.string(forKey: "coreStore"), UserDefaults.standard.bool(forKey: "coreSelfTest") {
+            return URL(fileURLWithPath: folder).appendingPathComponent(name)
+        }
+        #endif
+        let panel = NSSavePanel()
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        panel.nameFieldStringValue = name
+        panel.canCreateDirectories = true
+        guard let window else { return nil }
+        return await panel.beginSheetModal(for: window) == .OK ? panel.url : nil
     }
 
     func tab(_ tab: Tab, runAlert message: String) async {
@@ -795,6 +837,7 @@ extension BrowserWindowController {
     var selectedTab: Tab? { selected }
     var pageShownForTesting: String? { pageHost.isHidden ? nil : hostedPage }
     var pageHostForTesting: NSView { pageHost }
+    var downloadRowsForTesting: Int { downloads.isHidden ? 0 : downloads.subviews.first?.subviews.count ?? 0 }
     var fillsForTesting: Bool { fills && sidebar.isFrosted && !backdrop.isHidden && backdrop.frame.minX == 0 && backdrop.frame.width > content.frame.width }
     var tabTableForTesting: NSTableView? { tabList.documentView as? NSTableView }
     var newTabPageShownForTesting: Bool { !backdrop.isHidden && backdrop.alphaValue > 0.5 }

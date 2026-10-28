@@ -4,7 +4,7 @@ import Foundation
 /// They are native views the shell shows in the tab; the tab only keeps
 /// their address, for the field and for back and forward.
 public enum InternalPage {
-    public static let pages = ["history", "settings", "help"]
+    public static let pages = ["history", "downloads", "settings", "help"]
 
     /// The page an about: address names, if it is one of Core's.
     public static func page(_ url: URL?) -> String? {
