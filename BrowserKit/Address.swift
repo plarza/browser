@@ -21,7 +21,7 @@ public enum Address {
 
     /// An address, if the text looks like one. Plain `http` is turned into
     /// `https` later, by the navigation policy, so it can fall back.
-    static func url(from typed: String) -> URL? {
+    public static func url(from typed: String) -> URL? {
         if typed.contains(" ") { return nil }
         let lower = typed.lowercased()
         if lower.hasPrefix("http://") || lower.hasPrefix("https://") {

@@ -129,6 +129,9 @@ public final class Tab: NSObject {
     private var httpAllowed: URL?
     private let interstitialToken = UUID().uuidString.lowercased()
     private var pendingDirection: Direction = .new
+    /// How the load under way counts in History, and how the page showing did.
+    private var visitKind: History.Kind = .link
+    private var entryKind: History.Kind = .link
     private var lastCrash: Date?
 
     /// `replace`: a page sending itself somewhere without a click (a script
@@ -203,9 +206,11 @@ public final class Tab: NSObject {
 
     // MARK: Navigating
 
-    public func load(_ url: URL) {
+    /// `kind`: how much the visit counts in History.
+    public func load(_ url: URL, as kind: History.Kind = .link) {
         pending = nil
         navigate(URLRequest(url: url), direction: .new)
+        visitKind = kind
     }
 
     /// A tab restored at launch: its address is known, nothing is loaded
@@ -229,7 +234,7 @@ public final class Tab: NSObject {
 
     /// Loads a restored tab's address, if it has one waiting.
     public func wake() {
-        if let pending { load(pending) }
+        if let pending { load(pending, as: .reload) }
     }
 
     public func reload() {
@@ -296,6 +301,7 @@ public final class Tab: NSObject {
 
     private func navigate(_ request: URLRequest, direction: Direction) {
         guard var url = request.url else { return }
+        visitKind = direction == .reload ? .reload : .link
         if url == Tab.blank {
             showBlank(direction: direction)
             return
@@ -386,8 +392,15 @@ public final class Tab: NSObject {
     }
 
     private func record(_ url: URL) {
+        // A page reached by a link that sent itself on counts low, as a reload does.
+        if pendingDirection == .replace, index >= 0, entryKind == .link, entries[index] != url,
+           entries[index].scheme == "https" || entries[index].scheme == "http" {
+            History.shared.redirected(from: entries[index])
+        }
+        History.shared.add(url, as: visitKind)
+        entryKind = visitKind
+        visitKind = .link
         recordEntry(url)
-        History.shared.add(url)
     }
 
     private func recordEntry(_ url: URL) {
@@ -560,7 +573,7 @@ extension Tab: WKNavigationDelegate {
             entries.removeSubrange((index + 1)...)
             entries.append(url)
             index = entries.count - 1
-            History.shared.add(url)
+            History.shared.add(url, as: .link)
         }
         delegate?.tabDidChange(self)
     }

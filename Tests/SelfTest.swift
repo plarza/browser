@@ -229,9 +229,36 @@ enum SelfTest {
                 editor?.selectAll(nil)
                 await type("webkit", in: window)
                 await expect("history suggestions match by title", { field.suggestions.isShown && field.suggestions.visits.first?.title == "WebKit Test Page" })
+                editor?.doCommand(by: #selector(NSResponder.moveUp(_:)))
+                check("↑ goes to the bottom of the suggestions", field.suggestions.selected != nil && field.suggestions.selected == field.suggestions.visits.last,
+                      "selected=\(field.suggestions.selected?.url ?? "none")")
+                editor?.doCommand(by: #selector(NSResponder.moveDown(_:)))
+                check("↓ from the bottom comes back to what was typed", field.suggestions.selected == nil, "")
                 await shot("suggest", browser)
                 window.makeFirstResponder(nil)
                 check("leaving the field hides the suggestions", !field.suggestions.isShown || field.suggestions.alphaValue < 1, "")
+            }),
+            ("suggestions learn from picks", {
+                for _ in 0 ..< 3 { _ = await open(one) }
+                _ = await open(two)
+                let field = browser.address
+                let editor = window.fieldEditor(true, for: field) as? NSTextView
+                field.focus()
+                editor?.selectAll(nil)
+                await type("pag", in: window)
+                await expect("the page visited most comes first", { field.suggestions.visits.first?.url == one.absoluteString },
+                             "first=\(field.suggestions.visits.first?.url ?? "none")")
+                guard let picked = field.suggestions.visits.first(where: { $0.url == two.absoluteString }) else {
+                    return check("the other page is listed too", false, "rows=\(field.suggestions.visits.map(\.url))")
+                }
+                let tab = browser.selected!
+                await go(tab, two) { field.suggestions.onPick(picked) }
+                field.focus()
+                editor?.selectAll(nil)
+                await type("pa", in: window)
+                await expect("a page picked after typing more comes first", { field.suggestions.visits.first?.url == two.absoluteString },
+                             "first=\(field.suggestions.visits.first?.url ?? "none")")
+                window.makeFirstResponder(nil)
             }),
             ("find and inspector", {
                 let tab = await open(page)

@@ -2,8 +2,10 @@ import Foundation
 import SQLite3
 
 /// Pages visited: the address, the page's title, how many times and when
-/// it was last visited. No page contents; a site's icon is kept beside it
-/// while the site is in here. It feeds the address field and about://history.
+/// it was last visited, and its frecency. No page contents; a site's icon is
+/// kept beside it while the site is in here. Also what was typed before
+/// picking a page from the list under the address field. It feeds the
+/// address field and about://history.
 ///
 /// Kept in SQLite (history.db), read and written on one background queue,
 /// so a lookup never holds up typing.
@@ -14,8 +16,26 @@ public final class History {
     public struct Visit: Equatable, Sendable {
         public var url: String
         public var title: String
-        /// How many times it was visited, for ranking suggestions.
+        /// How many times it was visited.
         public var count = 1
+    }
+
+    /// How a page was reached, which sets how much the visit counts.
+    public enum Kind: Sendable {
+        /// Typed or picked in the address field. Not a search.
+        case typed
+        /// A link, a page's own navigation, back or forward.
+        case link
+        /// A reload, or a tab reopened at launch.
+        case reload
+
+        var weight: Double {
+            switch self {
+            case .typed: 2
+            case .link: 1
+            case .reload: Frecency.low
+            }
+        }
     }
 
     /// What the address field shows for what's been typed.
@@ -30,17 +50,33 @@ public final class History {
     private nonisolated(unsafe) var db: Database?
 
     private init() {
-        queue.async { [self] in db = Database(Store.url("history.db")) }
+        queue.async { [self] in db = Database(Store.url("history.db"), today: Frecency.today()) }
     }
 
-    func add(_ url: URL) {
-        let now = Date().timeIntervalSince1970
-        queue.async { [self] in db?.add(url, at: now) }
+    func add(_ url: URL, as kind: Kind) {
+        let today = Frecency.today()
+        queue.async { [self] in db?.add(url, weight: kind.weight, today: today) }
+    }
+
+    /// A page that sent itself on to another without being clicked away
+    /// from (a script redirect): its visit counts as little as a reload's.
+    func redirected(from url: URL) {
+        let today = Frecency.today()
+        queue.async { [self] in db?.redirected(from: url.absoluteString, today: today) }
     }
 
     func setTitle(_ title: String, for url: URL) {
         guard !title.isEmpty else { return }
         queue.async { [self] in db?.setTitle(title, for: url.absoluteString) }
+    }
+
+    /// `url` was picked from the list under the address field after typing
+    /// `input`: next time that input, or the start of it, puts it first.
+    public func picked(_ url: String, after input: String) {
+        let input = input.lowercased().trimmingCharacters(in: .whitespaces)
+        guard !input.isEmpty else { return }
+        let today = Frecency.today()
+        queue.async { [self] in db?.picked(url, after: input, today: today) }
     }
 
     public func remove(_ url: String) {
@@ -60,18 +96,19 @@ public final class History {
 
     /// As you type: what to fill in (as Chrome and Safari do, a site you've
     /// been to whose name starts with what you typed, `git` → `github.com`,
-    /// the one you visit most; once you type a `/`, the latest whole address
-    /// that starts with it) and the best matching pages.
+    /// the one with the highest frecency; once you type a `/`, a whole
+    /// address that starts with it) and the best matching pages.
     ///
-    /// Pages rank higher the earlier in their address or title the words
-    /// match (the start of the site's name best, then the start of any word,
-    /// then anywhere), the more often they were visited, and the more
-    /// recently.
-    public func complete(_ typed: String, limit: Int = 6) async -> Completion {
-        let now = Date().timeIntervalSince1970
+    /// Pages picked before after typing this, or more, come first. The rest
+    /// rank by how early in their address or title the words match (the
+    /// start of the address best, then the start of any word, then
+    /// anywhere), plus their frecency.
+    public func complete(_ typed: String, limit: Int = 8) async -> Completion {
+        let today = Frecency.today()
         return await withCheckedContinuation { done in
             queue.async { [self] in
-                done.resume(returning: Completion(fill: db?.autofill(typed), pages: db?.suggest(typed, limit: limit, now: now) ?? []))
+                done.resume(returning: Completion(fill: db?.autofill(typed, today: today),
+                                                  pages: db?.suggest(typed, limit: limit, today: today) ?? []))
             }
         }
     }
@@ -90,18 +127,37 @@ public final class History {
     }
 }
 
+/// Frecency, as Firefox has it: every visit adds its weight to a page's
+/// score, and the score halves every 30 days. What's kept is the day (since
+/// 1970) the score falls to 1, `day + ln(score) / λ`, so pages sort by it
+/// directly, with nothing to recalculate as time passes.
+enum Frecency {
+    static let λ = log(2.0) / 30
+    /// A reload's or a redirect source's weight.
+    static let low = 0.25
+    /// Points in a suggestion's rank per day of frecency: twice the score is
+    /// 30 days, 15 points.
+    static let points = 0.5
+
+    nonisolated static func today() -> Double { Date().timeIntervalSince1970 / 86400 }
+}
+
 /// history.db. Used only on History's queue.
 ///
-/// Each row keeps, beside the address and title, lowercased copies for
-/// matching: `bare` (the address without scheme or www.), `ltitle`, and
+/// `visits`: each row keeps, beside the address and title, lowercased copies
+/// for matching: `bare` (the address without scheme or www.), `ltitle`, and
 /// `words` (both with every non-letter, non-digit made a space, so the start
 /// of a word is a space followed by it). `host` is the address's host and
 /// `site` the same without www., for completing site names.
+///
+/// `picks`: what was typed before picking a page from the list. `uses` goes
+/// up towards 10 with each pick (×0.9 + 1, as Firefox does), and falls by
+/// 2.5% a day since `day`; under 0.1 (about 90 days unused) it's deleted.
 private final class Database {
     private var db: OpaquePointer?
     private var statements: [String: OpaquePointer] = [:]
 
-    init?(_ file: URL) {
+    init?(_ file: URL, today: Double) {
         guard sqlite3_open_v2(file.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK else {
             NSLog("History: can't open \(file.path): \(String(cString: sqlite3_errmsg(db)))")
             sqlite3_close(db)
@@ -120,12 +176,22 @@ private final class Database {
             host TEXT NOT NULL,
             site TEXT NOT NULL,
             count INTEGER NOT NULL DEFAULT 1,
-            last REAL NOT NULL
+            last REAL NOT NULL,
+            frecency REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS visits_last ON visits(last);
         CREATE INDEX IF NOT EXISTS visits_host ON visits(host);
         CREATE INDEX IF NOT EXISTS visits_site ON visits(site);
+        CREATE INDEX IF NOT EXISTS visits_frecency ON visits(frecency);
+        CREATE TABLE IF NOT EXISTS picks(
+            input TEXT NOT NULL,
+            url TEXT NOT NULL,
+            uses REAL NOT NULL,
+            day REAL NOT NULL,
+            PRIMARY KEY(input, url)
+        ) WITHOUT ROWID;
         """)
+        run("DELETE FROM picks WHERE uses * pow(0.975, ?1 - day) < 0.1", [today])
     }
 
     deinit {
@@ -135,14 +201,22 @@ private final class Database {
 
     // MARK: Writing
 
-    func add(_ url: URL, at time: Double) {
+    func add(_ url: URL, weight: Double, today: Double) {
         let text = url.absoluteString
         let bare = History.bare(text).lowercased()
         let host = url.host?.lowercased() ?? ""
         run("""
-        INSERT INTO visits(url, bare, words, host, site, last) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
-        ON CONFLICT(url) DO UPDATE SET count = count + 1, last = excluded.last
-        """, [text, bare, Self.words(bare, ""), host, Self.site(host), time])
+        INSERT INTO visits(url, bare, words, host, site, last, frecency)
+        VALUES(?1, ?2, ?3, ?4, ?5, ?6 * 86400, ?6 + ln(?7) / ?8)
+        ON CONFLICT(url) DO UPDATE SET count = count + 1, last = excluded.last,
+            frecency = ?6 + ln(exp(?8 * (frecency - ?6)) + ?7) / ?8
+        """, [text, bare, Self.words(bare, ""), host, Self.site(host), today, weight, Frecency.λ])
+    }
+
+    /// Takes back the difference between a link's weight and a low one.
+    func redirected(from url: String, today: Double) {
+        run("UPDATE visits SET frecency = ?2 + ln(max(exp(?3 * (frecency - ?2)) - ?4, 0.05)) / ?3 WHERE url = ?1",
+            [url, today, Frecency.λ, History.Kind.link.weight - Frecency.low])
     }
 
     func setTitle(_ title: String, for url: String) {
@@ -151,12 +225,20 @@ private final class Database {
             [url, title, lower, Self.words(History.bare(url).lowercased(), lower)])
     }
 
+    func picked(_ url: String, after input: String, today: Double) {
+        run("""
+        INSERT INTO picks(input, url, uses, day) VALUES(?1, ?2, 1, ?3)
+        ON CONFLICT(input, url) DO UPDATE SET uses = min(10, uses * pow(0.975, ?3 - day) * 0.9 + 1), day = ?3
+        """, [input, url, today])
+    }
+
     func remove(_ url: String) {
         run("DELETE FROM visits WHERE url = ?1", [url])
+        run("DELETE FROM picks WHERE url = ?1", [url])
     }
 
     func clear() {
-        exec("DELETE FROM visits; VACUUM;")
+        exec("DELETE FROM visits; DELETE FROM picks; VACUUM;")
     }
 
     // MARK: Reading
@@ -167,44 +249,77 @@ private final class Database {
         return found
     }
 
-    func autofill(_ typed: String) -> String? {
+    func autofill(_ typed: String, today: Double) -> String? {
         let typed = typed.lowercased()
         guard !typed.isEmpty, !typed.contains(" ") else { return nil }
         // Everything that starts with `typed`, as a range the index can use.
         let end = typed + "\u{10FFFF}"
         var fill: String?
         if typed.contains("/") {
-            rows("SELECT url FROM visits WHERE bare > ?1 AND bare < ?2 ORDER BY last DESC LIMIT 1", [typed, end]) {
+            rows("SELECT url FROM visits WHERE bare > ?1 AND bare < ?2 ORDER BY frecency DESC LIMIT 1", [typed, end]) {
                 fill = History.bare($0.text(0))
             }
         } else {
+            // A site's score is the sum of its pages' scores today.
             rows("""
             SELECT site FROM visits WHERE site > ?1 AND site < ?2
-            GROUP BY site ORDER BY sum(count) DESC, length(site) LIMIT 1
-            """, [typed, end]) { fill = $0.text(0) }
+            GROUP BY site ORDER BY sum(exp(?3 * (frecency - ?4))) DESC, length(site) LIMIT 1
+            """, [typed, end, Frecency.λ, today]) { fill = $0.text(0) }
         }
         return fill
     }
 
-    func suggest(_ query: String, limit: Int, now: Double) -> [History.Visit] {
+    func suggest(_ query: String, limit: Int, today: Double) -> [History.Visit] {
         let words = Self.split(query)
         guard !words.isEmpty else { return [] }
-        var args: [Any] = [limit, now]
+        let typed = words.joined(separator: " ")
+        // Picked before: at most half the list, so the rest still shows.
+        var found: [History.Visit] = []
+        rows("""
+        SELECT v.url, v.title, v.count, max(p.uses * pow(0.975, ?2 - p.day) * (1 + (p.input = ?1))) AS rank
+        FROM picks p JOIN visits v ON v.url = p.url
+        WHERE p.input >= ?1 AND p.input < ?3
+        GROUP BY v.url HAVING rank >= 0.1 ORDER BY rank DESC, v.frecency DESC LIMIT ?4
+        """, [typed, today, typed + "\u{10FFFF}", (limit + 1) / 2]) {
+            found.append(History.Visit(url: $0.text(0), title: $0.text(1), count: $0.int(2)))
+        }
+        let seen = Set(found.map(\.url))
+        let wanted = limit - found.count
+        guard wanted > 0 else { return found }
+
+        // The rest, read in frecency order: a page's rank is its match
+        // points plus its frecency's, so once the best match points a page
+        // could have can't lift it past the last of the best so far, no page
+        // after it can do better, and the scan stops.
+        var args: [Any] = []
         var filters: [String] = []
-        var scores: [String] = []
+        var points: [String] = []
         for word in words {
             let w = args.count + 1
             args.append(word)
             args.append(" " + Self.normalise(word).trimmingCharacters(in: .whitespaces))
             filters.append("(instr(bare, ?\(w)) > 0 OR instr(ltitle, ?\(w)) > 0)")
-            scores.append("CASE WHEN substr(bare, 1, length(?\(w))) = ?\(w) THEN 100 WHEN instr(words, ?\(w + 1)) > 0 THEN 50 ELSE 10 END")
+            points.append("CASE WHEN substr(bare, 1, length(?\(w))) = ?\(w) THEN 100 WHEN instr(words, ?\(w + 1)) > 0 THEN 50 ELSE 10 END")
         }
         let sql = """
-        SELECT url, title, count FROM visits WHERE \(filters.joined(separator: " AND "))
-        ORDER BY \(scores.joined(separator: " + ")) + 15 * log2(count + 1) - 10 * log2(1 + max(0, ?2 - last) / 86400) DESC
-        LIMIT ?1
+        SELECT url, title, count, frecency, \(points.joined(separator: " + ")) FROM visits
+        WHERE \(filters.joined(separator: " AND ")) ORDER BY frecency DESC
         """
-        return visits(sql, args)
+        let most = 100.0 * Double(words.count)
+        var best: [(rank: Double, visit: History.Visit)] = []
+        scan(sql, args) { row in
+            let frecency = Frecency.points * row.double(3)
+            if best.count == wanted, frecency + most <= best[wanted - 1].rank { return false }
+            let url = row.text(0)
+            guard !seen.contains(url) else { return true }
+            let rank = frecency + row.double(4)
+            guard best.count < wanted || rank > best[wanted - 1].rank else { return true }
+            let visit = History.Visit(url: url, title: row.text(1), count: row.int(2))
+            best.insert((rank, visit), at: best.firstIndex { $0.rank < rank } ?? best.count)
+            if best.count > wanted { best.removeLast() }
+            return true
+        }
+        return found + best.map(\.visit)
     }
 
     func search(_ query: String, limit: Int) -> [History.Visit] {
@@ -215,12 +330,10 @@ private final class Database {
             return "(instr(bare, ?\(args.count)) > 0 OR instr(ltitle, ?\(args.count)) > 0)"
         }
         let filter = filters.isEmpty ? "" : "WHERE " + filters.joined(separator: " AND ")
-        return visits("SELECT url, title, count FROM visits \(filter) ORDER BY last DESC LIMIT ?1", args)
-    }
-
-    private func visits(_ sql: String, _ args: [Any]) -> [History.Visit] {
         var found: [History.Visit] = []
-        rows(sql, args) { found.append(History.Visit(url: $0.text(0), title: $0.text(1), count: $0.int(2))) }
+        rows("SELECT url, title, count FROM visits \(filter) ORDER BY last DESC LIMIT ?1", args) {
+            found.append(History.Visit(url: $0.text(0), title: $0.text(1), count: $0.int(2)))
+        }
         return found
     }
 
@@ -248,6 +361,7 @@ private final class Database {
         let statement: OpaquePointer
         func text(_ i: Int32) -> String { sqlite3_column_text(statement, i).map { String(cString: $0) } ?? "" }
         func int(_ i: Int32) -> Int { Int(sqlite3_column_int64(statement, i)) }
+        func double(_ i: Int32) -> Double { sqlite3_column_double(statement, i) }
     }
 
     @discardableResult
@@ -260,10 +374,15 @@ private final class Database {
     }
 
     private func run(_ sql: String, _ args: [Any]) {
-        rows(sql, args) { _ in }
+        scan(sql, args) { _ in true }
     }
 
     private func rows(_ sql: String, _ args: [Any], _ each: (Row) -> Void) {
+        scan(sql, args) { each($0); return true }
+    }
+
+    /// Steps through the rows until `each` returns false.
+    private func scan(_ sql: String, _ args: [Any], _ each: (Row) -> Bool) {
         guard let statement = prepare(sql) else { return }
         defer { sqlite3_reset(statement); sqlite3_clear_bindings(statement) }
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -278,7 +397,7 @@ private final class Database {
         }
         while true {
             let step = sqlite3_step(statement)
-            if step == SQLITE_ROW { each(Row(statement: statement)); continue }
+            if step == SQLITE_ROW { if each(Row(statement: statement)) { continue } else { return } }
             if step != SQLITE_DONE { NSLog("History: \(String(cString: sqlite3_errmsg(db)))") }
             return
         }

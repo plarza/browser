@@ -501,7 +501,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             showInternal(url)
         case .go(let url):
             let tab = selected ?? newTab(nil)
-            tab.load(url)
+            // An address counts as typed in History; a search or a bang doesn't.
+            let typed = Address.url(from: text.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+            tab.load(url, as: typed ? .typed : .link)
             focusPage()
         case .needsSearchEngine:
             address.flash("No search engine set (⌘,)")

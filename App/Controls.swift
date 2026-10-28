@@ -30,6 +30,8 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
     let suggestions = SuggestionList()
     /// The last edit removed text: don't fill it straight back in.
     private var deleting = false
+    /// What was typed, without the filled-in part.
+    private var typed = ""
     /// The History lookup for the latest keystroke.
     private var lookup: Task<Void, Never>?
     private static let placeholder = "Search or enter website name"
@@ -45,8 +47,10 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
         delegate = self
         clear = (cell as? NSSearchFieldCell)?.cancelButtonCell
         suggestions.onPick = { [weak self] visit in
-            self?.suggestions.hide()
-            self?.onSubmit(visit.url)
+            guard let self else { return }
+            History.shared.picked(visit.url, after: self.typed)
+            self.suggestions.hide()
+            self.onSubmit(visit.url)
         }
         show(nil)
     }
@@ -129,6 +133,7 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         guard let editor = currentEditor() as? NSTextView else { return }
         let typed = editor.string
+        self.typed = typed
         let wasDeleting = deleting
         deleting = false
         // History answers off the main thread; an answer for text that has
@@ -156,6 +161,7 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
             let text = suggestions.selected?.url ?? textView.string
+            if let picked = suggestions.selected { History.shared.picked(picked.url, after: typed) }
             suggestions.hide()
             onSubmit(text)
             return true
@@ -255,10 +261,13 @@ final class SuggestionList: NSView {
 
     func hide() { show([]) }
 
-    /// ↑/↓: false when there is nothing to move through.
+    /// ↑/↓: false when there is nothing to move through. It wraps, by way
+    /// of what was typed: ↑ from there goes to the bottom of the list, ↓
+    /// from the bottom comes back to it.
     func move(_ by: Int) -> Bool {
         guard isShown, !visits.isEmpty else { return false }
-        select(min(max(index + by, -1), visits.count - 1))
+        let positions = visits.count + 1
+        select((index + 1 + by + positions) % positions - 1)
         return true
     }
 
@@ -274,40 +283,44 @@ final class SuggestionRow: NSView {
     var onClick: () -> Void = {}
     var isSelected = false { didSet { needsDisplay = true } }
 
+    /// One line, the size of a tab: the icon, the page's title, then its
+    /// address in grey.
     init(_ visit: History.Visit) {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 8
+        layer?.cornerRadius = 10
         layer?.cornerCurve = .continuous
         let icon = NSImageView(image: Favicons.shared.icon(for: URL(string: visit.url)) ?? NSImage(systemSymbolName: "globe", accessibilityDescription: nil)!)
         icon.contentTintColor = .tertiaryLabelColor
         icon.imageScaling = .scaleProportionallyUpOrDown
         let bare = History.bare(visit.url)
-        let title = NSTextField(labelWithString: visit.title.isEmpty ? bare : visit.title)
-        title.font = .systemFont(ofSize: 13)
-        title.lineBreakMode = .byTruncatingTail
-        let address = NSTextField(labelWithString: bare)
-        address.font = .systemFont(ofSize: 11)
-        address.textColor = .secondaryLabelColor
-        address.lineBreakMode = .byTruncatingTail
-        for v in [icon, title, address] as [NSView] {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        let base: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13), .paragraphStyle: paragraph]
+        let text = NSMutableAttributedString()
+        if !visit.title.isEmpty {
+            text.append(NSAttributedString(string: visit.title + "  ", attributes: base.merging([.foregroundColor: NSColor.labelColor]) { $1 }))
+        }
+        text.append(NSAttributedString(string: bare, attributes: base.merging([.foregroundColor: NSColor.secondaryLabelColor]) { $1 }))
+        let label = NSTextField(labelWithAttributedString: text)
+        label.usesSingleLineMode = true
+        label.cell?.wraps = false
+        label.cell?.truncatesLastVisibleLine = true
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        for v in [icon, label] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             addSubview(v)
         }
-        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        address.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // The same measures as TabCell's, so a row lines up with a tab.
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 40),
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            heightAnchor.constraint(equalToConstant: 34),
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 16),
-            icon.heightAnchor.constraint(equalToConstant: 16),
-            title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 9),
-            title.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
-            title.bottomAnchor.constraint(equalTo: centerYAnchor, constant: 1),
-            address.leadingAnchor.constraint(equalTo: title.leadingAnchor),
-            address.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
-            address.topAnchor.constraint(equalTo: centerYAnchor, constant: 1),
+            icon.widthAnchor.constraint(equalToConstant: 18),
+            icon.heightAnchor.constraint(equalToConstant: 18),
+            label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 9),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
