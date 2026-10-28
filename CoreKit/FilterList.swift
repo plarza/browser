@@ -15,12 +15,27 @@ public enum FilterList {
         /// In the order WebKit needs: an `ignore-previous-rules` only undoes
         /// what came before it.
         public var rules: [[String: Any]] { blocks + hides + exceptions }
+
+        /// The rules as several lists: WebKit takes at most 150,000 rules in
+        /// one. An exception only undoes rules in its own list, so every list
+        /// ends with all of them.
+        public func lists(limit: Int = 150_000) -> [[[String: Any]]] {
+            let room = max(1000, limit - exceptions.count)
+            var lists: [[[String: Any]]] = stride(from: 0, to: blocks.count, by: room).map {
+                Array(blocks[$0 ..< min($0 + room, blocks.count)]) + exceptions
+            }
+            for start in stride(from: 0, to: hides.count, by: room) {
+                lists.append(Array(hides[start ..< min(start + room, hides.count)]) + exceptions)
+            }
+            return lists
+        }
     }
 
     public static func compile(_ texts: [String]) -> Output {
         var out = Output()
         var genericHides: [String] = []
         var seen = Set<String>()
+        var seenRules = Set<Data>()
         for text in texts {
             text.enumerateLines { raw, _ in
                 let line = raw.trimmingCharacters(in: .whitespaces)
@@ -34,6 +49,10 @@ public enum FilterList {
                     return
                 }
                 if let (rule, isException) = network(line) {
+                    // The lists overlap: the same rule, written differently,
+                    // comes out the same here.
+                    guard let key = try? JSONSerialization.data(withJSONObject: rule, options: .sortedKeys),
+                          seenRules.insert(key).inserted else { return }
                     if isException { out.exceptions.append(rule) } else { out.blocks.append(rule) }
                 } else {
                     out.skipped += 1

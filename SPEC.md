@@ -20,7 +20,7 @@ release/     build, sign, notarize, publish to Forgejo, update feed
 
 ## Tabs
 
-- Tabs run down the left, in a vertical list, in a pure white sidebar, flush with the page and with no dividing line, whose edge drags (200–420 pt). The page fills the rest of the window. There are no pinned tabs, no back/forward buttons and no New Tab button: ⌘T, ⌘[ and ⌘] do those.
+- Tabs run down the left, in a vertical list, in a pure white sidebar, flush with the page and with no dividing line, whose edge drags (200–420 pt). The page fills the rest of the window. There are no pinned tabs, no back/forward buttons and no New Tab button: ⌘T, ⌘[ and ⌘] do those, and a two-finger swipe goes back or forward.
 - Each tab is a separate identity, with its own web process and its own network session. The session holds the tab's cookies, localStorage, sessionStorage, IndexedDB, Cache API, service workers, HTTP cache, HSTS, TLS session cache, connection pool, DNS cache and its fingerprint seed.
 - **Wipe.** Every reload and every top-level navigation throws the whole session away and starts the next load in a brand-new one. That includes typed URLs, clicked links, back and forward, and redirects initiated by the page. Logins do not survive a reload.
 - **Persist** (⌘I, or right-click › Persist Tab). The tab keeps its session through reloads and navigation. A subtle blue glow behind the tab shows it is on. Persist belongs to the tab, not the site, and closing the tab still destroys everything.
@@ -52,7 +52,7 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 - **HTTPS-only.** Every load is upgraded to HTTPS. If the upgrade fails, an interstitial offers to continue over HTTP for that one load in that tab.
 - **Third-party cookies** are never allowed. Referer is trimmed to the origin when the request crosses sites.
 - **Tracking parameters** (`utm_*`, `fbclid`, `gclid`, `mc_eid` and similar) are stripped from every navigation.
-- **Content blocking** happens in the engine, through WebKit content rule lists compiled from filter lists. The defaults are uBO filters, EasyList, EasyPrivacy, Peter Lowe's list, URLhaus and AdGuard Cookie Notices. The lists are fetched once a day, and their URLs can be edited in Settings. Element-hiding (cosmetic) rules are applied too.
+- **Content blocking** happens in the engine, through WebKit content rule lists compiled from filter lists (split into lists of at most 150,000 rules, WebKit's limit). The defaults are uBO filters, EasyList, EasyPrivacy, Peter Lowe's list, URLhaus and AdGuard Cookie Notices. The lists are fetched once a day, and their URLs can be edited in Settings. Element-hiding (cosmetic) rules are applied too.
 
 ## JavaScript
 
@@ -89,6 +89,8 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 - Every download asks first, showing the file name and size. Files go to `~/Downloads` and keep their quarantine flag. No download history is kept.
 
 ## Settings (the whole list)
+
+Settings is a page, **about://settings** (⌘,), with:
 
 1. Search engine (URL template)
 2. Cookie whitelist (domains)

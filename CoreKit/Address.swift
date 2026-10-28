@@ -12,7 +12,7 @@ public enum Address {
     public static func resolve(_ text: String, searchTemplate: String) -> Result? {
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty else { return nil }
-        if let url = URL(string: typed.lowercased()), HistoryPage.isHistory(url) { return .go(HistoryPage.address) }
+        if let url = URL(string: typed.lowercased()), let page = InternalPage.page(url) { return .go(InternalPage.address(page)) }
         if let url = Bangs.resolve(typed) { return .go(url) }
         if let url = url(from: typed) { return .go(url) }
         guard let url = search(typed, template: searchTemplate) else { return .needsSearchEngine }

@@ -1,93 +1,61 @@
 import AppKit
 import CoreKit
 
-/// The one field, as a capsule: a lock or a magnifying glass, the address
-/// (just the host while you're not editing, as Safari shows it).
+/// The one field: AppKit's search field, as Safari's is. It shows the host
+/// while you're not editing, and the whole address, all selected, when you
+/// click in or press ⌘L.
 @MainActor
-final class AddressField: NSView, NSTextFieldDelegate {
+final class AddressField: NSSearchField, NSSearchFieldDelegate {
     var onSubmit: (String) -> Void = { _ in }
     var onEscape: () -> Void = {}
     private(set) var isEditing = false
 
-    private let field = SelectingField()
-    private let icon = NSImageView()
     private var url: URL?
     private var completing = false
     private var flashing: DispatchWorkItem?
-    private static let placeholder = "Search or enter address"
+    private static let placeholder = "Search or enter website name"
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        layer?.cornerRadius = 17
-        layer?.cornerCurve = .continuous
-
-        field.isBordered = false
-        field.drawsBackground = false
-        field.focusRingType = .none
-        field.font = .systemFont(ofSize: 13)
-        field.placeholderString = Self.placeholder
-        field.lineBreakMode = .byTruncatingTail
-        field.cell?.usesSingleLineMode = true
-        field.cell?.isScrollable = true
-        field.delegate = self
-        field.onBecome = { [weak self] in self?.beginEditing() }
-
-        icon.contentTintColor = .secondaryLabelColor
-        icon.symbolConfiguration = .init(pointSize: 11, weight: .semibold)
-
-
-        for v in [icon, field] as [NSView] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(v)
-        }
-        NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 14),
-            field.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
-            field.centerYAnchor.constraint(equalTo: centerYAnchor),
-            // As far from the right edge as the icon is from the left, so a
-            // centred host sits in the middle of the capsule.
-            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -32),
-        ])
+    init() {
+        super.init(frame: .zero)
+        controlSize = .large
+        font = .systemFont(ofSize: 13)
+        placeholderString = Self.placeholder
+        centersPlaceholder = true
+        sendsWholeSearchString = true
+        lineBreakMode = .byTruncatingTail
+        delegate = self
         show(nil)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override var wantsUpdateLayer: Bool { true }
-    override func updateLayer() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            Motion.set(layer, "backgroundColor", NSColor.labelColor.withAlphaComponent(isEditing ? 0.04 : 0.05).cgColor)
-            Motion.set(layer, "borderColor", NSColor.controlAccentColor.withAlphaComponent(isEditing ? 0.55 : 0).cgColor)
-            layer?.borderWidth = 1.5
-        }
+    // The text goes in before focus does: changing a field's text while it
+    // is being edited ends the editing.
+    override func becomeFirstResponder() -> Bool {
+        beginEditing()
+        guard super.becomeFirstResponder() else { return false }
+        selectEverything()
+        return true
     }
-
-    override func mouseDown(with event: NSEvent) { focus() }
 
     /// A click or ⌘L: the whole address, https and all, selected.
     func focus() {
-        // The text goes in before focus does: changing a field's text while
-        // it is being edited ends the editing.
         beginEditing()
-        if field.currentEditor() == nil { window?.makeFirstResponder(field) }
-        field.selectEverything()
+        if currentEditor() == nil { window?.makeFirstResponder(self) }
+        selectEverything()
     }
 
-    /// The page's address: the host while not editing, all of it when you click in.
+    func selectEverything() {
+        guard let editor = currentEditor() as? NSTextView else { return }
+        if editor.string != stringValue { editor.string = stringValue }
+        editor.setSelectedRange(NSRange(location: 0, length: (editor.string as NSString).length))
+    }
+
     func show(_ url: URL?) {
         self.url = url
         guard !isEditing else { return }
-        field.stringValue = url.map(Self.display) ?? ""
-        field.alignment = url == nil ? .left : .center
-        // Core's own pages (about://history) are neither secure nor not.
-        let own = url?.scheme == "about"
-        let secure = url?.scheme == "https"
-        let symbol = url == nil ? "magnifyingglass" : own ? "clock" : secure ? "lock.fill" : "exclamationmark.triangle.fill"
-        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        icon.contentTintColor = url != nil && !secure && !own ? .systemOrange : .secondaryLabelColor
+        stringValue = url.map(Self.display) ?? ""
+        alignment = .center
     }
 
     static func display(_ url: URL) -> String {
@@ -97,27 +65,20 @@ final class AddressField: NSView, NSTextFieldDelegate {
         return host
     }
 
-    fileprivate func beginEditing() {
+    private func beginEditing() {
         guard !isEditing else { return }
         isEditing = true
-        field.alignment = .left
-        field.stringValue = url?.absoluteString ?? ""
-        icon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
-        icon.contentTintColor = .secondaryLabelColor
-        needsDisplay = true
+        alignment = .left
+        stringValue = url?.absoluteString ?? ""
     }
-
-    func controlTextDidBeginEditing(_ obj: Notification) { beginEditing() }
 
     func controlTextDidEndEditing(_ obj: Notification) {
         isEditing = false
-        needsDisplay = true
         show(url)
     }
 
-
     func controlTextDidChange(_ obj: Notification) {
-        guard !completing, let editor = field.currentEditor() as? NSTextView else { return }
+        guard !completing, let editor = currentEditor() as? NSTextView else { return }
         let typed = editor.string
         // Only when the caret is at the end and the person is adding text.
         guard editor.selectedRange().location == (typed as NSString).length,
@@ -155,39 +116,17 @@ final class AddressField: NSView, NSTextFieldDelegate {
 
     func flash(_ message: String) {
         flashing?.cancel()
-        let typed = field.stringValue
-        field.stringValue = ""
-        field.placeholderString = message
+        let typed = stringValue
+        stringValue = ""
+        placeholderString = message
         focus()
         let restore = DispatchWorkItem { [weak self] in
-            self?.field.placeholderString = Self.placeholder
-            if self?.field.stringValue.isEmpty == true { self?.field.stringValue = typed }
+            self?.placeholderString = Self.placeholder
+            if self?.stringValue.isEmpty == true { self?.stringValue = typed }
         }
         flashing = restore
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: restore)
     }
-}
-
-/// Pure white (black in dark mode), flush with the page, with no line
-/// between them.
-@MainActor
-final class Sidebar: NSView {
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override var wantsUpdateLayer: Bool { true }
-    override func updateLayer() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
-        }
-    }
-
-    // The window drags from the sidebar's empty top, around the traffic lights.
-    override var mouseDownCanMoveWindow: Bool { true }
 }
 
 /// Where the page goes. Switching tabs cross-fades.
@@ -216,113 +155,10 @@ final class PageArea: NSView {
     }
 }
 
-/// The sidebar's edge: drag to resize.
-@MainActor
-final class SidebarDivider: NSView {
-    var onDrag: (CGFloat) -> Void = { _ in }
-    var onEnd: () -> Void = {}
-
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .columnResize) }
-
-    override func mouseDown(with event: NSEvent) {
-        var last = event.locationInWindow.x
-        window?.trackEvents(matching: [.leftMouseDragged, .leftMouseUp], timeout: .infinity, mode: .eventTracking) { event, stop in
-            guard let event else { stop.pointee = true; return }
-            if event.type == .leftMouseUp {
-                stop.pointee = true
-                self.onEnd()
-                return
-            }
-            let x = event.locationInWindow.x
-            self.onDrag(x - last)
-            last = x
-        }
-    }
-}
-
-/// Animates a layer property from its current value, the way a view's own
-/// animator would: short and eased.
-@MainActor
-enum Motion {
-    static let ease = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
-
-    static func set(_ layer: CALayer?, _ key: String, _ value: Any?, duration: CFTimeInterval = 0.18) {
-        guard let layer else { return }
-        let from = layer.presentation()?.value(forKeyPath: key) ?? layer.value(forKeyPath: key)
-        layer.setValue(value, forKeyPath: key)
-        let animation = CABasicAnimation(keyPath: key)
-        animation.fromValue = from
-        animation.toValue = value
-        animation.duration = duration
-        animation.timingFunction = ease
-        layer.add(animation, forKey: key)
-    }
-}
-
-/// The address text. Focused by any means, it holds the whole address with
-/// all of it selected; the window turns a first click into a focus (see
-/// BrowserWindowController.watchClicks) so no caret lands where it was clicked.
-@MainActor
-final class SelectingField: NSTextField {
-    var onBecome: () -> Void = {}
-
-    override func becomeFirstResponder() -> Bool {
-        onBecome()
-        guard super.becomeFirstResponder() else { return false }
-        selectEverything()
-        return true
-    }
-
-    /// The editor's text is the field's, all of it selected.
-    func selectEverything() {
-        guard let editor = currentEditor() as? NSTextView else { return }
-        if editor.string != stringValue { editor.string = stringValue }
-        editor.setSelectedRange(NSRange(location: 0, length: (editor.string as NSString).length))
-    }
-
-}
-
-/// A two-point line across the top of the page while it loads.
-@MainActor
-final class ProgressLine: NSView {
-    private let bar = CALayer()
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        bar.backgroundColor = NSColor.controlAccentColor.cgColor
-        layer?.addSublayer(bar)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    private var value = 1.0
-
-    func set(_ value: Double) {
-        let done = value >= 1
-        if !done && self.value >= 1 {
-            // A new load: start from nothing, without animating back.
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            bar.frame.size.width = 0
-            CATransaction.commit()
-        }
-        self.value = value
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = done ? 0.35 : 0.2
-            animator().alphaValue = done ? 0 : 1
-        }
-        needsLayout = true
-    }
-
-    override func layout() {
-        super.layout()
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(0.25)
-        CATransaction.setAnimationTimingFunction(Motion.ease)
-        bar.frame = NSRect(x: 0, y: 0, width: bounds.width * max(0.06, value), height: bounds.height)
-        CATransaction.commit()
-    }
+/// A split view whose divider takes the page's colour: the sidebar and the
+/// page meet with no line.
+final class InvisibleDividerSplitView: NSSplitView {
+    override var dividerColor: NSColor { .textBackgroundColor }
 }
 
 /// ⌘F: a small field over the top right of the page.
@@ -361,18 +197,15 @@ final class FindBar: NSGlassEffectView, NSSearchFieldDelegate {
         field.currentEditor()?.selectAll(nil)
     }
 
-    /// In from above with a fade; out the same way.
+    /// Fades in and out.
     func present() {
         guard isHidden else { return }
         isHidden = false
         alphaValue = 0
-        layer?.setAffineTransform(CGAffineTransform(translationX: 0, y: 8))
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.2
-            context.timingFunction = Motion.ease
             animator().alphaValue = 1
         }
-        Motion.set(layer, "transform", CATransform3DIdentity, duration: 0.24)
     }
 
     func dismiss() {

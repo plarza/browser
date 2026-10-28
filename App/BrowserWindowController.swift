@@ -11,23 +11,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private(set) var selected: Tab?
     private var closed: [URL] = []
 
-    private let sidebar = Sidebar()
+    private let sidebar = NSView()
     fileprivate let address = AddressField()
     private let tabList = TabListView()
     private let actionBar = ActionBar()
     fileprivate let content = PageArea()
-    private let progress = ProgressLine()
+    private let progress = NSProgressIndicator()
     private let notice = NSTextField(labelWithString: "")
     private let findBar = FindBar()
-    private let divider = SidebarDivider()
-    private var sidebarWidth: NSLayoutConstraint!
-    private var sidebarLeading: NSLayoutConstraint!
+    private let split = NSSplitViewController()
+    private var sidebarItem: NSSplitViewItem!
     private var popover: NSPopover?
-    private static let widths: ClosedRange<CGFloat> = 200 ... 420
-    private var width: CGFloat = {
-        let saved = CGFloat(UserDefaults.standard.double(forKey: "sidebarWidth"))
-        return saved > 0 ? min(max(saved, widths.lowerBound), widths.upperBound) : 248
-    }()
 
     init() {
         let window = BrowserWindow(
@@ -47,6 +41,72 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         layout()
         watchClicks()
+        watchSwipes()
+    }
+
+    /// Two-finger swipes left and right go back and forward, as in Safari.
+    /// Core keeps its own back and forward lists (a wipe swaps the web view
+    /// out), so the swipe is followed here, from the scroll gesture's phases:
+    /// a chevron follows the fingers in from the edge, and letting go past
+    /// it navigates.
+    private var swipeMonitor: Any?
+    private let swipeArrow = NSImageView()
+    private var swipe: (back: Bool, distance: CGFloat)?
+    private static let swipeDistance: CGFloat = 160
+
+    private func watchSwipes() {
+        swipeArrow.symbolConfiguration = .init(pointSize: 30, weight: .regular).applying(.init(hierarchicalColor: .secondaryLabelColor))
+        swipeArrow.alphaValue = 0
+        content.addSubview(swipeArrow)
+        swipeMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, event.window === self.window, NSEvent.isSwipeTrackingFromScrollEventsEnabled,
+                      self.content.bounds.contains(self.content.convert(event.locationInWindow, from: nil))
+                else { return }
+                self.follow(event.phase, dx: event.scrollingDeltaX, dy: event.scrollingDeltaY)
+            }
+            return event
+        }
+    }
+
+    fileprivate func follow(_ phase: NSEvent.Phase, dx: CGFloat, dy: CGFloat) {
+        guard let tab = selected else { return }
+        switch phase {
+        case .began:
+            guard abs(dx) > abs(dy) * 2 else { return }
+            // Fingers moving right (a positive delta) mean back.
+            let back = dx > 0
+            guard back ? tab.canGoBack : tab.canGoForward else { return }
+            swipe = (back, abs(dx))
+            swipeArrow.image = NSImage(systemSymbolName: back ? "chevron.backward.circle.fill" : "chevron.forward.circle.fill", accessibilityDescription: nil)
+            showSwipe()
+        case .changed:
+            guard let current = swipe else { return }
+            swipe?.distance = max(0, current.distance + (current.back ? dx : -dx))
+            showSwipe()
+        case .ended, .cancelled:
+            guard let current = swipe else { return }
+            swipe = nil
+            if phase == .ended, current.distance >= Self.swipeDistance {
+                if current.back { tab.goBack() } else { tab.goForward() }
+            }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                swipeArrow.animator().alphaValue = 0
+            }
+        default:
+            break
+        }
+    }
+
+    private func showSwipe() {
+        guard let swipe else { return }
+        let size: CGFloat = 44
+        let progress = min(swipe.distance / Self.swipeDistance, 1)
+        let rest = swipe.back ? -size : content.bounds.width
+        let travel = (size + 20) * progress
+        swipeArrow.frame = NSRect(x: swipe.back ? rest + travel : rest - travel, y: content.bounds.midY - size / 2, width: size, height: size)
+        swipeArrow.alphaValue = progress
     }
 
     /// A click anywhere but the field, while editing it, leaves it: on the
@@ -78,11 +138,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// White, flush, nothing floating: the sidebar (traffic lights, the
-    /// field, the tabs) and the page filling everything else. The edge
-    /// between them drags.
+    /// The sidebar (traffic lights, the field, the tabs) and the page, in a
+    /// split view: AppKit drags, clamps, remembers and collapses the sidebar.
+    /// Both are white, with no visible divider.
     private func layout() {
-        guard let root = window?.contentView else { return }
+        guard let window else { return }
 
         address.onSubmit = { [weak self] text in self?.go(text) }
         address.onEscape = { [weak self] in self?.focusPage() }
@@ -97,12 +157,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             for other in self.tabs where other !== tab { self.close(other) }
         }
 
-        divider.onDrag = { [weak self] delta in self?.resizeSidebar(by: delta) }
-        divider.onEnd = { [weak self] in
-            guard let self else { return }
-            UserDefaults.standard.set(Double(self.width), forKey: "sidebarWidth")
-        }
-
         notice.font = .systemFont(ofSize: 11)
         notice.textColor = .systemOrange
         notice.lineBreakMode = .byWordWrapping
@@ -110,71 +164,69 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         notice.isHidden = Engine.isPatched
         notice.stringValue = "System WebKit: fingerprint protection is not active in this build."
 
+        progress.style = .bar
+        progress.controlSize = .mini
+        progress.isIndeterminate = false
+        progress.minValue = 0
+        progress.maxValue = 1
+        progress.isHidden = true
+
         actionBar.onClick = { [weak self] action, button in self?.perform(action, from: button) }
 
-        for view in [sidebar, content, divider, address, actionBar, tabList, notice, progress, findBar] as [NSView] {
+        for view in [address, progress, actionBar, tabList, notice, findBar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
-        root.addSubview(content)
-        root.addSubview(sidebar)
-        root.addSubview(divider)
-        for view in [address, actionBar, tabList, notice] as [NSView] { sidebar.addSubview(view) }
-        content.addSubview(progress)
+        for view in [address, progress, actionBar, tabList, notice] as [NSView] { sidebar.addSubview(view) }
         content.addSubview(findBar)
         findBar.isHidden = true
         findBar.onClose = { [weak self] in self?.hideFind() }
         findBar.onSearch = { [weak self] text, back in self?.find(text, backwards: back) }
 
-        sidebarWidth = sidebar.widthAnchor.constraint(equalToConstant: width)
-        sidebarLeading = sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor)
         NSLayoutConstraint.activate([
-            sidebarLeading,
-            sidebar.topAnchor.constraint(equalTo: root.topAnchor),
-            sidebar.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            sidebarWidth,
-
-            content.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-            content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            content.topAnchor.constraint(equalTo: root.topAnchor),
-            content.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-
-            divider.centerXAnchor.constraint(equalTo: sidebar.trailingAnchor),
-            divider.topAnchor.constraint(equalTo: root.topAnchor),
-            divider.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            divider.widthAnchor.constraint(equalToConstant: 8),
-
             // Below the traffic lights.
-            address.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 42),
+            address.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 40),
             address.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
             address.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
-            address.heightAnchor.constraint(equalToConstant: 34),
 
-            actionBar.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 8),
+            progress.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 3),
+            progress.leadingAnchor.constraint(equalTo: address.leadingAnchor, constant: 12),
+            progress.trailingAnchor.constraint(equalTo: address.trailingAnchor, constant: -12),
+
+            actionBar.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 10),
             actionBar.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 12),
             actionBar.trailingAnchor.constraint(lessThanOrEqualTo: sidebar.trailingAnchor, constant: -12),
 
             tabList.topAnchor.constraint(equalTo: actionBar.bottomAnchor, constant: 8),
-            tabList.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 8),
-            tabList.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -8),
+            tabList.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
+            tabList.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
             tabList.bottomAnchor.constraint(equalTo: notice.topAnchor, constant: -6),
 
             notice.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 14),
             notice.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14),
             notice.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: -10),
 
-            progress.topAnchor.constraint(equalTo: content.topAnchor),
-            progress.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            progress.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            progress.heightAnchor.constraint(equalToConstant: 2),
-
             findBar.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
             findBar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
         ])
-    }
 
-    private func resizeSidebar(by delta: CGFloat) {
-        width = min(max(width + delta, Self.widths.lowerBound), Self.widths.upperBound)
-        sidebarWidth.constant = width
+        let side = NSViewController()
+        side.view = sidebar
+        let page = NSViewController()
+        page.view = content
+        sidebarItem = NSSplitViewItem(viewController: side)
+        sidebarItem.minimumThickness = 200
+        sidebarItem.maximumThickness = 420
+        sidebarItem.canCollapse = true
+        sidebarItem.holdingPriority = .defaultLow + 10
+        split.splitView = InvisibleDividerSplitView()
+        split.splitView.isVertical = true
+        split.splitView.dividerStyle = .thin
+        split.splitView.autosaveName = "CoreSidebar"
+        split.addSplitViewItem(sidebarItem)
+        split.addSplitViewItem(NSSplitViewItem(viewController: page))
+        window.contentViewController = split
+        window.setContentSize(NSSize(width: 1320, height: 860))
+        window.setFrameAutosaveName("Core")
     }
 
     // MARK: Tabs
@@ -240,7 +292,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private func show(_ view: WKWebView) {
         guard view.superview !== content else { return }
         view.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(view, positioned: .below, relativeTo: progress)
+        content.addSubview(view, positioned: .below, relativeTo: findBar)
         NSLayoutConstraint.activate([
             view.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             view.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -282,7 +334,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private func refreshChrome() {
         guard let tab = selected else { return }
         if !address.isEditing { address.show(tab.url) }
-        progress.set(tab.isLoading ? tab.progress : 1)
+        progress.doubleValue = tab.progress
+        progress.animator().isHidden = !tab.isLoading
         window?.title = tab.title.isEmpty ? "Core" : tab.title
     }
 
@@ -291,8 +344,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private func go(_ text: String) {
         let template = Preferences.shared.settings.searchTemplate
         switch Address.resolve(text, searchTemplate: template) {
-        case .go(let url) where HistoryPage.isHistory(url):
-            showHistory(nil)
+        case .go(let url) where InternalPage.page(url) != nil:
+            showInternal(url)
         case .go(let url):
             let tab = selected ?? newTab(nil)
             tab.load(url)
@@ -332,12 +385,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     @objc func newTabAction(_ sender: Any?) { newTab(nil) }
 
-    /// ⌘Y or about://history: History in a new tab, or in this one if it's blank.
-    @objc func showHistory(_ sender: Any?) {
-        if let tab = selected, tab.url == nil, tab.pending == nil {
-            tab.load(HistoryPage.address)
+    /// ⌘Y: about://history.
+    @objc func showHistory(_ sender: Any?) { showInternal(InternalPage.address("history")) }
+
+    /// ⌘,: about://settings.
+    @objc func showSettings(_ sender: Any?) { showInternal(InternalPage.address("settings")) }
+
+    /// One of Core's own pages: the tab already showing it, else a new tab,
+    /// or this one if it's blank.
+    private func showInternal(_ address: URL) {
+        if let open = tabs.first(where: { $0.url == address }) {
+            select(open)
+        } else if let tab = selected, tab.url == nil, tab.pending == nil {
+            tab.load(address)
         } else {
-            newTab(HistoryPage.address)
+            newTab(address)
         }
         focusPage()
     }
@@ -364,24 +426,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func zoomIn(_ sender: Any?) { selected.map { $0.webView.pageZoom = min(3, $0.webView.pageZoom + 0.1) } }
     @objc func zoomOut(_ sender: Any?) { selected.map { $0.webView.pageZoom = max(0.3, $0.webView.pageZoom - 0.1) } }
     @objc func togglePersist(_ sender: Any?) { selected?.persist.toggle() }
-    fileprivate private(set) var sidebarShown = true
+    fileprivate var sidebarShown: Bool { !sidebarItem.isCollapsed }
 
     /// ⌘S. Hidden, the page has the whole window, traffic lights and all.
     @objc func toggleCoreSidebar(_ sender: Any?) {
         let show = !sidebarShown
-        sidebarShown = show
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             window?.standardWindowButton(kind)?.animator().alphaValue = show ? 1 : 0
         }
-        divider.isHidden = !show
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.32
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
-            context.allowsImplicitAnimation = true
-            sidebarLeading.constant = show ? 0 : -width
-            sidebar.animator().alphaValue = show ? 1 : 0
-            window?.contentView?.layoutSubtreeIfNeeded()
-        }
+        sidebarItem.animator().isCollapsed = !show
     }
 
     /// ⇧⌘S: the page as a web archive, wherever you say.
@@ -562,6 +615,7 @@ extension BrowserWindowController {
     var selectedWebViewForTesting: NSView { selected?.webView ?? content }
     var sidebarShownForTesting: Bool { sidebarShown }
     var selectedTab: Tab? { selected }
+    func swipeForTesting(_ phase: NSEvent.Phase, dx: CGFloat) { follow(phase, dx: dx, dy: 0) }
 }
 #endif
 

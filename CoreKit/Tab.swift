@@ -200,27 +200,28 @@ public final class Tab: NSObject {
         return own
     }
 
-    /// about://history, in this tab: its own web view, which alone can reach
-    /// Core's `core:` scheme, in an identity of its own.
+    /// about://history or about://settings, in this tab: its own web view,
+    /// which alone can reach Core's `core:` scheme, in an identity of its own.
     private var isInternal = false
 
-    private func showHistory(direction: Direction) {
+    private func showInternal(_ page: String, direction: Direction) {
         identity = .fresh()
         let config = Engine.configuration(for: identity, content: WKUserContentController())
-        config.setURLSchemeHandler(HistoryPage.shared, forURLScheme: HistoryPage.scheme)
+        config.setURLSchemeHandler(InternalPage.shared, forURLScheme: InternalPage.scheme)
         replaceWebView(with: config)
         isInternal = true
         pendingDirection = direction
-        webView.load(URLRequest(url: HistoryPage.start))
-        recordEntry(HistoryPage.address)
-        update(.URL) { $0.url = HistoryPage.address }
-        update(.title) { $0.title = "History" }
+        webView.load(URLRequest(url: InternalPage.start(page)))
+        let address = InternalPage.address(page)
+        recordEntry(address)
+        update(.URL) { $0.url = address }
+        update(.title) { $0.title = page.capitalized }
     }
 
     private func navigate(_ request: URLRequest, direction: Direction) {
         guard var url = request.url else { return }
-        if HistoryPage.isHistory(url) {
-            showHistory(direction: direction)
+        if let page = InternalPage.page(url) {
+            showInternal(page, direction: direction)
             return
         }
         url = CleanLink.clean(url)
@@ -297,7 +298,7 @@ public final class Tab: NSObject {
             navigate(URLRequest(url: target), direction: .reload)
             return .cancel
         }
-        if scheme == HistoryPage.scheme { return isInternal ? .allow : .cancel }
+        if scheme == InternalPage.scheme { return isInternal ? .allow : .cancel }
         if scheme == "about" || scheme == "blob" || scheme == "data" { return .allow }
         if scheme == "mailto" || scheme == "tel" || scheme == "facetime" {
             if action.navigationType == .linkActivated { NSWorkspace.shared.open(url) }

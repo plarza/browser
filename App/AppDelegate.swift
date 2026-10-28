@@ -4,7 +4,6 @@ import CoreKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var browser: BrowserWindowController!
-    private var settings: SettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Blocker.shared.start()
@@ -38,11 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc func showSettings(_ sender: Any?) {
-        if settings == nil { settings = SettingsWindowController() }
-        settings?.showWindow(nil)
-        settings?.window?.makeKeyAndOrderFront(nil)
-    }
+    @objc func showSettings(_ sender: Any?) { browser?.showSettings(sender) }
 
     @objc func showAbout(_ sender: Any?) {
         NSApp.orderFrontStandardAboutPanel(options: [

@@ -72,7 +72,7 @@ enum SelfTest {
                   "url=\(browser.selectedTab?.url?.absoluteString ?? "nil") rows=\(rows ?? -1)")
             _ = try? await web?.evaluateJavaScript("q.value = 'webkit wikipedia'; q.dispatchEvent(new Event('input'))", in: nil, contentWorld: .page)
             try? await Task.sleep(for: .milliseconds(600))
-            let found = try? await web?.evaluateJavaScript("[...document.querySelectorAll('li .title')].map(e => e.textContent).join('|')", in: nil, contentWorld: .page) as? String
+            let found = try? await web?.evaluateJavaScript("[...document.querySelectorAll('li .t')].map(e => e.textContent).join('|')", in: nil, contentWorld: .page) as? String
             check("History search finds the page by title and address", found?.contains("WebKit") == true, "found=\(found ?? "nil")")
             _ = try? await web?.evaluateJavaScript("q.value = 'zzzz-nothing'; q.dispatchEvent(new Event('input'))", in: nil, contentWorld: .page)
             try? await Task.sleep(for: .milliseconds(600))
@@ -81,14 +81,44 @@ enum SelfTest {
 
             await storage(browser)
 
-            // ⌘, opens Settings with its four sections drawn.
+            // ⌘, opens about://settings; choosing a search engine there saves it.
             key(",", in: window)
             try? await Task.sleep(for: .seconds(2))
-            let settings = NSApp.windows.first { $0.title == "Settings" && $0.isVisible }
-            let content = settings?.contentView
-            check("⌘, opens Settings with something in it", settings != nil && (content?.frame.height ?? 0) > 300 && !(content?.subviews.isEmpty ?? true),
-                  "window=\(settings?.frame ?? .zero) content=\(content?.frame ?? .zero)")
+            let page = browser.selectedTab?.webView
+            let sections = try? await page?.evaluateJavaScript("document.querySelectorAll('h2').length", in: nil, contentWorld: .page) as? Int
+            check("⌘, opens about://settings", browser.selectedTab?.url?.absoluteString == "about://settings" && sections == 4,
+                  "url=\(browser.selectedTab?.url?.absoluteString ?? "nil") sections=\(sections ?? -1)")
+            _ = try? await page?.evaluateJavaScript("document.querySelector('#picks button').click()", in: nil, contentWorld: .page)
+            try? await Task.sleep(for: .milliseconds(500))
+            check("choosing a search engine in Settings saves it", Preferences.shared.settings.searchTemplate.contains("leta.mullvad.net"),
+                  "template=\(Preferences.shared.settings.searchTemplate)")
 
+            // A two-finger swipe right goes back; a short one doesn't.
+            let first = URL(string: "https://example.com/")!
+            let swiper = browser.newTab(first)
+            try? await Task.sleep(for: .seconds(3))
+            swiper.load(URL(string: "https://example.org/")!)
+            try? await Task.sleep(for: .seconds(3))
+            // The gesture's phases, as the scroll monitor passes them on.
+            browser.swipeForTesting(.began, dx: 20)
+            for _ in 0 ..< 8 { browser.swipeForTesting(.changed, dx: 25) }
+            browser.swipeForTesting(.ended, dx: 0)
+            try? await Task.sleep(for: .seconds(3))
+            check("a two-finger swipe right goes back", swiper.url?.host == "example.com", "url=\(swiper.url?.absoluteString ?? "nil")")
+            browser.swipeForTesting(.began, dx: -20)
+            browser.swipeForTesting(.changed, dx: -30)
+            browser.swipeForTesting(.ended, dx: 0)
+            try? await Task.sleep(for: .seconds(2))
+            check("a short swipe left doesn't go forward", swiper.url?.host == "example.com", "url=\(swiper.url?.absoluteString ?? "nil")")
+
+            // The filter lists, fetched at launch, compile into the blocker.
+            for _ in 0 ..< 120 where Blocker.shared.ruleCount == 0 && Blocker.shared.trouble == nil {
+                try? await Task.sleep(for: .seconds(1))
+            }
+            check("the filter lists compile into the blocker", Blocker.shared.ruleCount > 100_000 && Blocker.shared.trouble == nil,
+                  "rules=\(Blocker.shared.ruleCount) trouble=\(Blocker.shared.trouble ?? "none")")
+
+            browser.showSettings(nil)
             NSLog("Core self-test: done")
         }
     }
@@ -180,6 +210,7 @@ enum SelfTest {
         NSApp.sendEvent(mouse(.leftMouseDown))
     }
 
+    /// A trackpad swipe: horizontal scroll events with gesture phases.
     static func key(_ character: String, in window: NSWindow, modifiers: NSEvent.ModifierFlags = .command) {
         let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
                                     windowNumber: window.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character,

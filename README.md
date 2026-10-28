@@ -28,7 +28,8 @@ A private browser for macOS on a patched WebKit. Details in [SPEC.md](SPEC.md).
 | ⇧⌘[ / ⇧⌘] | Previous / next tab |
 | ⌘1–⌘9 | Jump to tab |
 | ⌘F | Find |
-| ⌘, | Settings |
+| ⌘, | Settings (`about://settings`) |
+| Two-finger swipe | Back / forward |
 
 ## Build
 

@@ -38,6 +38,13 @@ public final class Blocker {
         return controller
     }
 
+    private func remove(_ id: String) {
+        for controller in controllers.allObjects {
+            for old in lists where old.identifier == id { controller.remove(old) }
+        }
+        lists.removeAll { $0.identifier == id }
+    }
+
     private func install(_ list: WKContentRuleList, replacing id: String) {
         for controller in controllers.allObjects {
             for old in lists where old.identifier == id { controller.remove(old) }
@@ -50,8 +57,11 @@ public final class Blocker {
     public func start() {
         Task {
             await loadBase()
-            if let list = try? await store?.contentRuleList(forIdentifier: Blocker.filtersID) {
-                install(list, replacing: Blocker.filtersID)
+            let count = Store.read(Int.self, "filters-lists.json") ?? 0
+            for i in 0 ..< count {
+                if let list = try? await store?.contentRuleList(forIdentifier: "\(Blocker.filtersID)-\(i)") {
+                    install(list, replacing: list.identifier)
+                }
             }
             refresh(force: false)
         }
@@ -85,15 +95,27 @@ public final class Blocker {
             guard !texts.isEmpty else { trouble = "Couldn't fetch any filter list."; return }
             let output = await Task.detached { FilterList.compile(texts) }.value
             do {
-                let json = try await Task.detached { () throws -> String in
-                    let data = try JSONSerialization.data(withJSONObject: output.rules)
-                    return String(decoding: data, as: UTF8.self)
-                }.value
                 guard let store else { return }
-                let list = try await store.compileContentRuleList(forIdentifier: Blocker.filtersID, encodedContentRuleList: json)
-                guard let list else { return }
-                install(list, replacing: Blocker.filtersID)
-                ruleCount = output.rules.count
+                let lists = output.lists()
+                var compiled: [WKContentRuleList] = []
+                for (i, rules) in lists.enumerated() {
+                    let json = try await Task.detached { () throws -> String in
+                        String(decoding: try JSONSerialization.data(withJSONObject: rules), as: UTF8.self)
+                    }.value
+                    if let list = try await store.compileContentRuleList(forIdentifier: "\(Blocker.filtersID)-\(i)", encodedContentRuleList: json) {
+                        compiled.append(list)
+                    }
+                }
+                // Swap the whole set at once, and drop lists the new set no
+                // longer has.
+                for old in lists.count ..< max(lists.count, Store.read(Int.self, "filters-lists.json") ?? 0) {
+                    remove("\(Blocker.filtersID)-\(old)")
+                    try? await store.removeContentRuleList(forIdentifier: "\(Blocker.filtersID)-\(old)")
+                }
+                remove(Blocker.filtersID)
+                for list in compiled { install(list, replacing: list.identifier) }
+                Store.write(lists.count, "filters-lists.json")
+                ruleCount = output.blocks.count + output.hides.count + output.exceptions.count
                 trouble = texts.count < urls.count ? "\(urls.count - texts.count) of \(urls.count) lists couldn't be fetched." : nil
                 Store.write(Date(), "filters-fetched.json")
             } catch {
