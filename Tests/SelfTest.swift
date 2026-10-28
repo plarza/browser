@@ -326,6 +326,28 @@ enum SelfTest {
                 await expect("a done download leaves the sidebar by itself", { browser.downloadRows == 0 })
                 await shot("downloads", browser)
             }),
+            ("cancel download", {
+                let tab = await open(one)
+                tab.webView.evaluateJavaScript("location.href = '/download-slow'", in: nil, in: .page)
+                var item: Downloads.Item?
+                await expect("a big download starts and shows in the sidebar", {
+                    item = Downloads.shared.items.first { $0.name == "browser-slow.bin" }
+                    return item.map { $0.state == .active && $0.received > 0 } == true && browser.downloadTiles.count == 1
+                })
+                guard let item, let tile = browser.downloadTiles.first else { return }
+                tile.hovering = true
+                tile.pressed()
+                await expect("its x asks before cancelling", { window.attachedSheet != nil })
+                escape(window)
+                await expect("Escape keeps it downloading", { window.attachedSheet == nil })
+                check("…and it is still downloading", item.state == .active, "state=\(item.state)")
+                tile.pressed()
+                await expect("it asks again", { window.attachedSheet != nil })
+                await confirm(window, "Cancel Download")
+                await expect("Cancel Download stops it and takes it off the sidebar", {
+                    item.state == .cancelled && browser.downloadRows == 0 && !FileManager.default.fileExists(atPath: item.file.path)
+                }, "state=\(item.state)")
+            }),
             ("download rows", {
                 Downloads.shared.addForTesting(name: "Quarterly Report.pdf", received: 2_400_000, expected: 2_400_000, state: .finished)
                 Downloads.shared.addForTesting(name: "ubuntu-26.04-desktop-arm64.iso", received: 1_900_000_000, expected: 6_100_000_000, state: .active)

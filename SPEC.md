@@ -63,7 +63,7 @@ Browser has one user, so there is no crowd of Browser users to hide in. It hides
 
 ## Address field and search
 
-- One field takes both URLs and search terms. Browser has **no default search engine**: until you set one in Settings, plain words show "Set a search engine in Settings".
+- One field takes both URLs and search terms. Browser has **no default search engine**: until you set one in Settings, plain words show "No search engine set".
 - **Bangs** (`!g`, `!w`, `!gh` and so on) come from Browser's own table, compiled into the app and matched locally. Nothing is fetched for them. A bang works whether or not a search engine is set.
 
 ## Remembered on disk
@@ -90,7 +90,7 @@ Browser has one user, so there is no crowd of Browser users to hide in. It hides
 
 ## Downloads
 
-- Every download opens the save panel at `~/Downloads`; Cancel stops it. Files keep their quarantine flag.
+- Every download opens the save panel at `~/Downloads`. Cancelling one asks first, then deletes the partial file and takes it off the sidebar; about://downloads lists it as Cancelled. Files keep their quarantine flag.
 - This session's downloads sit at the foot of the sidebar in the tabs' row style, newest first, each row's background filling as it downloads, its total size on the right. Hovering a download in progress turns the size into an x that cancels it; a finished one has a minus that takes it off, and goes by itself after a minute. Clicking a finished one shows it in Finder.
 - Browser's own pages (about://history, downloads, settings, help) show the logo in grey as their icon.
 - **about://downloads** (⌘J) lists every download until it is cleared.

@@ -309,7 +309,7 @@ final class TabCell: NSTableCellView {
         if tab.isLoading { spinner.startAnimation(nil); tile.alphaValue = 0 } else { spinner.stopAnimation(nil); tile.alphaValue = 1 }
         isSelected = selected
         isPersist = tab.persist
-        toolTip = tab.persist ? "Persist: reloads and navigation keep this tab's cookies and storage until it closes." : tab.url?.absoluteString
+        toolTip = tab.url?.absoluteString
         needsDisplay = true
     }
 

@@ -40,6 +40,14 @@ final class TestServer: @unchecked Sendable {
                 return
             }
             let target = String(decoding: data[..<end.lowerBound], as: UTF8.self).split(separator: " ").dropFirst().first ?? "/"
+            if target == "/download-slow" {
+                // A big file that sends its first part and then waits, for
+                // cancelling partway: the connection stays open until Browser drops it.
+                let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 100000000\r\n"
+                    + "Content-Disposition: attachment; filename=\"browser-slow.bin\"\r\nCache-Control: no-store\r\n\r\n"
+                connection.send(content: Data(head.utf8) + Data(count: 1 << 16), completion: .contentProcessed { _ in })
+                return
+            }
             let (status, type, body) = Self.respond(to: URLComponents(string: String(target)) ?? URLComponents())
             var head = "HTTP/1.1 \(status)\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n"
             if target.hasPrefix("/download") { head += "Content-Disposition: attachment; filename=\"browser-test.txt\"\r\n" }

@@ -246,7 +246,7 @@ struct SettingsPage: View {
                         if FileManager.default.fileExists(atPath: Settings.newTabImage.path) {
                             Button("Use Default") {
                                 Task {
-                                    guard await Dialogs.ask("Go back to the default image?", yes: "Use Default") else { return }
+                                    guard await Dialogs.ask("Use the default image?", yes: "Use Default") else { return }
                                     try? FileManager.default.removeItem(at: Settings.newTabImage)
                                     prefs.newTabImageChanged()
                                 }
@@ -272,13 +272,13 @@ struct SettingsPage: View {
 
             Section("Cookie Whitelist") {
                 RowList(items: prefs.settings.whitelist, placeholder: "Add domain", icon: { URL(string: "https://\($0)") },
-                        removal: { "Delete the cookies and data kept for \($0)?" },
+                        removal: { ("Remove \($0)?", "Its cookies and site data will be deleted.") },
                         normalise: { Whitelist.normalise([$0]).first }) { prefs.settings.whitelist = $0 }
             }
 
             Section("Filter Lists") {
                 RowList(items: prefs.settings.filterLists, placeholder: "Add filter list URL", icon: { URL(string: $0) },
-                        removal: { "Remove \($0)?" },
+                        removal: { ("Remove \($0)?", "") },
                         normalise: { URL(string: $0)?.scheme == "https" ? $0 : nil }) {
                     prefs.settings.filterLists = $0
                     Blocker.shared.refresh(force: true)
@@ -287,7 +287,7 @@ struct SettingsPage: View {
                     Button("Update Now") { Blocker.shared.refresh(force: true) }.buttonBorderShape(.capsule)
                     Button("Defaults") {
                         Task {
-                            guard await Dialogs.ask("Replace your filter lists with the defaults?", yes: "Replace") else { return }
+                            guard await Dialogs.ask("Reset filter lists?", yes: "Reset") else { return }
                             prefs.settings.filterLists = Settings.defaultFilterLists
                             Blocker.shared.refresh(force: true)
                         }
@@ -307,7 +307,7 @@ struct SettingsPage: View {
                     }))
                 }
                 if Extensions.shared.found.isEmpty {
-                    Text("Safari extensions from apps in Applications show here.").foregroundStyle(.secondary)
+                    Text("No Safari extensions installed.").foregroundStyle(.secondary)
                 }
             }
 
@@ -343,7 +343,7 @@ struct RowList: View {
     let items: [String]
     let placeholder: String
     let icon: (String) -> URL?
-    let removal: (String) -> String
+    let removal: (String) -> (title: String, detail: String)
     let normalise: (String) -> String?
     let save: ([String]) -> Void
     @State private var adding = ""
@@ -356,7 +356,7 @@ struct RowList: View {
                 Text(item).lineLimit(1).truncationMode(.middle)
                 Spacer()
                 Button {
-                    Task { if await Dialogs.ask(removal(item), yes: "Remove") { save(items.filter { $0 != item }) } }
+                    Task { if await Dialogs.ask(removal(item).title, detail: removal(item).detail, yes: "Remove") { save(items.filter { $0 != item }) } }
                 } label: {
                     Image(systemName: "xmark").foregroundStyle(.secondary)
                 }
@@ -531,7 +531,7 @@ struct DownloadsPage: View {
                     Spacer()
                     Button("Clear Downloads") {
                         Task {
-                            if await Dialogs.ask("Clear the list of downloads?", detail: "The files stay where they are.", yes: "Clear") { Downloads.shared.clear() }
+                            if await Dialogs.ask("Clear downloads?", detail: "Files stay on disk.", yes: "Clear") { Downloads.shared.clear() }
                         }
                     }
                         .controlSize(.large)
@@ -572,7 +572,7 @@ struct DownloadRow: View {
             Spacer()
             HStack(spacing: 6) {
                 if item.state == .active {
-                    Button("Cancel") { Downloads.shared.cancel(item) }.buttonBorderShape(.capsule)
+                    Button("Cancel") { Task { await Dialogs.cancelDownload(item) } }.buttonBorderShape(.capsule)
                 } else {
                     if FileManager.default.fileExists(atPath: item.file.path) {
                         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.file]) }.buttonBorderShape(.capsule)
@@ -593,9 +593,10 @@ struct DownloadRow: View {
         let site = item.site.isEmpty ? "" : " · \(item.site)"
         switch item.state {
         case .active: return item.expected > 0 ? "\(size(item.received)) of \(size(item.expected))" : size(item.received)
-        case .failed: return "Stopped\(site)"
+        case .failed: return "Failed\(site)"
+        case .cancelled: return "Cancelled\(site)"
         case .finished:
-            let gone = FileManager.default.fileExists(atPath: item.file.path) ? "" : " · moved or deleted"
+            let gone = FileManager.default.fileExists(atPath: item.file.path) ? "" : " · missing"
             return size(item.received) + site + gone
         }
     }

@@ -11,7 +11,7 @@ public final class Downloads: NSObject, WKDownloadDelegate {
     public static let changed = Notification.Name("BrowserDownloadsChanged")
 
     public final class Item: Identifiable {
-        public enum State: String, Codable { case active, finished, failed }
+        public enum State: String, Codable { case active, finished, failed, cancelled }
 
         public let id: UUID
         public let name: String
@@ -20,7 +20,8 @@ public final class Downloads: NSObject, WKDownloadDelegate {
         public internal(set) var state: State
         public internal(set) var received: Int64
         public internal(set) var expected: Int64
-        weak var download: WKDownload?
+        /// Held until it ends, so a cancel always reaches it.
+        var download: WKDownload?
 
         init(id: UUID = UUID(), name: String, file: URL, site: String, state: State, received: Int64 = 0, expected: Int64 = -1) {
             self.id = id
@@ -102,6 +103,7 @@ public final class Downloads: NSObject, WKDownloadDelegate {
         watching[key] = nil
         guard let item = pending.removeValue(forKey: key) else { return }
         item.state = state
+        item.download = nil
         // Off the sidebar a minute later; still in about://downloads.
         Task { [weak self, weak item] in
             try? await Task.sleep(for: .seconds(Downloads.autoDismiss))
@@ -117,8 +119,15 @@ public final class Downloads: NSObject, WKDownloadDelegate {
     /// Seconds a finished download stays in the sidebar.
     public static var autoDismiss: Double = 60
 
+    /// Stopped for good: the partial file is deleted and the row leaves the
+    /// sidebar. WebKit doesn't report a cancel it was asked for, so it's
+    /// finished here.
     public func cancel(_ item: Item) {
-        item.download?.cancel { _ in }
+        guard item.state == .active, let download = item.download else { return }
+        download.cancel { _ in }
+        finish(download, as: .cancelled)
+        try? FileManager.default.removeItem(at: item.file)
+        dismiss(item)
     }
 
     /// Off the sidebar; still in about://downloads.

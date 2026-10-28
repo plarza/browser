@@ -504,7 +504,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             tab.load(url)
             focusPage()
         case .needsSearchEngine:
-            address.flash("Set a search engine in Settings (⌘,)")
+            address.flash("No search engine set (⌘,)")
         case nil:
             break
         }
@@ -571,7 +571,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         guard tab.persist, tab.opener == nil else { return close(tab) }
         let name = tab.title.isEmpty ? tab.url?.host ?? "this tab" : tab.title
         Task {
-            guard await Dialogs.ask(in: window, "Close “\(name)”?", detail: "It’s a Persist tab: its cookies and site data are deleted when it closes.",
+            guard await Dialogs.ask(in: window, "Close “\(name)”?", detail: "Its cookies and site data will be deleted.",
                                     yes: "Close Tab") else { return }
             close(tab)
         }
@@ -715,9 +715,7 @@ extension BrowserWindowController: TabDelegate {
         case .microphone: "your microphone"
         default: "your camera and microphone"
         }
-        return await Dialogs.ask(in: window, "Allow \(origin) to use \(what)?",
-                                 detail: "Only for this page load. Browser doesn't remember the answer.",
-                                 yes: "Allow", no: "Don't Allow")
+        return await Dialogs.ask(in: window, "Allow \(origin) to use \(what)?", yes: "Allow", no: "Don't Allow")
     }
 
     func tab(_ tab: Tab, saveDownload name: String) async -> URL? {

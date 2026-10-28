@@ -720,6 +720,14 @@ enum Dialogs {
         return await alert.beginSheetModal(for: window) == .alertFirstButtonReturn
     }
 
+    /// Cancelling deletes what's been downloaded so far, so it asks first.
+    static func cancelDownload(_ item: Downloads.Item, in window: NSWindow? = NSApp.keyWindow) async {
+        guard item.state == .active,
+              await ask(in: window, "Cancel “\(item.name)”?", yes: "Cancel Download", no: "Keep Downloading"),
+              item.state == .active else { return }
+        Downloads.shared.cancel(item)
+    }
+
     static func prompt(in window: NSWindow?, _ message: String, detail: String, text: String) async -> String? {
         let field = NSTextField(string: text)
         field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)

@@ -123,7 +123,7 @@ final class DownloadTile: NSView {
 
     func refresh() {
         name.stringValue = item.name
-        name.textColor = item.state == .failed ? .secondaryLabelColor : .labelColor
+        name.textColor = item.state == .failed || item.state == .cancelled ? .secondaryLabelColor : .labelColor
         let total = item.expected > 0 ? item.expected : item.received
         size.stringValue = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
         let symbol = accessory
@@ -140,7 +140,7 @@ final class DownloadTile: NSView {
     }
 
     @objc func pressed() {
-        if item.state == .active { Downloads.shared.cancel(item) } else { Downloads.shared.dismiss(item) }
+        if item.state == .active { Task { await Dialogs.cancelDownload(item, in: window) } } else { Downloads.shared.dismiss(item) }
     }
 
     override var wantsUpdateLayer: Bool { true }
@@ -196,7 +196,7 @@ extension DownloadTile: NSMenuDelegate {
         menu.addItem(withTitle: "Show All Downloads", action: #selector(showAll), keyEquivalent: "").target = self
     }
 
-    @objc private func cancel() { Downloads.shared.cancel(item) }
+    @objc private func cancel() { Task { await Dialogs.cancelDownload(item, in: window) } }
     @objc private func reveal() { NSWorkspace.shared.activateFileViewerSelecting([item.file]); Downloads.shared.dismiss(item) }
     @objc private func dismiss() { Downloads.shared.dismiss(item) }
     @objc private func showAll() { onShowAll() }

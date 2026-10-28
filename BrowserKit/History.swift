@@ -16,7 +16,6 @@ public final class History {
 
     private var visits: [Visit]
     private var dirty = false
-    private static let limit = 10000
 
     private init() {
         visits = Store.read([Visit].self, "history.json") ?? []
@@ -27,7 +26,6 @@ public final class History {
         let old = visits.first { $0.url == text }
         visits.removeAll { $0.url == text }
         visits.insert(Visit(url: text, title: old?.title ?? "", count: (old?.count ?? 0) + 1), at: 0)
-        if visits.count > History.limit { visits.removeLast(visits.count - History.limit) }
         save()
     }
 

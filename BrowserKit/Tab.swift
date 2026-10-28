@@ -478,15 +478,15 @@ public final class Tab: NSObject {
         parts.scheme = "browser-allow-http"
         parts.path = interstitialToken
         parts.queryItems = [URLQueryItem(name: "u", value: url.absoluteString)]
-        showNotice("Not secure", "\(Tab.escape(url.host ?? url.absoluteString)) has no secure connection", """
-        <p>Browser tried <code>https://</code> and it did not work. Over plain HTTP anyone between you and the site can read and change the page.</p>
-        <a class=button href="\(Tab.escape(parts.url?.absoluteString ?? ""))">Continue over HTTP, this once</a>
+        showNotice("Not secure", "\(Tab.escape(url.host ?? url.absoluteString)) doesn't support HTTPS", """
+        <p>The connection won't be encrypted.</p>
+        <a class=button href="\(Tab.escape(parts.url?.absoluteString ?? ""))">Continue over HTTP</a>
         """)
         update { $0.url = url }
     }
 
     private func showCrashed() {
-        showNotice("Crashed", "\(Tab.escape(url?.host ?? "This page")) keeps crashing", "<p>Browser stopped reloading it. Press ⌘R to try again.</p>")
+        showNotice("Crashed", "\(Tab.escape(url?.host ?? "This page")) crashed", "<p>Press ⌘R to reload.</p>")
     }
 
     private func showNotice(_ title: String, _ heading: String, _ body: String) {
