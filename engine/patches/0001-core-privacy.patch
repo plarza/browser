@@ -130,6 +130,25 @@ index d1c33ac6e3..eb1b6e70b5 100644
 +}
 +
  }
+diff --git a/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm b/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm
+index 97c41013cb..11c1716211 100644
+--- a/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm
++++ b/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm
+@@ -222,6 +222,14 @@ void setJSCOptions(xpc_object_t initializerMessage, EnableLockdownMode enableLoc
+         JSC::Options::initialize([] {
+             JSC::ExecutableAllocator::disableJIT();
+             JSC::Options::allowSharedArrayBuffer() = false;
++            JSC::Options::useWasm() = false;
++        });
++    } else if (isWebContentProcess) {
++        // Core: every page runs on JavaScriptCore's interpreters only, with
++        // no WebAssembly, decided here before JSC starts.
++        JSC::Options::initialize([] {
++            JSC::ExecutableAllocator::disableJIT();
++            JSC::Options::useWasm() = false;
+         });
+     }
+     // FIXME (276012): Remove this XPC bootstrap message when it's no longer necessary. See rdar://130669638 for more context.
 diff --git a/Source/WebKit/Shared/WebsitePoliciesData.cpp b/Source/WebKit/Shared/WebsitePoliciesData.cpp
 index 9d9ea6035f..aa8283bd3f 100644
 --- a/Source/WebKit/Shared/WebsitePoliciesData.cpp
@@ -227,7 +246,7 @@ index ca4c970162..04a1f0378c 100644
  
  @property (nonatomic, copy, setter=_setVisibilityAdjustmentSelectorsIncludingShadowHosts:) NSArray<NSArray<NSSet<NSString *> *> *> *_visibilityAdjustmentSelectorsIncludingShadowHosts WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
 diff --git a/Source/WebKit/WebProcess/WebProcess.cpp b/Source/WebKit/WebProcess/WebProcess.cpp
-index 40987671f9..f784b8a09d 100644
+index 40987671f9..e61189f73a 100644
 --- a/Source/WebKit/WebProcess/WebProcess.cpp
 +++ b/Source/WebKit/WebProcess/WebProcess.cpp
 @@ -437,6 +437,11 @@ WebProcess::WebProcess()
@@ -242,18 +261,7 @@ index 40987671f9..f784b8a09d 100644
  WebProcess::~WebProcess()
  {
      ASSERT_NOT_REACHED();
-@@ -452,6 +457,10 @@ void WebProcess::initializeProcess(const AuxiliaryProcessInitializationParameter
-     {
-         JSC::Options::AllowUnfinalizedAccessScope scope;
-         JSC::Options::allowNonSPTagging() = false;
-+        // Core: the interpreters only. No JIT, no WebAssembly: a large class
-+        // of exploits gone, and two timing surfaces with it.
-+        JSC::Options::useJIT() = false;
-+        JSC::Options::useWasm() = false;
-         JSC::Options::notifyOptionsChanged();
-     }
- 
-@@ -649,14 +658,9 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
+@@ -649,14 +654,9 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
  
      setCacheModel(parameters.cacheModel);
  
@@ -271,16 +279,7 @@ index 40987671f9..f784b8a09d 100644
  
      m_textCheckerState = parameters.textCheckerState;
  
-@@ -744,6 +748,8 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
- #define WEBKIT_APPLY_JSC_OPTION_FROM_SHARED_PREFERENCE(jscOption, preferenceField) JSC::Options::jscOption() = jscOptions.preferenceField;
-         FOR_EACH_JSC_OPTION_SHARED_PREFERENCE(WEBKIT_APPLY_JSC_OPTION_FROM_SHARED_PREFERENCE)
- #undef WEBKIT_APPLY_JSC_OPTION_FROM_SHARED_PREFERENCE
-+        JSC::Options::useJIT() = false;
-+        JSC::Options::useWasm() = false;
-         JSC::Options::notifyOptionsChanged();
-     }
- 
-@@ -1042,8 +1048,8 @@ void WebProcess::setDisableFontSubpixelAntialiasingForTesting(bool disable)
+@@ -1042,8 +1042,8 @@ void WebProcess::setDisableFontSubpixelAntialiasingForTesting(bool disable)
  
  void WebProcess::userPreferredLanguagesChanged(const Vector<String>& languages) const
  {

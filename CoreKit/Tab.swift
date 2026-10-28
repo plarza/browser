@@ -73,6 +73,7 @@ public final class Tab: NSObject {
     private var httpAllowed: URL?
     private let interstitialToken = UUID().uuidString.lowercased()
     private var pendingDirection: Direction = .new
+    private var lastCrash: Date?
 
     private enum Direction { case new, back, forward, reload }
 
@@ -333,6 +334,18 @@ public final class Tab: NSObject {
         update { $0.url = url }
     }
 
+    private func showCrashed() {
+        let host = Tab.escape(url?.host ?? "This page")
+        webView.loadHTMLString("""
+        <!doctype html><meta charset=utf-8><title>Crashed</title>
+        <style>:root{color-scheme:light dark;font:15px -apple-system,system-ui}
+        body{max-width:32rem;margin:18vh auto;padding:0 1.5rem;line-height:1.5}
+        h1{font-size:1.25rem;font-weight:600}</style>
+        <h1>\(host) keeps crashing</h1>
+        <p>Core stopped reloading it. Press ⌘R to try again.</p>
+        """, baseURL: nil)
+    }
+
     static func escape(_ s: String) -> String {
         s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
@@ -392,7 +405,15 @@ extension Tab: WKNavigationDelegate {
         download.delegate = Downloads.shared.adopt(download, for: self)
     }
 
+    /// A crashed page reloads once. If it crashes again soon after, it
+    /// stays down and says so, rather than reloading forever.
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        let now = Date()
+        defer { lastCrash = now }
+        if let lastCrash, now.timeIntervalSince(lastCrash) < 20 {
+            showCrashed()
+            return
+        }
         reload()
     }
 }
