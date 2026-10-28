@@ -36,7 +36,7 @@ Applied to upstream WebKit (`engine/patches/`).
 - Downloads open the save panel and keep macOS's quarantine flag; about://downloads lists them.
 - Bangs (`!w`, `!gh`, `!yt` and about 300 more) resolve from a table inside the app.
 - Favicons are read from the page through WebKit's isolated script world, fetched without cookies, and kept on disk only for sites in History.
-- History keeps addresses, titles and visit counts, for address-bar completion and `about://history`.
+- History keeps addresses, titles, visit counts and last-visit times in SQLite, for address-bar completion and `about://history`.
 - Safari web extensions from apps in Applications turn on in Settings and run on WebKit's extension engine; their own storage is kept.
 - No telemetry and no update checks. The only request Browser makes by itself is the daily filter-list fetch.
 - No proxy or Tor: use a VPN. iCloud Private Relay is never used, even when it's on for the Mac.

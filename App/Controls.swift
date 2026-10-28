@@ -30,6 +30,8 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
     let suggestions = SuggestionList()
     /// The last edit removed text: don't fill it straight back in.
     private var deleting = false
+    /// The History lookup for the latest keystroke.
+    private var lookup: Task<Void, Never>?
     private static let placeholder = "Search or enter website name"
 
     init() {
@@ -116,6 +118,7 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
 
     func controlTextDidEndEditing(_ obj: Notification) {
         isEditing = false
+        lookup?.cancel()
         suggestions.hide()
         show(url)
     }
@@ -128,14 +131,19 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
         let typed = editor.string
         let wasDeleting = deleting
         deleting = false
-        suggestions.show(History.shared.suggest(typed))
-        // After AppKit has finished with the keystroke: done here, the text
-        // system puts the caret back after the typed character, and the
-        // filled-in part ends up unselected.
-        DispatchQueue.main.async { [weak self, weak editor] in
-            guard let self, let editor, self.currentEditor() === editor, editor.string == typed, !wasDeleting,
+        // History answers off the main thread; an answer for text that has
+        // since changed is dropped. It also lands after AppKit has finished
+        // with the keystroke: before that, the text system puts the caret
+        // back after the typed character and the filled-in part ends up
+        // unselected.
+        lookup?.cancel()
+        lookup = Task { [weak self, weak editor] in
+            let found = await History.shared.complete(typed)
+            guard !Task.isCancelled, let self, let editor, self.currentEditor() === editor, editor.string == typed else { return }
+            self.suggestions.show(found.pages)
+            guard !wasDeleting,
                   editor.selectedRange() == NSRange(location: (typed as NSString).length, length: 0),
-                  let fill = History.shared.autofill(typed), fill.lowercased().hasPrefix(typed.lowercased())
+                  let fill = found.fill, fill.lowercased().hasPrefix(typed.lowercased())
             else { return }
             let rest = String(fill.dropFirst(typed.count))
             let start = (typed as NSString).length

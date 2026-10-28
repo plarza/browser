@@ -1,144 +1,298 @@
 import Foundation
+import SQLite3
 
-/// Pages visited: the address and the page's title, most recent first.
-/// No times, no page contents; a site's icon is kept beside it while the
-/// site is in here. It is there for about://history.
+/// Pages visited: the address, the page's title, how many times and when
+/// it was last visited. No page contents; a site's icon is kept beside it
+/// while the site is in here. It feeds the address field and about://history.
+///
+/// Kept in SQLite (history.db), read and written on one background queue,
+/// so a lookup never holds up typing.
 @MainActor
 public final class History {
     public static let shared = History()
 
-    public struct Visit: Codable, Equatable {
+    public struct Visit: Equatable, Sendable {
         public var url: String
         public var title: String
         /// How many times it was visited, for ranking suggestions.
         public var count = 1
     }
 
-    private var visits: [Visit]
-    private var dirty = false
+    /// What the address field shows for what's been typed.
+    public struct Completion: Sendable {
+        /// The whole site name or address to fill in, if any.
+        public var fill: String?
+        /// Pages for the list under the field, best first.
+        public var pages: [Visit]
+    }
+
+    private let queue = DispatchQueue(label: "Browser.History", qos: .userInitiated)
+    private nonisolated(unsafe) var db: Database?
 
     private init() {
-        visits = Store.read([Visit].self, "history.json") ?? []
+        queue.async { [self] in db = Database(Store.url("history.db")) }
     }
 
     func add(_ url: URL) {
-        let text = url.absoluteString
-        let old = visits.first { $0.url == text }
-        visits.removeAll { $0.url == text }
-        visits.insert(Visit(url: text, title: old?.title ?? "", count: (old?.count ?? 0) + 1), at: 0)
-        save()
+        let now = Date().timeIntervalSince1970
+        queue.async { [self] in db?.add(url, at: now) }
     }
 
     func setTitle(_ title: String, for url: URL) {
-        let text = url.absoluteString
-        guard !title.isEmpty, let i = visits.firstIndex(where: { $0.url == text }), visits[i].title != title else { return }
-        visits[i].title = title
-        save()
+        guard !title.isEmpty else { return }
+        queue.async { [self] in db?.setTitle(title, for: url.absoluteString) }
     }
 
     public func remove(_ url: String) {
-        visits.removeAll { $0.url == url }
+        queue.sync { db?.remove(url) }
         if let host = URL(string: url)?.host?.lowercased(), !knows(host: host) { Favicons.shared.forget(host: host) }
-        save()
     }
 
     public func clear() {
-        visits = []
+        queue.sync { db?.clear() }
         Favicons.shared.forgetAll()
-        save()
     }
 
     /// Whether any visit is to `host`.
     func knows(host: String) -> Bool {
-        visits.contains { URL(string: $0.url)?.host?.lowercased() == host }
+        queue.sync { db?.knows(host: host) ?? false }
     }
 
-    private func save() {
-        guard !dirty else { return }
-        dirty = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-            guard let self else { return }
-            self.dirty = false
-            Store.write(self.visits, "history.json")
-        }
-    }
-
-    /// What the address field fills in as you type, as Chrome and Safari
-    /// do: a site you've been to whose name starts with what you typed
-    /// (`git` → `github.com`), the one you visit most; once you type a `/`,
-    /// a whole address that starts with it.
-    public func autofill(_ typed: String) -> String? {
-        let typed = typed.lowercased()
-        guard !typed.isEmpty, !typed.contains(" ") else { return nil }
-        if typed.contains("/") {
-            return visits.lazy.map { History.bare($0.url) }.first { $0.lowercased().hasPrefix(typed) && $0.count > typed.count }
-        }
-        var hosts: [String: Int] = [:]
-        for visit in visits {
-            guard let host = URL(string: visit.url)?.host?.lowercased() else { continue }
-            let bare = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-            if bare.hasPrefix(typed), bare.count > typed.count { hosts[bare, default: 0] += visit.count }
-        }
-        return hosts.max { ($0.value, -$0.key.count) < ($1.value, -$1.key.count) }?.key
-    }
-
-    /// Pages for the list under the address field, best first. A page ranks
-    /// higher the earlier in its address or title the words match (the
-    /// start of the site's name best, then the start of any word, then
-    /// anywhere), and the more and the more recently it was visited.
-    public func suggest(_ query: String, limit: Int = 6) -> [Visit] {
-        let words = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
-        guard !words.isEmpty else { return [] }
-        var scored: [(Double, Visit)] = []
-        for (age, visit) in visits.enumerated() {
-            let bare = History.bare(visit.url).lowercased()
-            let title = visit.title.lowercased()
-            var score = 0.0
-            for word in words {
-                if bare.hasPrefix(word) {
-                    score += 100
-                } else if History.startsWord(word, in: bare) || History.startsWord(word, in: title) {
-                    score += 50
-                } else if bare.contains(word) || title.contains(word) {
-                    score += 10
-                } else {
-                    score = -1
-                    break
-                }
+    /// As you type: what to fill in (as Chrome and Safari do, a site you've
+    /// been to whose name starts with what you typed, `git` → `github.com`,
+    /// the one you visit most; once you type a `/`, the latest whole address
+    /// that starts with it) and the best matching pages.
+    ///
+    /// Pages rank higher the earlier in their address or title the words
+    /// match (the start of the site's name best, then the start of any word,
+    /// then anywhere), the more often they were visited, and the more
+    /// recently.
+    public func complete(_ typed: String, limit: Int = 6) async -> Completion {
+        let now = Date().timeIntervalSince1970
+        return await withCheckedContinuation { done in
+            queue.async { [self] in
+                done.resume(returning: Completion(fill: db?.autofill(typed), pages: db?.suggest(typed, limit: limit, now: now) ?? []))
             }
-            guard score > 0 else { continue }
-            score += 15 * log2(Double(visit.count) + 1) - Double(age) * 0.02
-            scored.append((score, visit))
         }
-        return scored.sorted { $0.0 > $1.0 }.prefix(limit).map(\.1)
     }
 
-    static func startsWord(_ word: String, in text: String) -> Bool {
-        var start = text.startIndex
-        while let range = text.range(of: word, range: start ..< text.endIndex) {
-            if range.lowerBound == text.startIndex || !text[text.index(before: range.lowerBound)].isLetter && !text[text.index(before: range.lowerBound)].isNumber {
-                return true
-            }
-            start = text.index(after: range.lowerBound)
-        }
-        return false
+    /// Every word must appear somewhere in the address or the title. Most
+    /// recent first.
+    public func search(_ query: String, limit: Int = 500) -> [Visit] {
+        queue.sync { db?.search(query, limit: limit) ?? [] }
     }
 
-    public static func bare(_ url: String) -> String {
+    public nonisolated static func bare(_ url: String) -> String {
         var s = url
         for prefix in ["https://", "http://"] where s.hasPrefix(prefix) { s.removeFirst(prefix.count) }
         if s.hasPrefix("www.") { s.removeFirst(4) }
         return s
     }
+}
 
-    /// Every word must appear somewhere in the address or the title.
-    public func search(_ query: String, limit: Int = 500) -> [Visit] {
-        let words = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
-        guard !words.isEmpty else { return Array(visits.prefix(limit)) }
-        return Array(visits.lazy.filter { visit in
-            let text = (visit.url + " " + visit.title).lowercased()
-            return words.allSatisfy(text.contains)
-        }.prefix(limit))
+/// history.db. Used only on History's queue.
+///
+/// Each row keeps, beside the address and title, lowercased copies for
+/// matching: `bare` (the address without scheme or www.), `ltitle`, and
+/// `words` (both with every non-letter, non-digit made a space, so the start
+/// of a word is a space followed by it). `host` is the address's host and
+/// `site` the same without www., for completing site names.
+private final class Database {
+    private var db: OpaquePointer?
+    private var statements: [String: OpaquePointer] = [:]
+
+    init?(_ file: URL) {
+        guard sqlite3_open_v2(file.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK else {
+            NSLog("History: can't open \(file.path): \(String(cString: sqlite3_errmsg(db)))")
+            sqlite3_close(db)
+            return nil
+        }
+        // Deleted rows are overwritten with zeros, not left in free pages.
+        exec("""
+        PRAGMA secure_delete = ON;
+        CREATE TABLE IF NOT EXISTS visits(
+            id INTEGER PRIMARY KEY,
+            url TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL DEFAULT '',
+            bare TEXT NOT NULL,
+            ltitle TEXT NOT NULL DEFAULT '',
+            words TEXT NOT NULL,
+            host TEXT NOT NULL,
+            site TEXT NOT NULL,
+            count INTEGER NOT NULL DEFAULT 1,
+            last REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS visits_last ON visits(last);
+        CREATE INDEX IF NOT EXISTS visits_host ON visits(host);
+        CREATE INDEX IF NOT EXISTS visits_site ON visits(site);
+        """)
+    }
+
+    deinit {
+        for statement in statements.values { sqlite3_finalize(statement) }
+        sqlite3_close(db)
+    }
+
+    // MARK: Writing
+
+    func add(_ url: URL, at time: Double) {
+        let text = url.absoluteString
+        let bare = History.bare(text).lowercased()
+        let host = url.host?.lowercased() ?? ""
+        run("""
+        INSERT INTO visits(url, bare, words, host, site, last) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+        ON CONFLICT(url) DO UPDATE SET count = count + 1, last = excluded.last
+        """, [text, bare, Self.words(bare, ""), host, Self.site(host), time])
+    }
+
+    func setTitle(_ title: String, for url: String) {
+        let lower = title.lowercased()
+        run("UPDATE visits SET title = ?2, ltitle = ?3, words = ?4 WHERE url = ?1 AND title != ?2",
+            [url, title, lower, Self.words(History.bare(url).lowercased(), lower)])
+    }
+
+    func remove(_ url: String) {
+        run("DELETE FROM visits WHERE url = ?1", [url])
+    }
+
+    func clear() {
+        exec("DELETE FROM visits; VACUUM;")
+    }
+
+    // MARK: Reading
+
+    func knows(host: String) -> Bool {
+        var found = false
+        rows("SELECT 1 FROM visits WHERE host = ?1 LIMIT 1", [host]) { _ in found = true }
+        return found
+    }
+
+    func autofill(_ typed: String) -> String? {
+        let typed = typed.lowercased()
+        guard !typed.isEmpty, !typed.contains(" ") else { return nil }
+        // Everything that starts with `typed`, as a range the index can use.
+        let end = typed + "\u{10FFFF}"
+        var fill: String?
+        if typed.contains("/") {
+            rows("SELECT url FROM visits WHERE bare > ?1 AND bare < ?2 ORDER BY last DESC LIMIT 1", [typed, end]) {
+                fill = History.bare($0.text(0))
+            }
+        } else {
+            rows("""
+            SELECT site FROM visits WHERE site > ?1 AND site < ?2
+            GROUP BY site ORDER BY sum(count) DESC, length(site) LIMIT 1
+            """, [typed, end]) { fill = $0.text(0) }
+        }
+        return fill
+    }
+
+    func suggest(_ query: String, limit: Int, now: Double) -> [History.Visit] {
+        let words = Self.split(query)
+        guard !words.isEmpty else { return [] }
+        var args: [Any] = [limit, now]
+        var filters: [String] = []
+        var scores: [String] = []
+        for word in words {
+            let w = args.count + 1
+            args.append(word)
+            args.append(" " + Self.normalise(word).trimmingCharacters(in: .whitespaces))
+            filters.append("(instr(bare, ?\(w)) > 0 OR instr(ltitle, ?\(w)) > 0)")
+            scores.append("CASE WHEN substr(bare, 1, length(?\(w))) = ?\(w) THEN 100 WHEN instr(words, ?\(w + 1)) > 0 THEN 50 ELSE 10 END")
+        }
+        let sql = """
+        SELECT url, title, count FROM visits WHERE \(filters.joined(separator: " AND "))
+        ORDER BY \(scores.joined(separator: " + ")) + 15 * log2(count + 1) - 10 * log2(1 + max(0, ?2 - last) / 86400) DESC
+        LIMIT ?1
+        """
+        return visits(sql, args)
+    }
+
+    func search(_ query: String, limit: Int) -> [History.Visit] {
+        let words = Self.split(query)
+        var args: [Any] = [limit]
+        let filters = words.map { word -> String in
+            args.append(word)
+            return "(instr(bare, ?\(args.count)) > 0 OR instr(ltitle, ?\(args.count)) > 0)"
+        }
+        let filter = filters.isEmpty ? "" : "WHERE " + filters.joined(separator: " AND ")
+        return visits("SELECT url, title, count FROM visits \(filter) ORDER BY last DESC LIMIT ?1", args)
+    }
+
+    private func visits(_ sql: String, _ args: [Any]) -> [History.Visit] {
+        var found: [History.Visit] = []
+        rows(sql, args) { found.append(History.Visit(url: $0.text(0), title: $0.text(1), count: $0.int(2))) }
+        return found
+    }
+
+    // MARK: Text
+
+    private static func split(_ query: String) -> [String] {
+        query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
+    }
+
+    private static func normalise(_ text: String) -> String {
+        String(text.map { $0.isLetter || $0.isNumber ? $0 : " " })
+    }
+
+    private static func words(_ bare: String, _ title: String) -> String {
+        " " + normalise(bare) + " " + normalise(title)
+    }
+
+    private static func site(_ host: String) -> String {
+        host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    // MARK: SQLite
+
+    struct Row {
+        let statement: OpaquePointer
+        func text(_ i: Int32) -> String { sqlite3_column_text(statement, i).map { String(cString: $0) } ?? "" }
+        func int(_ i: Int32) -> Int { Int(sqlite3_column_int64(statement, i)) }
+    }
+
+    @discardableResult
+    private func exec(_ sql: String) -> Bool {
+        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
+            NSLog("History: \(String(cString: sqlite3_errmsg(db)))")
+            return false
+        }
+        return true
+    }
+
+    private func run(_ sql: String, _ args: [Any]) {
+        rows(sql, args) { _ in }
+    }
+
+    private func rows(_ sql: String, _ args: [Any], _ each: (Row) -> Void) {
+        guard let statement = prepare(sql) else { return }
+        defer { sqlite3_reset(statement); sqlite3_clear_bindings(statement) }
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        for (i, arg) in args.enumerated() {
+            let index = Int32(i + 1)
+            switch arg {
+            case let value as String: sqlite3_bind_text(statement, index, value, -1, transient)
+            case let value as Int: sqlite3_bind_int64(statement, index, Int64(value))
+            case let value as Double: sqlite3_bind_double(statement, index, value)
+            default: sqlite3_bind_null(statement, index)
+            }
+        }
+        while true {
+            let step = sqlite3_step(statement)
+            if step == SQLITE_ROW { each(Row(statement: statement)); continue }
+            if step != SQLITE_DONE { NSLog("History: \(String(cString: sqlite3_errmsg(db)))") }
+            return
+        }
+    }
+
+    private func prepare(_ sql: String) -> OpaquePointer? {
+        if let statement = statements[sql] { return statement }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v3(db, sql, -1, UInt32(SQLITE_PREPARE_PERSISTENT), &statement, nil) == SQLITE_OK else {
+            NSLog("History: \(String(cString: sqlite3_errmsg(db)))")
+            return nil
+        }
+        statements[sql] = statement
+        return statement
     }
 }
 

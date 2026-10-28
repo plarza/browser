@@ -22,6 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SelfTest.prepare()
         #endif
         Blocker.shared.start()
+        // Opens history.db in the background before the first keystroke needs it.
+        _ = History.shared
         browser = BrowserWindowController()
         NSApp.mainMenu = Menus.build(target: self, browser: browser)
         Extensions.shared.host = browser

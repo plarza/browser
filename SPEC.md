@@ -68,7 +68,7 @@ Browser has one user, so there is no crowd of Browser users to hide in. It hides
 
 ## Remembered on disk
 
-- **History:** each page's address, title and visit count, most recent first, with no visit times, icons or page contents. It feeds the address field (inline completion of a visited site's name, and a ranked list of matching pages underneath) and **about://history** (⌘H): a page of its own, opened in a new tab, that searches every word across addresses and titles, removes entries one at a time, or clears everything. Like about://settings and about://help, it is a native view in the tab, not a web page.
+- **History:** each page's address, title, visit count and when it was last visited, with no icons or page contents, in a SQLite file (`history.db`) whose deleted rows are overwritten. It feeds the address field (inline completion of a visited site's name, and a ranked list of matching pages underneath, ranked by where the words match, how often and how recently), looked up off the main thread and **about://history** (⌘H): a page of its own, opened in a new tab, that searches every word across addresses and titles, removes entries one at a time, or clears everything. Like about://settings and about://help, it is a native view in the tab, not a web page.
 - **Open tabs:** URLs, and for a Persist tab the id of its jar and its seed. They come back on the next launch: a Persist tab in its jar, every other tab in a fresh session.
 - **Whitelist jars**, as described under Whitelist.
 - **Extension data.** Extensions' own storage, such as the Bitwarden vault, is kept.
