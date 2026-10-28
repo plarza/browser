@@ -1,72 +1,73 @@
 # Core
 
-Core is a private web browser for macOS. It runs on its own patched build of WebKit, the engine Safari uses. Every tab is its own identity, and that identity is thrown away on every load. Core is meant to be a base other browsers can build on, so its interface is deliberately small.
+A private browser for macOS on a patched WebKit. Details in [SPEC.md](SPEC.md).
 
-[SPEC.md](SPEC.md) is the full list of what Core does and why. In short:
+- Each tab has its own cookies, storage, cache and fingerprint seed, wiped on every reload and navigation.
+- ⌘I (Persist) keeps a tab's session until the tab closes.
+- Whitelisted domains keep their cookies on disk.
+- Fingerprinting protections are always on. Pages see Safari's user agent, UTC and en-US.
+- WebRTC is relay-only. No JIT, no WebAssembly.
+- Built-in ad and tracker blocking from filter lists, updated daily.
+- HTTPS-only. Tracking parameters are stripped from links.
+- Bangs (`!w`, `!gh`, …) resolve locally. History search is at `about://history`.
+- Chrome Web Store extensions run on WebKit's extension engine.
+- No settings turn any of this off. No proxy or Tor: use a VPN.
 
-- **Wiped on every load.** Each reload or navigation starts the tab over in a fresh identity: cookies, every kind of storage, the HTTP cache, connections and the fingerprint seed. **Persist** (⌘I) keeps a tab's identity until you close it. Domains on your whitelist keep their cookies on disk.
-- **Hard to fingerprint.** Core looks like Safari on the same macOS. Safari's Private Browsing fingerprinting protections are always on inside the engine, with noise seeded per identity. Pages run in UTC and en-US. WebRTC uses relays only, so your IP never leaks around your VPN. There is no JIT and no WebAssembly.
-- **Blocks ads and trackers itself.** Filter lists (uBlock Origin's, EasyList, EasyPrivacy and others) are fetched daily and compiled into WebKit's own content blocker. Core also strips tracking parameters from links and enforces HTTPS-only.
-- **No switches.** None of the above can be turned off. Settings has exactly four things: search engine, cookie whitelist, filter lists, extensions.
-- **Extensions** install from the Chrome Web Store on WebKit's extension engine, for example Bitwarden for passwords.
-- **Bangs** like `!w`, `!gh` and `!yt` resolve locally from Core's own table, and history is searchable at `about://history` (⌘Y).
+## Shortcuts
 
-Core doesn't route your traffic: use your own VPN.
-
-## Using it
-
-| | |
+| Key | Action |
 |---|---|
-| ⌘T new tab · ⌘W close · ⇧⌘T reopen | ⌘L address · ⌘S show or hide the sidebar |
-| ⌘I Persist this tab | ⌘Y history · ⇧⌘S save page |
-| ⌘[ ⌘] back, forward · ⌘R reload (a wipe) | ⇧⌘[ ⇧⌘] previous, next tab · ⌘1–⌘9 jump |
-| ⌘F find · ⌘, settings | Drag the sidebar's edge to resize it |
+| ⌘T / ⌘W / ⇧⌘T | New tab / close / reopen closed |
+| ⌘L | Address field |
+| ⌘I | Persist tab |
+| ⌘S | Toggle sidebar |
+| ⇧⌘S | Save page |
+| ⌘Y | History |
+| ⌘R | Reload (wipes the tab) |
+| ⌘[ / ⌘] | Back / forward |
+| ⇧⌘[ / ⇧⌘] | Previous / next tab |
+| ⌘1–⌘9 | Jump to tab |
+| ⌘F | Find |
+| ⌘, | Settings |
 
-## Building
+## Build
 
-You need Apple Silicon, macOS 26, Xcode 27 and about 60 GB of free disk.
-
-```bash
-engine/build.sh
-```
-
-This fetches WebKit at the commit in `engine/WEBKIT_COMMIT` into `~/repos/core-engine/webkit`, applies `engine/patches/`, and builds it. The first build takes about an hour; later ones are incremental. `engine/build.sh rebase` moves to WebKit's latest commit.
-
-```bash
-./build.sh
-```
-
-This builds `build/Core.app` with the engine inside it. Without an engine build, the app runs on the system WebKit and its sidebar says that protection is off. `./build.sh debug` makes a debug build.
+Requires Apple Silicon, macOS 26, Xcode 27 and about 60 GB of disk.
 
 ```bash
-./build.sh release ship
+engine/build.sh          # WebKit at engine/WEBKIT_COMMIT + engine/patches, ~1 h first time
+./build.sh               # build/Core.app with the engine embedded
+./build.sh debug         # debug build
+./build.sh release ship  # Developer ID sign + notarize -> build/release/Core-<version>.dmg
 ```
 
-This signs the app with your Developer ID, notarizes it, and writes `build/release/Core-<version>.dmg`. It needs a Developer ID Application certificate in the keychain and notary credentials stored once:
+`engine/build.sh rebase` moves to the latest WebKit commit.
+
+`ship` needs a Developer ID Application certificate and one-time notary setup:
 
 ```bash
 xcrun notarytool store-credentials core
 ```
 
-Pushing a tag such as `v0.2.0` does all of this on the Forgejo runner (`.forgejo/workflows/release.yml`). `release/runner.sh <token>` sets this Mac up as that runner. Updates are manual: install the new DMG.
+Pushing a `v*` tag runs the same build on the Forgejo runner (`.forgejo/workflows/release.yml`). `release/runner.sh <token>` registers this Mac as that runner. Updates are manual.
 
-### Testing
+## Test
 
-Debug builds can drive themselves with real key and mouse events:
+The self-test only works in debug builds:
 
 ```bash
 build/Core.app/Contents/MacOS/Core -coreStore /tmp/core-test -coreSelfTest YES
 ```
 
-Each check logs a `PASS` or `FAIL` line. `-coreStore` keeps the test away from your real tabs and history. `-coreProbe <url> -coreProbeOut <file>` writes a page's text before and after a wipe; that's how CreepJS is checked.
+It logs PASS/FAIL per check. `-coreStore` uses a separate data folder. `-coreProbe <url> -coreProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS.
 
 ## Layout
 
-```
-engine/   WebKit commit, patch series, build/embed scripts, dyld launcher
-CoreKit/  every privacy rule: identities, tabs, blocker, bangs, history, extensions
-App/      the window, sidebar, address field, settings, debug self-test
-release/  Info.plist, entitlements, notarization, runner setup
-```
+| Folder | Contents |
+|---|---|
+| `engine/` | WebKit commit, patches, build/embed scripts, launcher |
+| `CoreKit/` | Tabs, identities, blocker, bangs, history, extensions |
+| `App/` | Window, sidebar, settings, self-test |
+| `release/` | Info.plist, entitlements, icon, notarization, runner setup |
 
-Core borrows from [Search](https://github.com/driceroland/Search) by Office Commun (MIT): the Chrome Web Store installer, link cleaning, and the starter block list.
+Parts are from [Search](https://github.com/driceroland/Search) (MIT): the CRX installer, link cleaning, and the starter block list.
