@@ -4,6 +4,8 @@
 
 A private macOS browser on its own build of WebKit.
 
+![Browser with tabs open and the new tab page](release/screenshot.png)
+
 ## Engine patches
 
 Applied to upstream WebKit (`engine/patches/`).
@@ -76,6 +78,10 @@ build/Browser.app/Contents/MacOS/Browser -browserStore /tmp/browser-test -browse
 ```
 
 It logs PASS/FAIL per check, ends with a count and quits, exiting non-zero if any check failed. Every page it loads comes from a web server inside the test, on this Mac, so it needs no internet; each step waits for what it expects rather than a set time, and works with Browser in the background. `-browserStore` uses a separate data folder; `-browserShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). `-browserProbe <url> -browserProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS.
+
+## Screenshot
+
+`release/screenshot.sh` redraws `release/screenshot.png` from a debug build: the tabs listed in the script load from the internet into a throwaway data folder, and the new tab page is in front. `release/screenshot.sh dark` is the dark version; `FILL=1` puts the picture behind the sidebar too.
 
 ## Layout
 

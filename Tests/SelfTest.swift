@@ -577,8 +577,16 @@ enum SelfTest {
     /// `-browserShots <folder>`: Browser's window, and only Browser's window, into
     /// <folder>/<name>.png, while it sits behind other windows.
     static func shot(_ name: String, _ browser: BrowserWindowController) async {
-        guard let folder = UserDefaults.standard.string(forKey: "browserShots"), let window = browser.window,
-              let frame = window.contentView?.superview else { return }
+        guard let folder = UserDefaults.standard.string(forKey: "browserShots") else { return }
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        if !(await capture(browser, to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))) {
+            NSLog("Browser self-test: shot \(name) failed")
+        }
+    }
+
+    /// The window as a PNG at `file`; false if it couldn't be drawn.
+    static func capture(_ browser: BrowserWindowController, to file: URL) async -> Bool {
+        guard let window = browser.window else { return false }
         // macOS doesn't draw a window it thinks nobody can see, and SwiftUI
         // then draws nothing. Lifted on top but all but transparent (and
         // ignoring the mouse) it draws; then back behind everything at full
@@ -601,10 +609,45 @@ enum SelfTest {
         typealias Capture = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(dlopen(nil, RTLD_NOW), "CGWindowListCreateImage"),
               let image = unsafeBitCast(symbol, to: Capture.self)(.null, 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue()
-        else { NSLog("Browser self-test: shot \(name) failed"); return }
-        let rep = NSBitmapImageRep(cgImage: image)
-        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
+        else { return false }
+        guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return false }
+        return (try? png.write(to: file)) != nil
+    }
+
+    /// `-browserScreenshot <file.png> -browserScreenshotTabs <url,url,…>`
+    /// (see release/screenshot.sh): the tabs opened and loaded from the
+    /// internet, a blank tab in front showing the new tab page, the window
+    /// written to the file, then Browser quits.
+    static func screenshot(_ browser: BrowserWindowController) {
+        let defaults = UserDefaults.standard
+        guard let out = defaults.string(forKey: "browserScreenshot") else { return }
+        let urls = (defaults.string(forKey: "browserScreenshotTabs") ?? "").split(separator: ",").compactMap { URL(string: String($0)) }
+        if let appearance = defaults.string(forKey: "browserScreenshotAppearance").flatMap(Settings.Appearance.init(rawValue:)) {
+            Preferences.shared.settings.appearance = appearance
+        }
+        Preferences.shared.settings.fill = defaults.bool(forKey: "browserScreenshotFill")
+        Task { @MainActor in
+            guard let window = browser.window else { exit(EXIT_FAILURE) }
+            window.setContentSize(NSSize(width: 1320, height: 820))
+            let first = browser.tabs
+            var last: Tab?
+            for url in urls { last = browser.newTab(url, after: last ?? first.last, select: false, focus: false) }
+            for tab in first { browser.close(tab) }
+            if let persist = defaults.string(forKey: "browserScreenshotPersist").flatMap(URL.init(string:)),
+               let tab = browser.tabs.first(where: { $0.url?.host == persist.host }) {
+                tab.persist = true
+            }
+            browser.newTab(nil, after: last, focus: false)
+            let tabs = browser.tabs.filter { $0.url != nil }
+            let loaded = await until("the tabs to load", seconds: 60) {
+                tabs.allSatisfy { !$0.isLoading && !$0.title.isEmpty } && !Favicons.shared.isFetching
+            }
+            if !loaded { NSLog("Browser screenshot: some tabs hadn't loaded: \(tabs.filter(\.isLoading).compactMap(\.url))") }
+            window.makeFirstResponder(nil)
+            let saved = await capture(browser, to: URL(fileURLWithPath: out))
+            NSLog("Browser screenshot: \(saved ? "wrote \(out)" : "failed")")
+            exit(saved ? EXIT_SUCCESS : EXIT_FAILURE)
+        }
     }
 
     /// `-browserProbe <url> -browserProbeOut <file>`: loads the page, lets it

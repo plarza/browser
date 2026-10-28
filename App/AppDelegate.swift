@@ -32,6 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SelfTest.probe(browser)
         #endif
         browser.restore()
+        #if DEBUG
+        SelfTest.screenshot(browser)
+        #endif
         browser.showWindow(nil)
         NSApp.activate()
     }
