@@ -198,14 +198,20 @@ final class Sidebar: NSView {
         glass.style = .regular
         glass.cornerRadius = 0
         glass.contentView = NSView()
-        for v in [behind, glass] as [NSView] {
+        // The glass is drawn larger than the sidebar and clipped to it: its
+        // own edge has a bright rim and a shadow, which would otherwise sit
+        // between the sidebar and the page as a hard line.
+        wantsLayer = true
+        layer?.masksToBounds = true
+        let bleed: CGFloat = 40
+        for (v, out) in [(behind, CGFloat(0)), (glass, bleed)] as [(NSView, CGFloat)] {
             v.translatesAutoresizingMaskIntoConstraints = false
             addSubview(v)
             NSLayoutConstraint.activate([
-                v.leadingAnchor.constraint(equalTo: leadingAnchor),
-                v.trailingAnchor.constraint(equalTo: trailingAnchor),
-                v.topAnchor.constraint(equalTo: topAnchor),
-                v.bottomAnchor.constraint(equalTo: bottomAnchor),
+                v.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -out),
+                v.trailingAnchor.constraint(equalTo: trailingAnchor, constant: out),
+                v.topAnchor.constraint(equalTo: topAnchor, constant: -out),
+                v.bottomAnchor.constraint(equalTo: bottomAnchor, constant: out),
             ])
         }
     }
