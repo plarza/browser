@@ -112,7 +112,7 @@ Listed at about://help (⇧⌘/), read from the menus. In every dialog, Return c
 
 - **Patched engine required.** Every build embeds Browser’s patched WebKit. Missing or unpatched engines are build errors. The launcher checks its bundled frameworks, and the executable verifies the loaded engine before creating the application, including direct and debug launches. There is no system-WebKit browsing mode.
 
-- **Source.** The repository lives on `git.aza.network` (Forgejo). A `forgejo-runner` in host mode runs on this Mac with the label `macos-arm64`.
+- **Source.** The repository is `aza/browser` on `git.aza.network` (Forgejo), mirrored publicly at `github.com/plarza/browser`. A `forgejo-runner` in host mode runs on this Mac with the label `macos-arm64`.
 - **Releases.** Pushing a tag builds the engine and the app, signs them with the Developer ID, notarizes them, and uploads the DMG to Forgejo Releases.
 - **Updates** are manual: install the new DMG from the release. Browser never checks for updates itself.
 - **Telemetry.** None. The only request Browser makes on its own is the daily filter-list fetch.

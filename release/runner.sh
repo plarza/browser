@@ -4,8 +4,8 @@
 #
 #   release/runner.sh <registration token>
 #
-# The token comes from git.aza.network › Settings › Actions › Runners ›
-# Create new runner (for the user, so every one of their repos can use it).
+# The token comes from git.aza.network › the aza organisation › Settings ›
+# Actions › Runners › Create new runner, so every aza repo can use it.
 set -euo pipefail
 TOKEN="${1:?registration token}"
 DIR="$HOME/.forgejo-runner"
