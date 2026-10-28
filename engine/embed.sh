@@ -20,6 +20,14 @@ for lib in libwebrtc.dylib libANGLE-shared.dylib; do
   [ -e "$ENGINE/$lib" ] && ditto "$ENGINE/$lib" "$FW/$lib"
 done
 
+# Links the build leaves pointing back into its own folder: the real file
+# when the build has it, gone when it doesn't.
+while IFS= read -r link; do
+  name="$(basename "$link")"
+  rm -f "$link"
+  [ -e "$ENGINE/$name" ] && ditto "$ENGINE/$name" "$link"
+done < <(find -L "$FW" -type l -not -path '*/XPCServices/*')
+
 XPC="$FW/WebKit.framework/Versions/A/XPCServices"
 for link in "$XPC"/*.xpc; do
   name="$(basename "$link")"
@@ -31,23 +39,26 @@ for link in "$XPC"/*.xpc; do
   ditto "$ENGINE/$name" "$XPC/$name"
 done
 
-# Local builds keep the build's own ad-hoc signatures. A release re-signs
-# every piece inside out with the Developer ID and the hardened runtime;
-# the XPC services keep their entitlements minus JIT (Core has none) and
-# the debugger's, plus leave to read the dyld path the launcher sets.
-if [ "$IDENTITY" != "-" ]; then
+# Every piece is re-signed inside out (WebKit's build leaves some seals
+# stale). A release uses the Developer ID and the hardened runtime, and the
+# XPC services keep their entitlements minus JIT (Core has none) and the
+# debugger's, plus leave to read the dyld path the launcher sets. A local
+# build signs ad hoc and keeps the build's entitlements.
+if [ "$IDENTITY" = "-" ]; then
+  sign() { codesign --force --sign - "$@"; }
+else
   sign() { codesign --force --options runtime --timestamp --sign "$IDENTITY" "$@"; }
-  for lib in "$FW"/*.dylib "$FW/WebKit.framework/Versions/A/Frameworks"/*.dylib; do
-    [ -e "$lib" ] && sign "$lib"
-  done
-  for service in "$XPC"/*.xpc; do
-    ents="$(mktemp)"
-    codesign -d --entitlements - --xml "$service" 2>/dev/null > "$ents.in" || true
-    python3 "$here/entitlements.py" "$ents.in" > "$ents"
-    sign --entitlements "$ents" "$service"
-    rm -f "$ents" "$ents.in"
-  done
-  for name in JavaScriptCore WebGPU WebCore WebKitLegacy WebInspectorUI WebKit; do
-    [ -d "$FW/$name.framework" ] && sign "$FW/$name.framework"
-  done
 fi
+for lib in "$FW"/*.dylib "$FW/WebKit.framework/Versions/A/Frameworks"/*.dylib; do
+  [ -e "$lib" ] && sign "$lib"
+done
+for service in "$XPC"/*.xpc; do
+  ents="$(mktemp)"
+  codesign -d --entitlements - --xml "$service" 2>/dev/null > "$ents.in" || true
+  if [ "$IDENTITY" = "-" ]; then cp "$ents.in" "$ents"; else python3 "$here/entitlements.py" "$ents.in" > "$ents"; fi
+  if [ -s "$ents" ]; then sign --entitlements "$ents" "$service"; else sign "$service"; fi
+  rm -f "$ents" "$ents.in"
+done
+for name in JavaScriptCore WebGPU WebCore WebKitLegacy WebInspectorUI WebKit; do
+  [ -d "$FW/$name.framework" ] && sign "$FW/$name.framework"
+done

@@ -79,8 +79,61 @@ enum SelfTest {
             let none = try? await web?.evaluateJavaScript("document.querySelectorAll('li').length", in: nil, contentWorld: .page) as? Int
             check("History search with no match shows nothing", none == 0, "rows=\(none ?? -1)")
 
+            await storage(browser)
+
             NSLog("Core self-test: done")
         }
+    }
+
+    /// The wipe, Persist and the whitelist, with a cookie and localStorage.
+    static func storage(_ browser: BrowserWindowController) async {
+        let site = URL(string: "https://example.com/")!
+        func settle(_ tab: Tab) async {
+            try? await Task.sleep(for: .milliseconds(800))
+            for _ in 0 ..< 40 where tab.isLoading { try? await Task.sleep(for: .milliseconds(250)) }
+            try? await Task.sleep(for: .milliseconds(400))
+        }
+        func plant(_ tab: Tab) async {
+            _ = try? await tab.webView.evaluateJavaScript("document.cookie = 'core=1; max-age=3600; path=/'; localStorage.setItem('core', '1')", in: nil, contentWorld: .page)
+        }
+        func read(_ tab: Tab) async -> String {
+            (try? await tab.webView.evaluateJavaScript("(document.cookie.includes('core=1') ? 'cookie ' : '') + (localStorage.getItem('core') ? 'storage' : '')", in: nil, contentWorld: .page) as? String) ?? "?"
+        }
+
+        let tab = browser.newTab(site)
+        await settle(tab)
+        await plant(tab)
+        let planted = await read(tab)
+        tab.reload()
+        await settle(tab)
+        let afterWipe = await read(tab)
+        check("a reload wipes cookies and storage", planted == "cookie storage" && afterWipe.isEmpty, "planted=\(planted) after=\(afterWipe)")
+
+        tab.persist = true
+        await plant(tab)
+        tab.reload()
+        await settle(tab)
+        let persisted = await read(tab)
+        check("Persist keeps them through a reload", persisted == "cookie storage", "after=\(persisted)")
+        tab.persist = false
+
+        Preferences.shared.settings.whitelist = ["example.com"]
+        tab.load(site)
+        await settle(tab)
+        await plant(tab)
+        tab.reload()
+        await settle(tab)
+        let kept = await read(tab)
+        let other = browser.newTab(site)
+        await settle(other)
+        let shared = await read(other)
+        check("a whitelisted site keeps them, in every tab", kept == "cookie storage" && shared == "cookie storage", "same tab=\(kept) other tab=\(shared)")
+        Preferences.shared.settings.whitelist = []
+        try? await Task.sleep(for: .milliseconds(500))
+        other.load(site)
+        await settle(other)
+        let forgotten = await read(other)
+        check("taking a site off the whitelist forgets its jar", forgotten.isEmpty, "after=\(forgotten)")
     }
 
     /// `-coreProbe <url> -coreProbeOut <file>`: loads the page, lets it
