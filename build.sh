@@ -24,9 +24,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN" "$APP/Contents/MacOS/CoreApp"
 clang -O2 -mmacosx-version-min=26.0 -o "$APP/Contents/MacOS/Core" engine/launcher.c
-sed -e "s/VERSION/$VERSION/" -e "s/BUILD/$BUILD/" \
-    -e "s|FEED|${CORE_UPDATE_FEED:-}|" -e "s/TEAM/${CORE_TEAM_ID:-}/" \
-    release/Info.plist > "$APP/Contents/Info.plist"
+sed -e "s/VERSION/$VERSION/" -e "s/BUILD/$BUILD/" release/Info.plist > "$APP/Contents/Info.plist"
 [ -f release/AppIcon.icns ] && cp release/AppIcon.icns "$APP/Contents/Resources/"
 
 IDENTITY="-"

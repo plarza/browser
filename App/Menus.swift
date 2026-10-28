@@ -21,6 +21,7 @@ enum Menus {
         main.addItem(submenu("File", [
             item("New Tab", #selector(BrowserWindowController.newTabAction(_:)), "t"),
             item("Open Location…", #selector(BrowserWindowController.focusAddress(_:)), "l"),
+            item("Save Page As…", #selector(BrowserWindowController.savePage(_:)), "s", [.command, .shift]),
             .separator(),
             item("Close Tab", #selector(BrowserWindowController.closeTabAction(_:)), "w"),
             item("Reopen Closed Tab", #selector(BrowserWindowController.reopenClosedTab(_:)), "t", [.command, .shift]),

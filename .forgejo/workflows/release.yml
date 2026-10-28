@@ -1,5 +1,5 @@
 # A tag (v0.2.0) builds the engine and the app on this Mac's runner, signs
-# and notarises them, and publishes the release with the updater's feed.
+# and notarises them, and publishes the DMG as a release. Updates are manual.
 name: release
 on:
   push:
@@ -16,10 +16,6 @@ jobs:
       - name: Engine
         run: engine/build.sh
       - name: App
-        env:
-          CORE_UPDATE_FEED: ${{ vars.CORE_UPDATE_FEED }}
-          CORE_DOWNLOAD_URL: ${{ vars.CORE_DOWNLOAD_URL }}
-          CORE_TEAM_ID: ${{ vars.CORE_TEAM_ID }}
         run: ./build.sh release ship
       - name: Publish
         env:

@@ -41,10 +41,31 @@ final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegat
     required init?(coder: NSCoder) { fatalError() }
 
     func reload(_ tabs: [Tab], selected: Tab?) {
+        let old = self.tabs
+        let previous = self.selected
         self.tabs = tabs
         self.selected = selected
-        table.reloadData()
+        // One tab in or out: animate just that row; anything else redraws.
+        if tabs.count == old.count + 1, let i = tabs.indices.first(where: { $0 >= old.count || tabs[$0] !== old[$0] }),
+           Array(tabs[..<i]) == Array(old[..<i]), Array(tabs[(i + 1)...]) == Array(old[i...]) {
+            table.insertRows(at: [i], withAnimation: [.effectFade, .slideDown])
+            refreshAll(except: [i])
+        } else if tabs.count + 1 == old.count, let i = old.indices.first(where: { $0 >= tabs.count || tabs[$0] !== old[$0] }),
+                  Array(old[..<i]) == Array(tabs[..<i]), Array(old[(i + 1)...]) == Array(tabs[i...]) {
+            table.removeRows(at: [i], withAnimation: [.effectFade, .slideUp])
+            refreshAll(except: [])
+        } else if tabs.count == old.count, zip(tabs, old).allSatisfy({ $0 === $1 }) {
+            if previous !== selected { refreshAll(except: []) }
+        } else {
+            table.reloadData()
+        }
         if let selected, let row = tabs.firstIndex(where: { $0 === selected }) { table.scrollRowToVisible(row) }
+    }
+
+    private func refreshAll(except skip: Set<Int>) {
+        for (row, tab) in tabs.enumerated() where !skip.contains(row) {
+            (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? TabCell)?.configure(tab, selected: tab === selected)
+        }
     }
 
     func refresh(_ tab: Tab) {
@@ -188,21 +209,17 @@ final class TabCell: NSTableCellView {
     override func updateLayer() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             let glow = NSColor.systemBlue
-            if isPersist {
-                layer?.backgroundColor = glow.withAlphaComponent(isSelected ? 0.24 : hovering ? 0.16 : 0.11).cgColor
-                layer?.shadowColor = glow.cgColor
-                layer?.shadowOpacity = 0.6
-                layer?.shadowRadius = 7
-                layer?.shadowOffset = .zero
-                layer?.borderColor = glow.withAlphaComponent(0.4).cgColor
-                layer?.borderWidth = 0.5
-            } else {
-                let fill: NSColor = isSelected ? NSColor.labelColor.withAlphaComponent(0.1)
-                    : hovering ? NSColor.labelColor.withAlphaComponent(0.05) : .clear
-                layer?.backgroundColor = fill.cgColor
-                layer?.shadowOpacity = 0
-                layer?.borderWidth = 0
-            }
+            let fill: NSColor = isPersist
+                ? glow.withAlphaComponent(isSelected ? 0.16 : hovering ? 0.11 : 0.08)
+                : isSelected ? NSColor.labelColor.withAlphaComponent(0.07)
+                : hovering ? NSColor.labelColor.withAlphaComponent(0.035) : NSColor.labelColor.withAlphaComponent(0)
+            Motion.set(layer, "backgroundColor", fill.cgColor)
+            layer?.shadowColor = glow.cgColor
+            layer?.shadowRadius = 8
+            layer?.shadowOffset = .zero
+            Motion.set(layer, "shadowOpacity", Float(isPersist ? 0.55 : 0), duration: 0.3)
+            Motion.set(layer, "borderColor", glow.withAlphaComponent(isPersist ? 0.35 : 0).cgColor, duration: 0.3)
+            layer?.borderWidth = 0.5
         }
     }
 

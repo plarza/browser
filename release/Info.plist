@@ -15,8 +15,6 @@
 	<key>NSHighResolutionCapable</key><true/>
 	<key>NSPrincipalClass</key><string>NSApplication</string>
 	<key>LSFileQuarantineEnabled</key><true/>
-	<key>CoreUpdateFeed</key><string>FEED</string>
-	<key>CoreTeamID</key><string>TEAM</string>
 	<key>NSCameraUsageDescription</key><string>A page asked to use your camera. Core asks you each time.</string>
 	<key>NSMicrophoneUsageDescription</key><string>A page asked to use your microphone. Core asks you each time.</string>
 	<key>CFBundleURLTypes</key>

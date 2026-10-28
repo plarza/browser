@@ -9,7 +9,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = Menus.build(target: self)
         Blocker.shared.start()
-        Updater.shared.start()
         browser = BrowserWindowController()
         Extensions.shared.host = browser
         Extensions.shared.windowOpened()
@@ -29,7 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         browser?.saveTabs()
-        Updater.shared.install()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

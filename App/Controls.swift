@@ -11,7 +11,7 @@ final class AddressField: NSView, NSTextFieldDelegate {
     private(set) var isEditing = false
     var loading = false { didSet { if loading != oldValue { updateReload() } } }
 
-    private let field = NSTextField()
+    private let field = SelectingField()
     private let icon = NSImageView()
     private let reload = NSButton()
     private var url: URL?
@@ -34,6 +34,7 @@ final class AddressField: NSView, NSTextFieldDelegate {
         field.cell?.usesSingleLineMode = true
         field.cell?.isScrollable = true
         field.delegate = self
+        field.onFocus = { [weak self] in self?.focus() }
 
         icon.contentTintColor = .secondaryLabelColor
         icon.symbolConfiguration = .init(pointSize: 11, weight: .semibold)
@@ -68,16 +69,17 @@ final class AddressField: NSView, NSTextFieldDelegate {
     override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(isEditing ? 0.1 : 0.06).cgColor
-            layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(isEditing ? 0.5 : 0).cgColor
-            layer?.borderWidth = isEditing ? 1.5 : 0
+            Motion.set(layer, "backgroundColor", NSColor.labelColor.withAlphaComponent(isEditing ? 0.04 : 0.05).cgColor)
+            Motion.set(layer, "borderColor", NSColor.controlAccentColor.withAlphaComponent(isEditing ? 0.55 : 0).cgColor)
+            layer?.borderWidth = 1.5
         }
     }
 
     override func mouseDown(with event: NSEvent) { focus() }
 
+    /// A click or ⌘L: the whole address, https and all, selected.
     func focus() {
-        window?.makeFirstResponder(field)
+        if field.currentEditor() == nil { window?.makeFirstResponder(field) }
         beginEditing()
         field.currentEditor()?.selectAll(nil)
     }
@@ -178,75 +180,15 @@ final class AddressField: NSView, NSTextFieldDelegate {
     }
 }
 
-/// Back and forward, and the sidebar toggle: glass buttons beside the
-/// traffic lights.
+/// Pure white (black in dark mode), with a hairline where it meets the page.
 @MainActor
-final class NavigationButtons: NSStackView {
-    var onBack: () -> Void = {}
-    var onForward: () -> Void = {}
-    var onSidebar: () -> Void = {}
-    private let back = NavigationButtons.button("chevron.left", "Back")
-    private let forward = NavigationButtons.button("chevron.right", "Forward")
-    private let sidebar = NavigationButtons.button("sidebar.left", "Hide Sidebar")
-
-    init() {
-        super.init(frame: .zero)
-        orientation = .horizontal
-        spacing = 6
-        back.target = self; back.action = #selector(goBack)
-        forward.target = self; forward.action = #selector(goForward)
-        sidebar.target = self; sidebar.action = #selector(toggle)
-        addArrangedSubview(sidebar)
-        addArrangedSubview(back)
-        addArrangedSubview(forward)
-        update(back: false, forward: false)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    static func button(_ symbol: String, _ label: String) -> NSButton {
-        let b = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)!
-            .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))!, target: nil, action: nil)
-        b.bezelStyle = .glass
-        b.controlSize = .regular
-        b.toolTip = label
-        return b
-    }
-
-    func update(back canBack: Bool, forward canForward: Bool) {
-        back.isEnabled = canBack
-        forward.isEnabled = canForward
-    }
-
-    @objc private func goBack() { onBack() }
-    @objc private func goForward() { onForward() }
-    @objc private func toggle() { onSidebar() }
-}
-
-/// The page, as a card with rounded corners and a soft shadow.
-@MainActor
-final class PageCard: NSView {
-    let content = NSView()
+final class Sidebar: NSView {
+    private let edge = CALayer()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.shadowOpacity = 0.18
-        layer?.shadowRadius = 10
-        layer?.shadowOffset = NSSize(width: 0, height: -2)
-        content.wantsLayer = true
-        content.layer?.cornerRadius = 12
-        content.layer?.cornerCurve = .continuous
-        content.layer?.masksToBounds = true
-        content.layer?.borderWidth = 0.5
-        content.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(content)
-        NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: trailingAnchor),
-            content.topAnchor.constraint(equalTo: topAnchor),
-            content.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+        layer?.addSublayer(edge)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -254,9 +196,100 @@ final class PageCard: NSView {
     override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            content.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
-            content.layer?.borderColor = NSColor.separatorColor.cgColor
+            layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+            edge.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.6).cgColor
         }
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        edge.frame = NSRect(x: bounds.maxX - 0.5, y: 0, width: 0.5, height: bounds.height)
+        CATransaction.commit()
+    }
+
+    // The window drags from the sidebar's empty top, around the traffic lights.
+    override var mouseDownCanMoveWindow: Bool { true }
+}
+
+/// Where the page goes. Switching tabs cross-fades.
+@MainActor
+final class PageArea: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+        }
+    }
+
+    func crossfade() {
+        let fade = CATransition()
+        fade.type = .fade
+        fade.duration = 0.16
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer?.add(fade, forKey: "crossfade")
+    }
+}
+
+/// The sidebar's edge: drag to resize.
+@MainActor
+final class SidebarDivider: NSView {
+    var onDrag: (CGFloat) -> Void = { _ in }
+    var onEnd: () -> Void = {}
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .columnResize) }
+
+    override func mouseDown(with event: NSEvent) {
+        var last = event.locationInWindow.x
+        window?.trackEvents(matching: [.leftMouseDragged, .leftMouseUp], timeout: .infinity, mode: .eventTracking) { event, stop in
+            guard let event else { stop.pointee = true; return }
+            if event.type == .leftMouseUp {
+                stop.pointee = true
+                self.onEnd()
+                return
+            }
+            let x = event.locationInWindow.x
+            self.onDrag(x - last)
+            last = x
+        }
+    }
+}
+
+/// Animates a layer property from its current value, the way a view's own
+/// animator would: short and eased.
+@MainActor
+enum Motion {
+    static let ease = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
+
+    static func set(_ layer: CALayer?, _ key: String, _ value: Any?, duration: CFTimeInterval = 0.18) {
+        guard let layer else { return }
+        let from = layer.presentation()?.value(forKeyPath: key) ?? layer.value(forKeyPath: key)
+        layer.setValue(value, forKeyPath: key)
+        let animation = CABasicAnimation(keyPath: key)
+        animation.fromValue = from
+        animation.toValue = value
+        animation.duration = duration
+        animation.timingFunction = ease
+        layer.add(animation, forKey: key)
+    }
+}
+
+/// A text field that, when clicked into, selects everything rather than
+/// placing a caret, as Safari's does. Clicks once editing go on as usual.
+@MainActor
+final class SelectingField: NSTextField {
+    var onFocus: () -> Void = {}
+
+    override func mouseDown(with event: NSEvent) {
+        if currentEditor() == nil { onFocus() } else { super.mouseDown(with: event) }
     }
 }
 
@@ -277,14 +310,29 @@ final class ProgressLine: NSView {
     private var value = 1.0
 
     func set(_ value: Double) {
+        let done = value >= 1
+        if !done && self.value >= 1 {
+            // A new load: start from nothing, without animating back.
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            bar.frame.size.width = 0
+            CATransaction.commit()
+        }
         self.value = value
-        isHidden = value >= 1
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = done ? 0.35 : 0.2
+            animator().alphaValue = done ? 0 : 1
+        }
         needsLayout = true
     }
 
     override func layout() {
         super.layout()
-        bar.frame = NSRect(x: 0, y: 0, width: bounds.width * max(0.08, value), height: bounds.height)
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.25)
+        CATransaction.setAnimationTimingFunction(Motion.ease)
+        bar.frame = NSRect(x: 0, y: 0, width: bounds.width * max(0.06, value), height: bounds.height)
+        CATransaction.commit()
     }
 }
 
@@ -322,6 +370,30 @@ final class FindBar: NSGlassEffectView, NSSearchFieldDelegate {
     func focus() {
         window?.makeFirstResponder(field)
         field.currentEditor()?.selectAll(nil)
+    }
+
+    /// In from above with a fade; out the same way.
+    func present() {
+        guard isHidden else { return }
+        isHidden = false
+        alphaValue = 0
+        layer?.setAffineTransform(CGAffineTransform(translationX: 0, y: 8))
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            context.timingFunction = Motion.ease
+            animator().alphaValue = 1
+        }
+        Motion.set(layer, "transform", CATransform3DIdentity, duration: 0.24)
+    }
+
+    func dismiss() {
+        guard !isHidden else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            self?.isHidden = true
+        }
     }
 
     func matched(_ found: Bool) {

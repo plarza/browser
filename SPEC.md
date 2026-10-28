@@ -20,7 +20,7 @@ release/     build, sign, notarize, publish to Forgejo, update feed
 
 ## Tabs
 
-- Tabs run down the left, in a vertical list. There are no pinned tabs.
+- Tabs run down the left, in a vertical list, in a plain white sidebar whose edge drags (200–420 pt). The page fills the rest of the window. There are no pinned tabs, no back/forward buttons and no New Tab button: ⌘T, ⌘[ and ⌘] do those.
 - Each tab is a separate identity, with its own web process and its own network session. The session holds the tab's cookies, localStorage, sessionStorage, IndexedDB, Cache API, service workers, HTTP cache, HSTS, TLS session cache, connection pool, DNS cache and its fingerprint seed.
 - **Wipe.** Every reload and every top-level navigation throws the whole session away and starts the next load in a brand-new one. That includes typed URLs, clicked links, back and forward, and redirects initiated by the page. Logins do not survive a reload.
 - **Persist** (⌘I, or right-click › Persist Tab). The tab keeps its session through reloads and navigation. A subtle blue glow behind the tab shows it is on. Persist belongs to the tab, not the site, and closing the tab still destroys everything.
@@ -96,11 +96,11 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 ## Keyboard
 
-The same as Search, wherever the feature exists in Core, plus ⌘I for Persist.
+The same as Search, wherever the feature exists in Core, plus ⌘I for Persist, ⌘S to show or hide the sidebar and ⇧⌘S to save the page as a web archive.
 
 ## Builds and updates
 
 - **Source.** The repository lives on `git.aza.network` (Forgejo). A `forgejo-runner` in host mode runs on this Mac with the label `macos-arm64`.
 - **Releases.** Pushing a tag builds the engine and the app, signs them with the Developer ID, notarizes them, and uploads the DMG to Forgejo Releases.
-- **Updates.** The app checks Forgejo releases once a day, through the system network (your VPN). It checks the Developer ID signature and team, then swaps the new build in on the next launch.
-- **Telemetry.** None. The only requests Core makes on its own are the daily update check and the daily filter-list fetch.
+- **Updates** are manual: install the new DMG from the release. Core never checks for updates itself.
+- **Telemetry.** None. The only request Core makes on its own is the daily filter-list fetch.
