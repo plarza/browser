@@ -336,8 +336,8 @@ final class TabCell: NSTableCellView {
             let colors: [NSColor] = dark
                 ? (isSelected ? [NSColor(red: 0.16, green: 0.30, blue: 0.50, alpha: 1), NSColor(red: 0.12, green: 0.25, blue: 0.44, alpha: 1)]
                               : [NSColor(red: 0.12, green: 0.22, blue: 0.36, alpha: 1), NSColor(red: 0.10, green: 0.19, blue: 0.32, alpha: 1)])
-                : (isSelected ? [NSColor(red: 0.83, green: 0.91, blue: 1, alpha: 1), NSColor(red: 0.89, green: 0.94, blue: 1, alpha: 1)]
-                              : [NSColor(red: 0.925, green: 0.962, blue: 1, alpha: 1), NSColor(red: 0.955, green: 0.977, blue: 1, alpha: 1)])
+                : (isSelected ? [NSColor(red: 0.36, green: 0.60, blue: 1, alpha: 1), NSColor(red: 0.45, green: 0.67, blue: 1, alpha: 1)]
+                              : [NSColor(red: 0.50, green: 0.71, blue: 1, alpha: 1), NSColor(red: 0.60, green: 0.78, blue: 1, alpha: 1)])
             Motion.set(sky, "colors", colors.map(\.cgColor), duration: 0.25)
             Motion.set(sky, "opacity", Float(isPersist ? 1 : 0), duration: 0.25)
         }

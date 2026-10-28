@@ -21,7 +21,7 @@ let package = Package(
             name: "Browser",
             dependencies: ["BrowserKit"],
             path: ".",
-            exclude: ["BrowserKit", "engine", "release", "build", "README.md", "SPEC.md", "VERSION", "build.sh", "Tests/engine.py"],
+            exclude: ["BrowserKit", "engine", "release", "build", "README.md", "SPEC.md", "LICENSE", "VERSION", "build.sh", "Tests/engine.py"],
             sources: ["App", "Tests"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

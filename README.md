@@ -1,10 +1,13 @@
-<p align="center"><img src="release/icon.png" width="128" alt="Browser"></p>
+<div align="center">
+    <img src="release/icon.png"
+        title="Browser" alt="Browser logo" width="120" />
+    <h1>Aza Browser</h1>
+    <p>
+        A private and opinionated macOS browser
+    </p>
+</div>
 
-# Browser
-
-A private macOS browser on its own build of WebKit.
-
-![Browser with tabs open and the new tab page](release/screenshot.webp)
+![Browser](release/screenshot.webp)
 
 ## Engine patches
 
@@ -81,7 +84,7 @@ It logs PASS/FAIL per check, ends with a count and quits, exiting non-zero if an
 
 ## Screenshot
 
-`release/screenshot.sh` redraws `release/screenshot.webp` (quality 80) from a debug build: the tabs listed in the script load from the internet into a throwaway data folder, and the new tab page is in front. `release/screenshot.sh dark` is the dark version; `FILL=1` puts the picture behind the sidebar too.
+`release/screenshot.sh` redraws `release/screenshot.webp` (quality 80) from a debug build: the tabs listed in the script load from the internet into a throwaway data folder, and the new tab page is in front. The settings at the top of the script choose the tabs, the Persist tab, light or dark, and Fill.
 
 ## Licence
 

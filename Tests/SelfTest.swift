@@ -652,8 +652,10 @@ enum SelfTest {
             }
             if !loaded { NSLog("Browser screenshot: some tabs hadn't loaded: \(tabs.filter(\.isLoading).compactMap(\.url))") }
             window.makeFirstResponder(nil)
-            // The active window, so its buttons are in colour.
-            NSApp.activate()
+            // The active window, so its buttons are in colour. The plain
+            // activate() is only a request, which macOS turns down while
+            // the terminal that started the script is in front.
+            NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             _ = await until("the window to be key", seconds: 5) { window.isKeyWindow }
             let saved = await capture(browser, to: URL(fileURLWithPath: out))
