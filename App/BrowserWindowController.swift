@@ -91,14 +91,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         let blank = selected.map { $0.url == nil && $0.pending == nil && !$0.isLoading } ?? false
         selected?.webView.isHidden = blank
         content.isClear = blank
-        guard backdrop.isHidden == blank else { return }
-        if blank { backdrop.alphaValue = 0; backdrop.isHidden = false }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            backdrop.animator().alphaValue = blank ? 1 : 0
-        } completionHandler: { [weak self] in
-            if !blank { self?.backdrop.isHidden = true }
-        }
+        backdrop.isHidden = !blank
+        backdrop.alphaValue = 1
     }
 
     /// A mouse's back and forward buttons do what ⌘[ and ⌘] do. WebKit
@@ -374,7 +368,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         guard tabs.contains(where: { $0 === tab }) else { return }
         let previous = selected
         if selected !== tab {
-            if selected != nil { content.crossfade() }
             selected?.webView.removeFromSuperview()
         }
         selected = tab
@@ -729,7 +722,6 @@ extension BrowserWindowController {
     var selectedWebViewForTesting: NSView { selected?.webView ?? content }
     var sidebarShownForTesting: Bool { sidebarShown }
     var selectedTab: Tab? { selected }
-    func sidebarShadowForTesting(_ n: Int) { shade.apply(SidebarShadow.styles[n]) }
     var newTabPageShownForTesting: Bool { !backdrop.isHidden && backdrop.alphaValue > 0.5 }
     func mouseButtonForTesting(_ number: Int) { mouseButton(number) }
     func swipeForTesting(_ phase: NSEvent.Phase, dx: CGFloat) { follow(phase, dx: dx, dy: 0) }

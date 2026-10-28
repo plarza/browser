@@ -204,11 +204,6 @@ enum SelfTest {
                 swiper.persist = true
                 browser.select(wiki)
                 await shot("page", browser)
-                for n in 0 ..< SidebarShadow.styles.count {
-                    browser.sidebarShadowForTesting(n)
-                    await shot("shadow-\(n + 1)", browser)
-                }
-                browser.sidebarShadowForTesting(0)
                 try? await Task.sleep(for: .seconds(4))
                 let field = browser.addressFieldForTesting
                 field.focus()
