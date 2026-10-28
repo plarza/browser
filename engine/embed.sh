@@ -9,7 +9,6 @@ set -euo pipefail
 ENGINE="$1"
 APP="$2"
 IDENTITY="${3:--}"
-here="$(cd "$(dirname "$0")" && pwd)"
 FW="$APP/Contents/Frameworks"
 mkdir -p "$FW"
 
@@ -55,7 +54,19 @@ done
 for service in "$XPC"/*.xpc; do
   ents="$(mktemp)"
   codesign -d --entitlements - --xml "$service" 2>/dev/null > "$ents.in" || true
-  if [ "$IDENTITY" = "-" ]; then cp "$ents.in" "$ents"; else python3 "$here/entitlements.py" "$ents.in" > "$ents"; fi
+  cp "$ents.in" "$ents"
+  if [ "$IDENTITY" != "-" ]; then
+    # Minus JIT (Core has none), the debugger's and Apple-private ones;
+    # plus leave to read the dyld path the launcher sets.
+    pb=/usr/libexec/PlistBuddy
+    [ -s "$ents" ] || $pb -c "Save" "$ents" >/dev/null
+    for key in $(plutil -convert json -o - "$ents" | jq -r 'keys[]'); do
+      case "$key" in
+        com.apple.security.cs.allow-jit|com.apple.security.get-task-allow|com.apple.private.*) $pb -c "Delete :$key" "$ents" ;;
+      esac
+    done
+    $pb -c "Add :com.apple.security.cs.allow-dyld-environment-variables bool true" "$ents"
+  fi
   if [ -s "$ents" ]; then sign --entitlements "$ents" "$service"; else sign "$service"; fi
   rm -f "$ents" "$ents.in"
 done

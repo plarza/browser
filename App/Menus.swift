@@ -1,6 +1,6 @@
 import AppKit
 
-/// The menu bar. Shortcuts follow Search's, plus ⌘I for Persist.
+/// The menu bar. Safari's shortcuts where Core has the feature, plus ⌘I for Persist.
 @MainActor
 enum Menus {
     static func build(target app: AppDelegate, browser: BrowserWindowController) -> NSMenu {
@@ -67,18 +67,23 @@ enum Menus {
             .separator(),
             item("Next Tab", #selector(BrowserWindowController.nextTab(_:)), "]", [.command, .shift]),
             item("Previous Tab", #selector(BrowserWindowController.previousTab(_:)), "[", [.command, .shift]),
-            item("Next Tab", #selector(BrowserWindowController.nextTab(_:)), "\t", [.control]),
-            item("Previous Tab", #selector(BrowserWindowController.previousTab(_:)), "\t", [.control, .shift]),
             .separator(),
             item("Copy Address", #selector(BrowserWindowController.copyAddress(_:)), "c", [.command, .shift]),
             item("Duplicate Tab", #selector(BrowserWindowController.duplicateTab(_:)), "d"),
             .separator(),
         ]
-        tabItems[4].isAlternate = false
-        tabItems[4].isHidden = true
-        tabItems[4].allowsKeyEquivalentWhenHidden = true
-        tabItems[5].isHidden = true
-        tabItems[5].allowsKeyEquivalentWhenHidden = true
+        // The same two commands on other keys: ⌃Tab, ⌃⇧Tab, and ⇧⌘↓, ⇧⌘↑
+        // (going round from the last tab to the first, as all of them do).
+        let down = String(Character(UnicodeScalar(NSDownArrowFunctionKey)!))
+        let up = String(Character(UnicodeScalar(NSUpArrowFunctionKey)!))
+        for (key, mods, next) in [("\t", NSEvent.ModifierFlags.control, true), ("\t", [.control, .shift], false),
+                                  (down, [.command, .shift], true), (up, [.command, .shift], false)] {
+            let extra = item(next ? "Next Tab" : "Previous Tab",
+                             next ? #selector(BrowserWindowController.nextTab(_:)) : #selector(BrowserWindowController.previousTab(_:)), key, mods)
+            extra.isHidden = true
+            extra.allowsKeyEquivalentWhenHidden = true
+            tabItems.insert(extra, at: 4)
+        }
         for n in 1 ... 9 {
             let jump = item("Tab \(n)", #selector(BrowserWindowController.selectTabNumber(_:)), "\(n)")
             jump.tag = n
@@ -121,7 +126,7 @@ enum Menus {
         // "S"); a lowercase key with a shift mask also matches plain ⌘S.
         var key = key
         var mods = mods
-        if mods.contains(.shift), key != "\t" {
+        if mods.contains(.shift), key.count == 1, let c = key.first, c.isLetter || "[]=-/".contains(c) {
             let shifted: [String: String] = ["[": "{", "]": "}", "=": "+", "-": "_", "/": "?"]
             key = shifted[key] ?? key.uppercased()
             mods.remove(.shift)

@@ -86,7 +86,7 @@ enum SelfTest {
             try? await Task.sleep(for: .seconds(2))
             let page = browser.selectedTab?.webView
             let sections = try? await page?.evaluateJavaScript("document.querySelectorAll('h2').length", in: nil, contentWorld: .page) as? Int
-            check("⌘, opens about://settings", browser.selectedTab?.url?.absoluteString == "about://settings" && sections == 4,
+            check("⌘, opens about://settings", browser.selectedTab?.url?.absoluteString == "about://settings" && sections == 5,
                   "url=\(browser.selectedTab?.url?.absoluteString ?? "nil") sections=\(sections ?? -1)")
             _ = try? await page?.evaluateJavaScript("document.querySelector('#picks button').click()", in: nil, contentWorld: .page)
             try? await Task.sleep(for: .milliseconds(500))
@@ -140,6 +140,45 @@ enum SelfTest {
                   "shown=\(field.suggestions.isShown) first=\(listed.first?.title ?? "none")")
             window.makeFirstResponder(nil)
             check("leaving the field hides the suggestions", !field.suggestions.isShown || field.suggestions.alphaValue < 1, "shown=\(field.suggestions.isShown)")
+
+            // Scrolling animates: a Space on a long page passes through several
+            // positions on its way down instead of jumping there.
+            let long = browser.newTab(URL(string: "https://en.wikipedia.org/wiki/WebKit")!)
+            try? await Task.sleep(for: .seconds(4))
+            window.makeFirstResponder(long.webView)
+            let space = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                         windowNumber: window.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ",
+                                         isARepeat: false, keyCode: 49)!
+            window.sendEvent(space)
+            var positions: [Double] = []
+            for _ in 0 ..< 15 {
+                if let y = try? await long.webView.evaluateJavaScript("scrollY", in: nil, contentWorld: .defaultClient) as? Double { positions.append(y) }
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+            let steps = Set(positions.filter { $0 > 0 && $0 < (positions.last ?? 0) }).count
+            check("scrolling is smooth", steps >= 3, "positions=\(positions.map { Int($0) })")
+            browser.close(long)
+
+            // ⇧⌘↑ from the first tab goes round to the last; ⇧⌘↓ back to the first.
+            let up = String(Character(UnicodeScalar(NSUpArrowFunctionKey)!))
+            let down = String(Character(UnicodeScalar(NSDownArrowFunctionKey)!))
+            browser.select(browser.tabs[0])
+            key(up, in: window, modifiers: [.command, .shift])
+            check("⇧⌘↑ on the first tab goes to the last", browser.selectedTab === browser.tabs.last, "")
+            key(down, in: window, modifiers: [.command, .shift])
+            check("⇧⌘↓ on the last tab goes to the first", browser.selectedTab === browser.tabs.first, "")
+
+            // New tabs go where Settings says.
+            Preferences.shared.settings.newTabPosition = .top
+            let atTop = browser.newTab(nil, focus: false)
+            Preferences.shared.settings.newTabPosition = .bottom
+            let atBottom = browser.newTab(nil, focus: false)
+            browser.select(browser.tabs[1])
+            Preferences.shared.settings.newTabPosition = .below
+            let below = browser.newTab(nil, focus: false)
+            check("new tabs open at the top, the bottom, or below the current one",
+                  browser.tabs.first === atTop && browser.tabs.last === atBottom && browser.tabs[2] === below, "")
+            for tab in [atTop, atBottom, below] { browser.close(tab) }
 
             // The filter lists, fetched at launch, compile into the blocker.
             for _ in 0 ..< 120 where Blocker.shared.ruleCount == 0 && Blocker.shared.trouble == nil {
@@ -267,7 +306,8 @@ enum SelfTest {
     static func key(_ character: String, in window: NSWindow, modifiers: NSEvent.ModifierFlags = .command) {
         let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
                                     windowNumber: window.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character,
-                                    isARepeat: false, keyCode: ["s": 1, "l": 37, "y": 16][character] ?? 0)!
+                                    isARepeat: false, keyCode: ["s": 1, "l": 37, "y": 16, String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)): 126,
+                                                                String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)): 125][character] ?? 0)!
         // What NSApp does with a ⌘-key for the key window.
         if !window.performKeyEquivalent(with: down) { window.sendEvent(down) }
     }

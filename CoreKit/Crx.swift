@@ -2,7 +2,7 @@ import Foundation
 import CryptoKit
 import Security
 
-// From Search's Crx.swift (MIT, Office Commun).
+// Copyright (c) 2026 Office Commun. MIT License (see LICENSES/MIT-Office-Commun.txt).
 //
 // Chrome extensions, straight from the Chrome Web Store.
 //

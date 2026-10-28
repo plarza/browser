@@ -6,7 +6,7 @@ import WebKit
 /// The one window: tabs down the left, the page on the right, one field
 /// above the tabs.
 @MainActor
-final class BrowserWindowController: NSWindowController, NSWindowDelegate {
+final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation {
     private(set) var tabs: [Tab] = []
     private(set) var selected: Tab?
     private var closed: [URL] = []
@@ -279,7 +279,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     func restore() {
         let saved = OpenTabs.restore()
-        for url in saved.urls { newTab(nil, select: false, focus: false).restore(url) }
+        for url in saved.urls { newTab(nil, select: false, focus: false, restoring: true).restore(url) }
         if tabs.isEmpty {
             newTab(nil)
         } else {
@@ -295,12 +295,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @discardableResult
-    func newTab(_ url: URL?, after: Tab? = nil, select shouldSelect: Bool = true, focus: Bool = true) -> Tab {
+    func newTab(_ url: URL?, after: Tab? = nil, select shouldSelect: Bool = true, focus: Bool = true, restoring: Bool = false) -> Tab {
         let tab = Tab(delegate: self)
         let anchor = after ?? selected
-        if let anchor, let i = tabs.firstIndex(where: { $0 === anchor }) {
-            tabs.insert(tab, at: i + 1)
-        } else {
+        switch restoring ? .bottom : Preferences.shared.settings.newTabPosition {
+        case .top:
+            tabs.insert(tab, at: 0)
+        case .below where anchor != nil:
+            tabs.insert(tab, at: (tabs.firstIndex { $0 === anchor } ?? tabs.count - 1) + 1)
+        case .below, .bottom:
             tabs.append(tab)
         }
         Extensions.shared.didOpen(tab)
@@ -373,6 +376,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         guard tabs.indices.contains(from) else { return }
         let tab = tabs.remove(at: from)
         tabs.insert(tab, at: min(max(0, to > from ? to - 1 : to), tabs.count))
+        Extensions.shared.didMove(tab, from: from)
         tabList.reload(tabs, selected: selected)
         saveTabs()
     }
@@ -533,7 +537,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     @objc func findNext(_ sender: Any?) { find(findBar.text, backwards: false) }
     @objc func findPrevious(_ sender: Any?) { find(findBar.text, backwards: true) }
 
-    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+    @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(togglePersist(_:)):
             item.state = selected?.persist == true ? .on : .off

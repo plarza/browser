@@ -112,7 +112,6 @@ public final class Blocker {
                     remove("\(Blocker.filtersID)-\(old)")
                     try? await store.removeContentRuleList(forIdentifier: "\(Blocker.filtersID)-\(old)")
                 }
-                remove(Blocker.filtersID)
                 for list in compiled { install(list, replacing: list.identifier) }
                 Store.write(lists.count, "filters-lists.json")
                 ruleCount = output.blocks.count + output.hides.count + output.exceptions.count
@@ -149,9 +148,8 @@ public final class Blocker {
         }
     }
 
-    /// Third parties whose only job is to watch or to sell; from Search's
-    /// Shield (MIT, Office Commun). Enough to be useful before the first
-    /// fetch has finished.
+    /// Third parties whose only job is to watch or to sell. Enough to be
+    /// useful before the first fetch has finished.
     static let base = [
         "doubleclick.net", "googlesyndication.com", "googleadservices.com",
         "googletagservices.com", "google-analytics.com", "googletagmanager.com",

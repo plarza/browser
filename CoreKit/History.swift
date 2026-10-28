@@ -31,12 +31,7 @@ public final class History {
     private static let limit = 10000
 
     private init() {
-        if let visits = Store.read([Visit].self, "history.json") {
-            self.visits = visits
-        } else {
-            // Before titles were kept: addresses only.
-            visits = (Store.read([String].self, "history.json") ?? []).map { Visit(url: $0, title: "") }
-        }
+        visits = Store.read([Visit].self, "history.json") ?? []
     }
 
     func add(_ url: URL) {

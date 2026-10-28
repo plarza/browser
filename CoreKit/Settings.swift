@@ -11,6 +11,12 @@ public struct Settings: Codable, Equatable {
     public var whitelist: [String] = []
     /// Filter lists fetched once a day.
     public var filterLists: [String] = Settings.defaultFilterLists
+    /// Where a new tab goes in the list.
+    public var newTabPosition: TabPosition = .below
+
+    public enum TabPosition: String, Codable, CaseIterable {
+        case below, top, bottom
+    }
 
     public static let defaultFilterLists = [
         "https://ublockorigin.github.io/uAssets/filters/filters.min.txt",
@@ -31,6 +37,7 @@ public struct Settings: Codable, Equatable {
         searchTemplate = try c.decodeIfPresent(String.self, forKey: .searchTemplate) ?? ""
         whitelist = try c.decodeIfPresent([String].self, forKey: .whitelist) ?? []
         filterLists = try c.decodeIfPresent([String].self, forKey: .filterLists) ?? Settings.defaultFilterLists
+        newTabPosition = try c.decodeIfPresent(TabPosition.self, forKey: .newTabPosition) ?? .below
     }
 }
 

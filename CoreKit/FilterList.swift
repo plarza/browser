@@ -12,10 +12,6 @@ public enum FilterList {
         public var exceptions: [[String: Any]] = []
         public var skipped = 0
 
-        /// In the order WebKit needs: an `ignore-previous-rules` only undoes
-        /// what came before it.
-        public var rules: [[String: Any]] { blocks + hides + exceptions }
-
         /// The rules as several lists: WebKit takes at most 150,000 rules in
         /// one. An exception only undoes rules in its own list, so every list
         /// ends with all of them.

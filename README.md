@@ -1,6 +1,8 @@
+<p align="center"><img src="release/icon.png" width="128" alt="Core"></p>
+
 # Core
 
-A private browser for macOS on a patched WebKit. Details in [SPEC.md](SPEC.md).
+A private browser for macOS on a patched WebKit.
 
 - Each tab has its own cookies, storage, cache and fingerprint seed, wiped on every reload and navigation.
 - ⌘I (Persist) keeps a tab's session until the tab closes.
@@ -25,11 +27,11 @@ A private browser for macOS on a patched WebKit. Details in [SPEC.md](SPEC.md).
 | ⌘Y | History |
 | ⌘R | Reload (wipes the tab) |
 | ⌘[ / ⌘] | Back / forward |
-| ⇧⌘[ / ⇧⌘] | Previous / next tab |
+| ⇧⌘[ / ⇧⌘] or ⇧⌘↑ / ⇧⌘↓ | Previous / next tab (wraps around) |
 | ⌘1–⌘9 | Jump to tab |
 | ⌘F | Find |
 | ⌘, | Settings (`about://settings`) |
-| Two-finger swipe | Back / forward |
+| Two-finger swipe, mouse back/forward buttons | Back / forward |
 
 ## Build
 
@@ -70,5 +72,3 @@ It logs PASS/FAIL per check. `-coreStore` uses a separate data folder. `-corePro
 | `CoreKit/` | Tabs, identities, blocker, bangs, history, extensions |
 | `App/` | Window, sidebar, settings, self-test |
 | `release/` | Info.plist, entitlements, icon, notarization, runner setup |
-
-Parts are from [Search](https://github.com/driceroland/Search) (MIT): the CRX installer, link cleaning, and the starter block list.

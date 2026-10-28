@@ -1,7 +1,6 @@
 import Foundation
 
-// From Search's CleanLink.swift (MIT, Office Commun). In Core it runs on
-// every navigation rather than only on Copy.
+// Copyright (c) 2026 Office Commun. MIT License (see LICENSES/MIT-Office-Commun.txt).
 
 /// An address without the parameters that only say where a click came from.
 /// Unknown parameters stay, so do order, encoding and the fragment; a signed

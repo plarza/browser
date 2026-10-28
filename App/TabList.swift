@@ -143,11 +143,10 @@ extension TabListView: NSMenuDelegate {
 final class TabCell: NSTableCellView {
     var onClose: () -> Void = {}
     private let label = NSTextField(labelWithString: "")
-    private let close = NSButton()
     private let tile = Monogram()
     private let spinner = NSProgressIndicator()
     private var tracking: NSTrackingArea?
-    private var hovering = false { didSet { close.isHidden = !hovering } }
+    private var hovering = false { didSet { needsDisplay = true } }
     private var isSelected = false
     private var isPersist = false
 
@@ -158,18 +157,10 @@ final class TabCell: NSTableCellView {
         layer?.cornerCurve = .continuous
         label.font = .systemFont(ofSize: 13)
         label.lineBreakMode = .byTruncatingTail
-        close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")?
-            .withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
-        close.isBordered = false
-        close.bezelStyle = .accessoryBarAction
-        close.contentTintColor = .secondaryLabelColor
-        close.target = self
-        close.action = #selector(closeClicked)
-        close.isHidden = true
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
-        for v in [tile, spinner, label, close] as [NSView] {
+        for v in [tile, spinner, label] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             addSubview(v)
         }
@@ -184,11 +175,7 @@ final class TabCell: NSTableCellView {
             spinner.heightAnchor.constraint(equalToConstant: 14),
             label.leadingAnchor.constraint(equalTo: tile.trailingAnchor, constant: 9),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: close.leadingAnchor, constant: -4),
-            close.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            close.centerYAnchor.constraint(equalTo: centerYAnchor),
-            close.widthAnchor.constraint(equalToConstant: 18),
-            close.heightAnchor.constraint(equalToConstant: 18),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
         ])
     }
 
@@ -240,8 +227,6 @@ final class TabCell: NSTableCellView {
     override func otherMouseUp(with event: NSEvent) {
         if event.buttonNumber == 2 { onClose() } else { super.otherMouseUp(with: event) }
     }
-
-    @objc private func closeClicked() { onClose() }
 }
 
 /// The site's icon, faded in when it arrives; nothing until then, or when

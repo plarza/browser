@@ -51,6 +51,9 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
             Preferences.shared.settings.filterLists = lines("v")
             Blocker.shared.refresh(force: true)
             json(task, url, state())
+        case ("settings", "/tabs"):
+            Preferences.shared.settings.newTabPosition = Settings.TabPosition(rawValue: value("v")) ?? .below
+            json(task, url, state())
         case ("settings", "/lists-default"):
             Preferences.shared.settings.filterLists = Settings.defaultFilterLists
             json(task, url, state())
@@ -89,6 +92,7 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
         let searchTemplate: String
         let whitelist: [String]
         let filterLists: [String]
+        let newTabPosition: String
         let rules: Int
         let trouble: String?
         let extensions: [Extensions.Installed]
@@ -98,6 +102,7 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
         let settings = Preferences.shared.settings
         return State(
             searchTemplate: settings.searchTemplate, whitelist: settings.whitelist, filterLists: settings.filterLists,
+            newTabPosition: settings.newTabPosition.rawValue,
             rules: Blocker.shared.ruleCount, trouble: Blocker.shared.trouble ?? Extensions.shared.trouble,
             extensions: Extensions.shared.installed
         )
@@ -216,6 +221,9 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
     .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
     .row input { flex: 1; }
     .dim { color: var(--dim); font-size: 12px; }
+    .segments { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--edge); border-radius: 14px; height: 28px; box-sizing: border-box; }
+    .segments button { border: 0; height: 22px; border-radius: 11px; padding: 0 12px; }
+    .segments button.on { background: CanvasText; color: Canvas; }
     .spacer { flex: 1; }
     ul { list-style: none; padding: 0; margin: 8px 0 0; }
     li { display: flex; align-items: center; padding: 4px 0; }
@@ -227,6 +235,10 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
       <h2>Search Engine</h2>
       <input type=text id=search placeholder="https://example.com/search?q=%s" spellcheck=false>
       <div class="row picks" id=picks></div>
+    </section>
+    <section>
+      <h2>New Tabs Open</h2>
+      <div class=segments id=tabs><button data-v=below>Below Current Tab</button><button data-v=top>At the Top</button><button data-v=bottom>At the Bottom</button></div>
     </section>
     <section>
       <h2>Keep Cookies For</h2>
@@ -260,6 +272,7 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
       kept = s.whitelist;
       if (document.activeElement !== $('whitelist')) $('whitelist').value = s.whitelist.join('\\n');
       if (document.activeElement !== $('lists')) $('lists').value = s.filterLists.join('\\n');
+      [...$('tabs').children].forEach(b => b.classList.toggle('on', b.dataset.v === s.newTabPosition));
       $('rules').textContent = s.rules ? s.rules.toLocaleString() + ' rules' : '';
       $('trouble').textContent = s.trouble || '';
       $('extensions').innerHTML = s.extensions.map(e => '<li><span></span><button data-id="' + e.id + '">Remove</button></li>').join('');
@@ -267,6 +280,7 @@ public final class InternalPage: NSObject, WKURLSchemeHandler {
     }
     $('picks').innerHTML = engines.map(([name, , icon]) => '<button><img src="' + icon + '" alt="">' + name + '</button>').join('');
     [...$('picks').children].forEach((b, i) => b.onclick = () => { $('search').value = engines[i][1]; call('search', engines[i][1]); });
+    $('tabs').onclick = async e => { if (e.target.dataset.v) show(await call('tabs', e.target.dataset.v)); };
     $('search').onchange = () => call('search', $('search').value);
     let kept = [];
     $('whitelist').onchange = async () => {

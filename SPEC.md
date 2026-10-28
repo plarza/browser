@@ -1,6 +1,6 @@
 # Core
 
-Core is a macOS browser that gives you the privacy and anonymity of Mullvad Browser on a WebKit base. Its shell borrows from [Search](https://github.com/driceroland/Search), which is MIT-licensed. The name says what it is for: a core that other browsers can build on later. The UI is kept deliberately plain, just enough to use it as a browser.
+Core is a macOS browser that gives you the privacy and anonymity of Mullvad Browser on a WebKit base. The name says what it is for: a core that other browsers can build on later. The UI is kept deliberately plain, just enough to use it as a browser.
 
 Core is fool-proof. None of its protections can be turned off: there is no setting for it, the CoreKit API has no switch for it, and there is no debug flag.
 
@@ -80,13 +80,13 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 ## Extensions
 
-- Extensions work the way they do in Search: WebKit's WKWebExtension engine, Chrome Web Store install, and Search's fill-ins for the Chrome APIs WebKit lacks. Bitwarden is the expected password manager. Core has no built-in password store.
+- Extensions run on WebKit's WKWebExtension engine and install from the Chrome Web Store. Bitwarden is the expected password manager. Core has no built-in password store.
 - Extension content scripts can change pages in ways that are visible, so installing an extension is a fingerprinting trade-off the user chooses to make.
 
 ## Mouse and trackpad
 
 - The mouse's back and forward buttons, and two-finger swipes, go through Core's own back and forward lists, the same as ⌘[ and ⌘].
-- Scrolling is smooth, as in Safari.
+- Scrolling is smooth, as in Safari (the engine always enables WebKit's scroll animator).
 
 ## Downloads
 
@@ -94,7 +94,7 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 ## Settings (the whole list)
 
-Settings is a page, **about://settings** (⌘,), with:
+Settings is a page, **about://settings** (⌘,), with: where new tabs open (below the current tab, at the top, or at the bottom),
 
 1. Search engine (URL template)
 2. Cookie whitelist (domains)

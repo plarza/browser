@@ -130,6 +130,21 @@ index d1c33ac6e3..eb1b6e70b5 100644
 +}
 +
  }
+diff --git a/Source/WebKit/Shared/Cocoa/WebPreferencesDefaultValuesCocoa.mm b/Source/WebKit/Shared/Cocoa/WebPreferencesDefaultValuesCocoa.mm
+index eb65bcd88c..62009b2dc7 100644
+--- a/Source/WebKit/Shared/Cocoa/WebPreferencesDefaultValuesCocoa.mm
++++ b/Source/WebKit/Shared/Cocoa/WebPreferencesDefaultValuesCocoa.mm
+@@ -121,7 +121,9 @@ void LEGACY_NODELETE setLiquidGlassEnabled(bool isLiquidGlassEnabled)
+ #if PLATFORM(MAC)
+ bool defaultScrollAnimatorEnabled()
+ {
+-    return [[NSUserDefaults standardUserDefaults] boolForKey:@"NSScrollAnimationEnabled"];
++    // Core: smooth scrolling, always. The system default is read per
++    // process, and a web process never sees the app's.
++    return true;
+ }
+ #endif
+ 
 diff --git a/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm b/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm
 index 97c41013cb..11c1716211 100644
 --- a/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm
