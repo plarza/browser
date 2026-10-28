@@ -28,15 +28,16 @@ while IFS= read -r link; do
 done < <(find -L "$FW" -type l -not -path '*/XPCServices/*')
 
 XPC="$FW/WebKit.framework/Versions/A/XPCServices"
-for link in "$XPC"/*.xpc; do
+# A build's services are links to sibling bundles; an already assembled
+# runtime has real service directories, which ditto has copied intact.
+while IFS= read -r link; do
   name="$(basename "$link")"
-  rm -f "$link"
+  rm "$link"
   case "$name" in
-    # Not used by Core: the captive-portal, development and model processes.
     *CaptivePortal*|*Development*|*Model*) continue ;;
   esac
-  ditto "$ENGINE/$name" "$XPC/$name"
-done
+  ditto "$ENGINE/$name" "$link"
+done < <(find "$XPC" -maxdepth 1 -type l -name '*.xpc')
 
 # Every piece is re-signed inside out (WebKit's build leaves some seals
 # stale). A release uses the Developer ID and the hardened runtime, and the
@@ -65,6 +66,7 @@ for service in "$XPC"/*.xpc; do
         com.apple.security.cs.allow-jit|com.apple.security.get-task-allow|com.apple.private.*) $pb -c "Delete :$key" "$ents" ;;
       esac
     done
+    $pb -c "Delete :com.apple.security.cs.allow-dyld-environment-variables" "$ents" 2>/dev/null || true
     $pb -c "Add :com.apple.security.cs.allow-dyld-environment-variables bool true" "$ents"
   fi
   if [ -s "$ents" ]; then sign --entitlements "$ents" "$service"; else sign "$service"; fi

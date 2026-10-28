@@ -20,7 +20,9 @@ let package = Package(
         .executableTarget(
             name: "Core",
             dependencies: ["CoreKit"],
-            path: "App",
+            path: ".",
+            exclude: ["CoreKit", "engine", "release", "build", "README.md", "SPEC.md", "VERSION", "build.sh", "Tests/engine.py"],
+            sources: ["App", "Tests"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

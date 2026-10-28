@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import WebKit
 
@@ -7,11 +8,13 @@ import WebKit
 /// fonts, canvas, WebGL, audio, JIT and WebAssembly off, UTC and en-US.
 @MainActor
 public enum Engine {
-    /// Whether this process loaded Core's own WebKit rather than the
-    /// system's. A release build refuses to start without it.
-    public static let isPatched: Bool = {
-        WKWebpagePreferences.instancesRespond(to: NSSelectorFromString("_setCoreFingerprintSeed:"))
-    }()
+    /// This applies to every build and to direct executable launches too.
+    public static func requirePatched() {
+        guard WKWebpagePreferences.instancesRespond(to: NSSelectorFromString("_setCoreFingerprintSeed:")) else {
+            fputs("Core cannot start without its patched WebKit. Rebuild Core with the engine embedded.\n", stderr)
+            exit(EX_CONFIG)
+        }
+    }
 
     /// Safari's own, for the macOS this runs on: the largest crowd a WebKit
     /// browser can stand in.
@@ -27,10 +30,11 @@ public enum Engine {
     /// A configuration for a page in `identity`. Everything a page can
     /// switch on through preferences is decided here, once.
     static func configuration(for identity: Identity, content: WKUserContentController) -> WKWebViewConfiguration {
+        requirePatched()
         let config = WKWebViewConfiguration()
         config.websiteDataStore = identity.store
         config.userContentController = content
-        StoreRelay.install(in: content)
+        Links.install(in: content)
         config.webExtensionController = Extensions.shared.controller
         config.applicationNameForUserAgent = applicationName
         config.limitsNavigationsToAppBoundDomains = false
@@ -46,30 +50,19 @@ public enum Engine {
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         // Web Inspector (⇧⌘I) for the person at the keyboard; nothing a page can see.
         let extras = NSSelectorFromString("_setDeveloperExtrasEnabled:")
-        if config.preferences.responds(to: extras) {
-            typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
-            unsafeBitCast(config.preferences.method(for: extras), to: Setter.self)(config.preferences, extras, true)
-        }
+        typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
+        unsafeBitCast(config.preferences.method(for: extras), to: Setter.self)(config.preferences, extras, true)
         harden(config.defaultWebpagePreferences, seed: identity.seed)
         return config
     }
 
     /// Safari's Private Browsing protections: canvas, audio and screen
-    /// noise, network privacy, link decoration filtering. The patched
-    /// engine has them on whatever this says; on the system engine this is
-    /// what turns them on.
+    /// noise, network privacy and link decoration filtering are forced on
+    /// in the engine. Every navigation also carries its identity's seed.
     ///
     /// The seed goes with every navigation; the engine derives each site's
     /// canvas, audio and WebGL noise and its reported hardware from it.
     static func harden(_ preferences: WKWebpagePreferences, seed: UInt64) {
-        let integrity = NSSelectorFromString("_setNetworkConnectionIntegrityEnabled:")
-        if preferences.responds(to: integrity) {
-            typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
-            unsafeBitCast(preferences.method(for: integrity), to: Setter.self)(preferences, integrity, true)
-        }
-        let seeding = NSSelectorFromString("_setCoreFingerprintSeed:")
-        if preferences.responds(to: seeding) {
-            preferences.perform(seeding, with: NSNumber(value: seed))
-        }
+        preferences.perform(NSSelectorFromString("_setCoreFingerprintSeed:"), with: NSNumber(value: seed))
     }
 }

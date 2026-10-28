@@ -29,17 +29,18 @@ final class ActionBar: NSView {
 
     func reload() {
         actions = Extensions.shared.actions()
-        buttons.forEach { $0.removeFromSuperview() }
-        buttons = actions.enumerated().map { i, action in
-            let button = NSButton(image: icon(action), target: self, action: #selector(clicked(_:)))
-            button.tag = i
-            button.isBordered = false
-            button.bezelStyle = .accessoryBarAction
-            button.toolTip = action.label
-            button.isEnabled = action.isEnabled
-            button.imageScaling = .scaleProportionallyDown
-            if !action.badgeText.isEmpty {
-                let badge = NSTextField(labelWithString: action.badgeText)
+        // Updating an icon or badge must keep the popup's anchor alive.
+        if buttons.count != actions.count {
+            buttons.forEach { $0.removeFromSuperview() }
+            buttons = actions.indices.map { _ in
+                let button = NSButton()
+                button.isBordered = false
+                button.bezelStyle = .accessoryBarAction
+                button.imageScaling = .scaleProportionallyDown
+                button.target = self
+                button.action = #selector(clicked(_:))
+                button.addGestureRecognizer(NSPanGestureRecognizer(target: self, action: #selector(dragged(_:))))
+                let badge = NSTextField(labelWithString: "")
                 badge.font = .systemFont(ofSize: 8, weight: .bold)
                 badge.textColor = .white
                 badge.wantsLayer = true
@@ -49,15 +50,28 @@ final class ActionBar: NSView {
                 button.addSubview(badge)
                 badge.trailingAnchor.constraint(equalTo: button.trailingAnchor).isActive = true
                 badge.topAnchor.constraint(equalTo: button.topAnchor).isActive = true
+                addSubview(button)
+                return button
             }
-            addSubview(button)
-            return button
+        }
+        for (i, action) in actions.enumerated() {
+            let button = buttons[i]
+            button.tag = i
+            button.image = icon(action)
+            button.toolTip = action.label
+            button.isEnabled = action.isEnabled
+            let badge = button.subviews.first as? NSTextField
+            badge?.stringValue = action.badgeText
+            badge?.isHidden = action.badgeText.isEmpty
         }
         needsLayout = true
     }
 
     private func icon(_ action: WKWebExtension.Action) -> NSImage {
-        action.icon(for: NSSize(width: 16, height: 16)) ?? NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil)!
+        let image = (action.icon(for: NSSize(width: 16, height: 16))
+            ?? NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil)!).copy() as! NSImage
+        image.size = NSSize(width: 16, height: 16)
+        return image
     }
 
     /// How many fit; with any left over, the last place is the menu's.
@@ -75,6 +89,22 @@ final class ActionBar: NSView {
         }
         more.isHidden = count == buttons.count
         more.frame = NSRect(x: bounds.width - 24, y: (bounds.height - 22) / 2, width: 24, height: 22)
+    }
+
+    @objc private func dragged(_ gesture: NSPanGestureRecognizer) {
+        guard let button = gesture.view as? NSButton, shown > 0, actions.indices.contains(button.tag) else { return }
+        let target = min(max(Int(gesture.location(in: self).x / Self.step), 0), shown - 1)
+        switch gesture.state {
+        case .began, .changed:
+            button.frame.origin.x = min(max(gesture.location(in: self).x - 12, 0), CGFloat(shown - 1) * Self.step)
+        case .ended:
+            var order = actions
+            let moved = order.remove(at: button.tag)
+            order.insert(moved, at: target)
+            let next = target + 1 < order.count ? order[target + 1].webExtensionContext?.uniqueIdentifier : nil
+            if let id = moved.webExtensionContext?.uniqueIdentifier { Extensions.shared.move(id, before: next) }
+        default: needsLayout = true
+        }
     }
 
     @objc private func clicked(_ sender: NSButton) {

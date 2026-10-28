@@ -1,7 +1,7 @@
 // Core.app's front door. Points dyld (and, through __XPC_, WebKit's own
 // XPC services) at the WebKit inside the bundle, then becomes the app.
-// Without this the system WebKit would be loaded, and none of the engine's
-// protections with it.
+// Missing frameworks are a hard failure; CoreApp also verifies the loaded
+// engine before it can create a browser window.
 #include <libgen.h>
 #include <limits.h>
 #include <mach-o/dyld.h>
@@ -23,8 +23,20 @@ int main(int argc, char *argv[])
     snprintf(frameworks, sizeof(frameworks), "%s/../Frameworks", macos);
     snprintf(app, sizeof(app), "%s/CoreApp", macos);
     char resolved[PATH_MAX];
-    if (!realpath(frameworks, resolved))
-        return 1;
+    if (!realpath(frameworks, resolved)) {
+        fprintf(stderr, "Core cannot start: its bundled engine is missing.\n");
+        return 78;
+    }
+
+    const char *required[] = { "JavaScriptCore", "WebCore", "WebKit" };
+    for (size_t i = 0; i < sizeof(required) / sizeof(required[0]); ++i) {
+        char binary[PATH_MAX];
+        snprintf(binary, sizeof(binary), "%s/%s.framework/Versions/A/%s", resolved, required[i], required[i]);
+        if (access(binary, R_OK) != 0) {
+            fprintf(stderr, "Core cannot start: its bundled %s framework is missing.\n", required[i]);
+            return 78;
+        }
+    }
 
     setenv("DYLD_FRAMEWORK_PATH", resolved, 1);
     setenv("DYLD_LIBRARY_PATH", resolved, 1);

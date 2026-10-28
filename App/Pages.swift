@@ -204,14 +204,11 @@ struct SearchEngine: Identifiable {
 
 struct SettingsPage: View {
     @ObservedObject private var prefs = Preferences.shared
-    @State private var link = ""
-    @State private var installing = false
     @State private var rules = Blocker.shared.ruleCount
     @State private var trouble: String?
-    @State private var installed = Extensions.shared.installed
+    @State private var enabled = Extensions.shared.enabled
     @State private var confirmingDefaults = false
     @State private var confirmingDefaultImage = false
-    @State private var removing: Extensions.Installed?
     private let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -233,6 +230,16 @@ struct SettingsPage: View {
                         .buttonBorderShape(.capsule)
                     }
                 }
+            }
+
+            Section("Appearance") {
+                Picker("Appearance", selection: $prefs.settings.appearance) {
+                    Text("Light").tag(Settings.Appearance.light)
+                    Text("Dark").tag(Settings.Appearance.dark)
+                    Text("System").tag(Settings.Appearance.system)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
 
             Section("New Tabs Open") {
@@ -300,20 +307,17 @@ struct SettingsPage: View {
                 }
             }
 
-            Section("Extensions") {
-                HStack {
-                    TextField("Chrome Web Store link or ID", text: $link).labelsHidden().onSubmit(install)
-                    Button(installing ? "Installing…" : "Install", action: install)
-                        .buttonBorderShape(.capsule)
-                        .disabled(installing || link.isEmpty)
-                    Button("Folder…", action: installFolder).buttonBorderShape(.capsule)
+            Section("Safari Extensions") {
+                ForEach(Extensions.shared.found) { item in
+                    Toggle(item.name, isOn: Binding(get: { enabled.contains(item.id) }, set: { on in
+                        Task {
+                            await Extensions.shared.setEnabled(item.id, on)
+                            enabled = Extensions.shared.enabled
+                        }
+                    }))
                 }
-                ForEach(installed, id: \.id) { item in
-                    HStack {
-                        Text(item.name)
-                        Spacer()
-                        Button("Remove") { removing = item }.buttonBorderShape(.capsule)
-                    }
+                if Extensions.shared.found.isEmpty {
+                    Text("Safari extensions from apps in Applications show here.").foregroundStyle(.secondary)
                 }
             }
 
@@ -324,7 +328,6 @@ struct SettingsPage: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .readableWidth()
-        .onAppear(perform: load)
         .onReceive(tick) { _ in
             rules = Blocker.shared.ruleCount
             trouble = Blocker.shared.trouble ?? Extensions.shared.trouble
@@ -343,24 +346,6 @@ struct SettingsPage: View {
             }
             Button("Cancel", role: .cancel) {}
         }
-        .alert("Remove \(removing?.name ?? "this extension")?", isPresented: Binding(
-            get: { removing != nil }, set: { if !$0 { removing = nil } }
-        )) {
-            Button("Remove", role: .destructive) {
-                guard let item = removing else { return }
-                Task {
-                    await Extensions.shared.remove(item.id)
-                    installed = Extensions.shared.installed
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Its data, such as a password vault, is deleted with it.")
-        }
-    }
-
-    private func load() {
-        installed = Extensions.shared.installed
     }
 
     private func chooseImage() {
@@ -372,30 +357,6 @@ struct SettingsPage: View {
         try? FileManager.default.copyItem(at: picked, to: Settings.newTabImage)
         prefs.settings.newTabPage = .image
         prefs.newTabImageChanged()
-    }
-
-    private func install() {
-        guard !link.isEmpty else { return }
-        installing = true
-        Task {
-            await Extensions.shared.install(from: link)
-            installing = false
-            installed = Extensions.shared.installed
-            trouble = Extensions.shared.trouble
-            if trouble == nil { link = "" }
-        }
-    }
-
-    private func installFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        guard panel.runModal() == .OK, let folder = panel.url else { return }
-        Task {
-            await Extensions.shared.installFolder(folder)
-            installed = Extensions.shared.installed
-            trouble = Extensions.shared.trouble
-        }
     }
 }
 
@@ -489,7 +450,7 @@ struct HelpPage: View {
     /// Core's own pages: typed into the address field, or by their keys.
     static let pages = [
         ("History", "about://history", "⌘H"),
-        ("Downloads", "about://downloads", "⌥⌘L"),
+        ("Downloads", "about://downloads", "⌘J"),
         ("Settings", "about://settings", "⌘,"),
         ("Help", "about://help", "⇧⌘/"),
     ]

@@ -1,13 +1,13 @@
 #!/bin/bash
 # Assembles Core.app around the SwiftPM binary, with Core's own WebKit
-# inside it when engine/ has been built.
+# inside it. The patched engine is mandatory for every build.
 #
 #   ./build.sh               release build, ad-hoc signed, into build/Core.app
 #   ./build.sh debug         the same, debug
 #   ./build.sh release ship  + Developer ID signature, notarised DMG
 #
-# The engine is built by engine/build.sh; without it the app runs on the
-# system WebKit and says so in its sidebar.
+# The engine is built by engine/build.sh; a missing or unpatched engine
+# is a build error, before any existing app bundle is replaced.
 set -euo pipefail
 cd "$(dirname "$0")"
 CONFIG="${1:-release}"
@@ -17,8 +17,20 @@ VERSION="$(cat VERSION)"
 BUILD="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
 ENGINE="${CORE_ENGINE:-$HOME/repos/core-engine/webkit/WebKitBuild/Release}"
 
+for name in JavaScriptCore WebCore WebKit; do
+  [ -f "$ENGINE/$name.framework/Versions/A/$name" ] || {
+    echo "Core requires its patched engine: $ENGINE/$name.framework is missing. Run engine/build.sh or set CORE_ENGINE." >&2
+    exit 1
+  }
+done
+LC_ALL=C grep -a -q '_setCoreFingerprintSeed:' "$ENGINE/WebKit.framework/Versions/A/WebKit" || {
+  echo "Core refuses an unpatched WebKit: $ENGINE" >&2
+  exit 1
+}
+
 swift build -c "$CONFIG" --product Core
 BIN="$(swift build -c "$CONFIG" --show-bin-path)/Core"
+DYLD_FRAMEWORK_PATH="$ENGINE" DYLD_LIBRARY_PATH="$ENGINE" "$BIN" --check-engine
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
@@ -49,13 +61,13 @@ if [ "$STEP" = "ship" ]; then
   RUNTIME=(--options runtime --timestamp)
 fi
 
-if [ -d "$ENGINE/WebKit.framework" ]; then
-  ./engine/embed.sh "$ENGINE" "$APP" "$IDENTITY"
-fi
+./engine/embed.sh "$ENGINE" "$APP" "$IDENTITY"
 
 codesign --force ${RUNTIME[@]+"${RUNTIME[@]}"} --entitlements release/Core.entitlements --sign "$IDENTITY" "$APP/Contents/MacOS/CoreApp"
 codesign --force ${RUNTIME[@]+"${RUNTIME[@]}"} --sign "$IDENTITY" "$APP/Contents/MacOS/Core"
 codesign --force ${RUNTIME[@]+"${RUNTIME[@]}"} --entitlements release/Core.entitlements --sign "$IDENTITY" "$APP"
+
+"$APP/Contents/MacOS/Core" --check-engine
 
 if [ "$STEP" = "ship" ]; then
   ./release/ship.sh "$APP" "$VERSION"

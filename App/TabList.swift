@@ -9,7 +9,6 @@ final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegat
     var onPersist: (Tab) -> Void = { _ in }
     var onMove: (Int, Int) -> Void = { _, _ in }
     var onDuplicate: (Tab) -> Void = { _ in }
-    var onCloseOthers: (Tab) -> Void = { _ in }
 
     private let table = TabTable()
     private var tabs: [Tab] = []
@@ -229,7 +228,6 @@ extension TabListView: NSMenuDelegate {
         menu.addItem(NSMenuItem(title: "Duplicate Tab", action: #selector(menuDuplicate(_:)), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Close Tab", action: #selector(menuClose(_:)), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Close Other Tabs", action: #selector(menuCloseOthers(_:)), keyEquivalent: ""))
         for item in menu.items {
             item.target = self
             item.representedObject = tab
@@ -239,7 +237,6 @@ extension TabListView: NSMenuDelegate {
     @objc private func menuPersist(_ item: NSMenuItem) { (item.representedObject as? Tab).map(onPersist) }
     @objc private func menuDuplicate(_ item: NSMenuItem) { (item.representedObject as? Tab).map(onDuplicate) }
     @objc private func menuClose(_ item: NSMenuItem) { (item.representedObject as? Tab).map(onClose) }
-    @objc private func menuCloseOthers(_ item: NSMenuItem) { (item.representedObject as? Tab).map(onCloseOthers) }
 }
 
 @MainActor
@@ -248,8 +245,9 @@ final class TabCell: NSTableCellView {
     private let label = NSTextField(labelWithString: "")
     private let tile = Monogram()
     private let spinner = NSProgressIndicator()
+    private let close = NSButton()
     private var tracking: NSTrackingArea?
-    private var hovering = false { didSet { needsDisplay = true } }
+    private var hovering = false { didSet { close.isHidden = !hovering; needsDisplay = true } }
     private var isSelected = false
     private var isPersist = false
 
@@ -263,7 +261,15 @@ final class TabCell: NSTableCellView {
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
-        for v in [tile, spinner, label] as [NSView] {
+        close.isBordered = false
+        close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+        close.contentTintColor = .secondaryLabelColor
+        close.toolTip = "Close Tab"
+        close.target = self
+        close.action = #selector(closeTab)
+        close.isHidden = true
+        for v in [tile, spinner, label, close] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             addSubview(v)
         }
@@ -278,11 +284,17 @@ final class TabCell: NSTableCellView {
             spinner.heightAnchor.constraint(equalToConstant: 14),
             label.leadingAnchor.constraint(equalTo: tile.trailingAnchor, constant: 9),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: close.leadingAnchor, constant: -6),
+            close.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            close.centerYAnchor.constraint(equalTo: centerYAnchor),
+            close.widthAnchor.constraint(equalToConstant: 22),
+            close.heightAnchor.constraint(equalToConstant: 22),
         ])
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func closeTab() { onClose() }
 
     func configure(_ tab: Tab, selected: Bool) {
         let title = tab.title.isEmpty ? (tab.url.map(AddressField.display) ?? "New Tab") : tab.title

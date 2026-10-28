@@ -182,7 +182,7 @@ public final class Tab: NSObject {
             },
             webView.observe(\.url) { [weak self] view, _ in
                 MainActor.assumeIsolated {
-                    guard let self, let url = view.url, url.scheme == "http" || url.scheme == "https" else { return }
+                    guard let self, let url = view.url, url.scheme == "http" || url.scheme == "https" || Extensions.shared.context(for: url) != nil else { return }
                     self.update(.URL) { $0.url = url }
                 }
             },
@@ -314,6 +314,13 @@ public final class Tab: NSObject {
             return
         }
         internalPage = nil
+        if let configuration = Extensions.shared.context(for: url)?.webViewConfiguration {
+            replaceWebView(with: configuration)
+            pendingDirection = direction
+            update(.URL) { $0.url = url }
+            webView.load(request)
+            return
+        }
         url = CleanLink.clean(url)
         upgradedFrom = nil
         if url.scheme?.lowercased() == "http", url != httpAllowed {
@@ -346,7 +353,7 @@ public final class Tab: NSObject {
             }
             return
         }
-        if target !== identity { replaceWebView(with: target) }
+        if target !== identity || webView.configuration.websiteDataStore !== target.store { replaceWebView(with: target) }
         pendingDirection = direction
         expecting = true
         webView.load(request)
@@ -407,7 +414,7 @@ public final class Tab: NSObject {
             navigate(URLRequest(url: target), direction: .reload)
             return .cancel
         }
-        if scheme == "about" || scheme == "blob" || scheme == "data" { return .allow }
+        if scheme == "about" || scheme == "blob" || scheme == "data" || Extensions.shared.context(for: url) != nil { return .allow }
         if scheme == "mailto" || scheme == "tel" || scheme == "facetime" {
             if action.navigationType == .linkActivated { NSWorkspace.shared.open(url) }
             return .cancel
@@ -438,7 +445,7 @@ public final class Tab: NSObject {
             } else {
                 staysPut = persist && identity === own
             }
-            if staysPut, scheme == "https", CleanLink.clean(url) == url {
+            if staysPut, webView.configuration.websiteDataStore === identity.store, scheme == "https", CleanLink.clean(url) == url {
                 pendingDirection = .new
                 return .allow
             }
@@ -449,7 +456,6 @@ public final class Tab: NSObject {
 
     static func isUserInitiated(_ action: WKNavigationAction) -> Bool {
         let selector = NSSelectorFromString("_isUserInitiated")
-        guard action.responds(to: selector) else { return true }
         typealias Getter = @convention(c) (AnyObject, Selector) -> Bool
         return unsafeBitCast(action.method(for: selector), to: Getter.self)(action, selector)
     }
@@ -468,10 +474,20 @@ public final class Tab: NSObject {
         parts.scheme = "core-allow-http"
         parts.path = interstitialToken
         parts.queryItems = [URLQueryItem(name: "u", value: url.absoluteString)]
-        let link = parts.url?.absoluteString ?? ""
-        let host = url.host ?? url.absoluteString
-        let page = """
-        <!doctype html><meta charset=utf-8><title>Not secure</title>
+        showNotice("Not secure", "\(Tab.escape(url.host ?? url.absoluteString)) has no secure connection", """
+        <p>Core tried <code>https://</code> and it did not work. Over plain HTTP anyone between you and the site can read and change the page.</p>
+        <a class=button href="\(Tab.escape(parts.url?.absoluteString ?? ""))">Continue over HTTP, this once</a>
+        """)
+        update { $0.url = url }
+    }
+
+    private func showCrashed() {
+        showNotice("Crashed", "\(Tab.escape(url?.host ?? "This page")) keeps crashing", "<p>Core stopped reloading it. Press ⌘R to try again.</p>")
+    }
+
+    private func showNotice(_ title: String, _ heading: String, _ body: String) {
+        webView.loadHTMLString("""
+        <!doctype html><meta charset=utf-8><title>\(title)</title>
         <style>
         :root{color-scheme:light dark;font:15px -apple-system,system-ui}
         body{max-width:32rem;margin:18vh auto;padding:0 1.5rem;line-height:1.5}
@@ -479,23 +495,8 @@ public final class Tab: NSObject {
         a.button{display:inline-block;margin-top:1rem;padding:.45rem .9rem;border-radius:.5rem;border:1px solid #8886;color:inherit;text-decoration:none}
         code{font:13px ui-monospace,monospace}
         </style>
-        <h1>\(Tab.escape(host)) has no secure connection</h1>
-        <p>Core tried <code>https://</code> and it did not work. Over plain HTTP anyone between you and the site can read and change the page.</p>
-        <a class=button href="\(Tab.escape(link))">Continue over HTTP, this once</a>
-        """
-        webView.loadHTMLString(page, baseURL: nil)
-        update { $0.url = url }
-    }
-
-    private func showCrashed() {
-        let host = Tab.escape(url?.host ?? "This page")
-        webView.loadHTMLString("""
-        <!doctype html><meta charset=utf-8><title>Crashed</title>
-        <style>:root{color-scheme:light dark;font:15px -apple-system,system-ui}
-        body{max-width:32rem;margin:18vh auto;padding:0 1.5rem;line-height:1.5}
-        h1{font-size:1.25rem;font-weight:600}</style>
-        <h1>\(host) keeps crashing</h1>
-        <p>Core stopped reloading it. Press ⌘R to try again.</p>
+        <h1>\(heading)</h1>
+        \(body)
         """, baseURL: nil)
     }
 
@@ -530,7 +531,10 @@ extension Tab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         provisional = false
         httpAllowed = nil
-        if let url = webView.url, url.scheme == "http" || url.scheme == "https" { record(url) }
+        if let url = webView.url {
+            if Extensions.shared.context(for: url) != nil { recordEntry(url) }
+            else if url.scheme == "http" || url.scheme == "https" { record(url) }
+        }
     }
 
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -549,7 +553,7 @@ extension Tab: WKNavigationDelegate {
             carrying = false
             let content = webView.configuration.userContentController
             content.removeAllUserScripts()
-            content.addUserScript(StoreRelay.userScript)
+            content.addUserScript(Links.userScript)
         }
     }
 

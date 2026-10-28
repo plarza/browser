@@ -32,7 +32,7 @@ Applied to upstream WebKit (`engine/patches/`).
 - Bangs (`!w`, `!gh`, `!yt` and about 300 more) resolve from a table inside the app.
 - Favicons are read from the page through WebKit's isolated script world, fetched without cookies, and kept on disk only for sites in History.
 - History keeps addresses, titles and visit counts, for address-bar completion and `about://history`.
-- Extensions install from the Chrome Web Store onto WebKit's extension engine; their own storage is kept.
+- Safari web extensions from apps in Applications turn on in Settings and run on WebKit's extension engine; their own storage is kept.
 - No telemetry and no update checks. The only request Core makes by itself is the daily filter-list fetch.
 - No proxy or Tor: use a VPN.
 
@@ -49,6 +49,8 @@ engine/build.sh          # WebKit at engine/WEBKIT_COMMIT + engine/patches, ~1 h
 ./build.sh release ship  # Developer ID sign + notarize -> build/release/Core-<version>.dmg
 ```
 
+Every build requires Core’s patched engine. Missing or unpatched frameworks stop the build; both the launcher and the executable refuse to start without them, including debug builds. `CORE_ENGINE` can name an existing patched runtime’s framework directory, for example `CORE_ENGINE=/Applications/Core.app/Contents/Frameworks ./build.sh` when rebuilding from an installed patched app.
+
 `engine/build.sh rebase` moves to the latest WebKit commit.
 
 `ship` needs a Developer ID Application certificate and one-time notary setup:
@@ -61,7 +63,13 @@ Pushing a `v*` tag runs the same build on the Forgejo runner (`.forgejo/workflow
 
 ## Test
 
-The self-test only works in debug builds:
+The engine launch/build checks run without opening a browser:
+
+```bash
+python3 Tests/engine.py build/Core.app
+```
+
+The UI self-test only works in debug builds:
 
 ```bash
 build/Core.app/Contents/MacOS/Core -coreStore /tmp/core-test -coreSelfTest YES
@@ -75,5 +83,6 @@ It logs PASS/FAIL per check. `-coreStore` uses a separate data folder; `-coreSho
 |---|---|
 | `engine/` | WebKit commit, patches, build/embed scripts, launcher |
 | `CoreKit/` | Tabs, identities, blocker, bangs, history, extensions |
-| `App/` | Window, sidebar, settings, self-test |
+| `App/` | Window, sidebar, settings |
+| `Tests/` | End-to-end app self-test |
 | `release/` | Info.plist, entitlements, icon, notarization, runner setup |

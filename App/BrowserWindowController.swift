@@ -22,7 +22,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private let actionBar = ActionBar()
     fileprivate let content = PageArea()
     private let progress = ProgressLine()
-    private let notice = NSTextField(labelWithString: "")
     private let findBar = FindBar()
     private let divider = SidebarDivider()
     private var sidebarWidth: NSLayoutConstraint!
@@ -303,15 +302,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         tabList.onPersist = { tab in tab.persist.toggle() }
         tabList.onMove = { [weak self] from, to in self?.move(from: from, to: to) }
         tabList.onDuplicate = { [weak self] tab in if let url = tab.url { self?.newTab(url, after: tab) } }
-        tabList.onCloseOthers = { [weak self] tab in
-            guard let self else { return }
-            let others = self.tabs.filter { $0 !== tab }
-            guard !others.isEmpty else { return }
-            Task {
-                guard await Dialogs.ask(in: self.window, "Close \(others.count) other tab\(others.count == 1 ? "" : "s")?", detail: "", yes: "Close", no: "Cancel") else { return }
-                for other in others { self.close(other) }
-            }
-        }
 
         divider.onDrag = { [weak self] delta in self?.resizeSidebar(by: delta) }
         divider.onEnd = { [weak self] in
@@ -319,25 +309,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             UserDefaults.standard.set(Double(self.width), forKey: "sidebarWidth")
         }
 
-        notice.font = .systemFont(ofSize: 11)
-        notice.textColor = .systemOrange
-        notice.lineBreakMode = .byWordWrapping
-        notice.maximumNumberOfLines = 3
-        notice.isHidden = Engine.isPatched
-        notice.stringValue = "System WebKit: fingerprint protection is not active in this build."
-        // Hidden, it takes no room under the tabs and downloads.
-        if notice.isHidden { notice.heightAnchor.constraint(equalToConstant: 0).isActive = true }
-
         actionBar.onClick = { [weak self] action, button in self?.perform(action, from: button) }
 
-        for view in [sidebar, content, divider, address, actionBar, tabList, notice, progress, findBar] as [NSView] {
+        for view in [sidebar, content, divider, address, actionBar, tabList, progress, findBar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
         root.addSubview(content)
         root.addSubview(sidebar)
         root.addSubview(divider)
         downloads.translatesAutoresizingMaskIntoConstraints = false
-        for view in [address, actionBar, tabList, downloads, notice] as [NSView] { sidebar.addSubview(view) }
+        for view in [address, actionBar, tabList, downloads] as [NSView] { sidebar.addSubview(view) }
         // Over the tabs, under the field.
         address.suggestions.translatesAutoresizingMaskIntoConstraints = false
         sidebar.addSubview(address.suggestions)
@@ -385,11 +366,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             tabList.bottomAnchor.constraint(equalTo: downloads.topAnchor, constant: -6),
             downloads.leadingAnchor.constraint(equalTo: tabList.leadingAnchor),
             downloads.trailingAnchor.constraint(equalTo: tabList.trailingAnchor),
-            downloads.bottomAnchor.constraint(equalTo: notice.topAnchor, constant: -6),
-
-            notice.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 14),
-            notice.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14),
-            notice.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: notice.isHidden ? -2 : -10),
+            downloads.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: -8),
 
             progress.topAnchor.constraint(equalTo: content.topAnchor),
             progress.leadingAnchor.constraint(equalTo: content.leadingAnchor),
@@ -578,7 +555,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// ⌘Y: about://history.
     @objc func showHistory(_ sender: Any?) { showInternal(InternalPage.address("history")) }
 
-    /// ⌥⌘L: about://downloads.
+    /// ⌘J: about://downloads.
     @objc func showDownloads(_ sender: Any?) { showInternal(InternalPage.address("downloads")) }
 
     /// ⇧⌘/: about://help.
@@ -802,30 +779,13 @@ extension BrowserWindowController: ExtensionHost {
     func extensionActionsChanged() { actionBar.reload() }
 
     func extensionPresent(_ action: WKWebExtension.Action) {
-        guard let web = action.popupWebView else { return }
-        popover?.close()
-        let controller = NSViewController()
-        controller.view = web
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.contentViewController = controller
-        popover.contentSize = NSSize(width: max(web.frame.width, 360), height: max(web.frame.height, 480))
-        popover.delegate = PopoverCloser.shared
-        PopoverCloser.shared.action = action
+        guard let popover = action.popupPopover else { return }
+        action.popupWebView?.underPageBackgroundColor = .white
+        action.popupWebView?.setValue(true, forKey: "drawsBackground")
+        self.popover?.close()
         let anchor = actionBar.anchor ?? actionBar
         popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
         self.popover = popover
-    }
-}
-
-/// Tells the extension its popup went away, so it can tidy up.
-@MainActor
-final class PopoverCloser: NSObject, NSPopoverDelegate {
-    static let shared = PopoverCloser()
-    var action: WKWebExtension.Action?
-    func popoverDidClose(_ notification: Notification) {
-        action?.closePopup()
-        action = nil
     }
 }
 

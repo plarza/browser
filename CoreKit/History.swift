@@ -18,13 +18,6 @@ public final class History {
             self.title = title
             self.count = count
         }
-
-        public init(from decoder: Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            url = try c.decode(String.self, forKey: .url)
-            title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
-            count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 1
-        }
     }
 
     private var visits: [Visit]
@@ -177,7 +170,7 @@ public enum OpenTabs {
         guard let saved = Store.read(Saved.self, "tabs.json") else { return ([], 0) }
         let tabs: [(url: URL, kept: Kept?)] = saved.urls.enumerated().compactMap { i, string in
             guard let url = URL(string: string) else { return nil }
-            let jar = saved.kept.flatMap { i < $0.count ? $0[i] : nil }
+            let jar = i < saved.kept.count ? saved.kept[i] : nil
             let kept = jar.flatMap { jar in UUID(uuidString: jar.id).flatMap { id in UInt64(jar.seed).map { (id, $0) } } }
             return (url, kept)
         }
@@ -187,7 +180,7 @@ public enum OpenTabs {
     private struct Saved: Codable {
         struct Jar: Codable { var id: String; var seed: String }
         var urls: [String]
-        var kept: [Jar?]?
+        var kept: [Jar?]
         var selected: Int
     }
 }

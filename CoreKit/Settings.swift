@@ -11,6 +11,13 @@ public struct Settings: Codable, Equatable {
     public var whitelist: [String] = []
     /// Filter lists fetched once a day.
     public var filterLists: [String] = Settings.defaultFilterLists
+    /// Follow macOS unless a light or dark appearance is chosen.
+    public var appearance: Appearance = .system
+
+    public enum Appearance: String, Codable, CaseIterable {
+        case system, light, dark
+    }
+
     /// Where a new tab goes in the list.
     public var newTabPosition: TabPosition = .below
     /// What a blank tab shows: a picture, a colour, or the desktop, frosted.
@@ -55,19 +62,6 @@ public struct Settings: Codable, Equatable {
     ]
 
     public init() {}
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        searchTemplate = try c.decodeIfPresent(String.self, forKey: .searchTemplate) ?? ""
-        whitelist = try c.decodeIfPresent([String].self, forKey: .whitelist) ?? []
-        filterLists = try c.decodeIfPresent([String].self, forKey: .filterLists) ?? Settings.defaultFilterLists
-        newTabPosition = try c.decodeIfPresent(TabPosition.self, forKey: .newTabPosition) ?? .below
-        newTabPage = try c.decodeIfPresent(NewTabPage.self, forKey: .newTabPage) ?? .image
-        newTabColor = try c.decodeIfPresent(String.self, forKey: .newTabColor) ?? "#2E4B76"
-        fill = try c.decodeIfPresent(Bool.self, forKey: .fill) ?? false
-        fillBlur = try c.decodeIfPresent(Int.self, forKey: .fillBlur) ?? 6
-        fillTransparency = try c.decodeIfPresent(Int.self, forKey: .fillTransparency) ?? 4
-    }
 }
 
 /// Where Core keeps the little it keeps.

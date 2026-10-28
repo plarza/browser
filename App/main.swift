@@ -1,5 +1,13 @@
 import AppKit
+import Darwin
 import CoreKit
+
+// No AppKit window, store, extension or network request before this check.
+MainActor.assumeIsolated { Engine.requirePatched() }
+if CommandLine.arguments.contains("--check-engine") {
+    print("Core's patched WebKit verified.")
+    exit(EXIT_SUCCESS)
+}
 
 // Pages see en-US whatever the Mac is set to. The patched engine enforces
 // it too; this keeps the shell and the engine telling the same story.

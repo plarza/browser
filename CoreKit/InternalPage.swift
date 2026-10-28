@@ -8,8 +8,7 @@ public enum InternalPage {
 
     /// The page an about: address names, if it is one of Core's.
     public static func page(_ url: URL?) -> String? {
-        guard let url, url.scheme == "about" else { return nil }
-        let name = url.host ?? url.absoluteString.replacingOccurrences(of: "about:", with: "")
+        guard let url, url.scheme == "about", let name = url.host else { return nil }
         return pages.contains(name) ? name : nil
     }
 

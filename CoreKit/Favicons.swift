@@ -42,19 +42,13 @@ public final class Favicons {
         return nil
     }
 
-    /// Core's own pages: the logo in grey, a white C on a grey squircle.
+    /// Core's own pages use the grey glyph on a transparent background.
     public static let core: NSImage? = {
         guard let url = Bundle.main.url(forResource: "C", withExtension: "svg"), let glyph = NSImage(contentsOf: url) else { return nil }
         return NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+            glyph.draw(in: rect)
             NSColor(white: 0.56, alpha: 1).setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 14.5, yRadius: 14.5).fill()
-            let white = NSImage(size: rect.size, flipped: false) { inner in
-                glyph.draw(in: inner)
-                NSColor.white.set()
-                inner.fill(using: .sourceAtop)
-                return true
-            }
-            white.draw(in: rect)
+            rect.fill(using: .sourceAtop)
             return true
         }
     }()

@@ -1,11 +1,23 @@
 import AppKit
 import CoreKit
+import Combine
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var appearanceWatcher: AnyCancellable?
     private(set) var browser: BrowserWindowController!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        appearanceWatcher = Preferences.shared.$settings
+            .map(\.appearance)
+            .removeDuplicates()
+            .sink { appearance in
+                NSApp.appearance = switch appearance {
+                case .system: nil
+                case .light: NSAppearance(named: .aqua)
+                case .dark: NSAppearance(named: .darkAqua)
+                }
+            }
         Blocker.shared.start()
         browser = BrowserWindowController()
         NSApp.mainMenu = Menus.build(target: self, browser: browser)
@@ -15,10 +27,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         SelfTest.run(browser)
         SelfTest.probe(browser)
-        // Debug builds only: `-coreInstall <store id>`, for testing from a script.
-        if let id = UserDefaults.standard.string(forKey: "coreInstall") {
-            Task { await Extensions.shared.install(from: id); NSLog("Core: install \(id): \(Extensions.shared.trouble ?? "ok")") }
-        }
         #endif
         browser.restore()
         browser.showWindow(nil)
@@ -43,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.orderFrontStandardAboutPanel(options: [
             .applicationName: "Core",
             .credits: NSAttributedString(
-                string: Engine.isPatched ? "Core's own WebKit." : "Running on the system WebKit: fingerprint protection is not active in this build.",
+                string: "Core's own WebKit.",
                 attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]
             ),
         ])

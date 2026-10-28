@@ -220,26 +220,6 @@ enum SelfTest {
                   "entries=\(googleEntries) url=\(googled.url?.absoluteString ?? "nil")")
             browser.close(googled)
 
-            // An extension installs from the Chrome Web Store: fetched,
-            // signature checked, unpacked.
-            if let id = UserDefaults.standard.string(forKey: "coreInstall") {
-                for _ in 0 ..< 40 where !Extensions.shared.installed.contains(where: { $0.id == id }) && Extensions.shared.trouble == nil {
-                    try? await Task.sleep(for: .milliseconds(500))
-                }
-                check("an extension installs from the Chrome Web Store", Extensions.shared.installed.contains { $0.id == id },
-                      "trouble=\(Extensions.shared.trouble ?? "none")")
-            }
-
-            // The Chrome Web Store offers "Add to Core".
-            let store = browser.newTab(URL(string: "https://chromewebstore.google.com/detail/ghmbeldphafepmbegfdlkpapadhbakde")!)
-            var label = ""
-            for _ in 0 ..< 20 where !label.contains("to Core") {
-                try? await Task.sleep(for: .milliseconds(500))
-                label = (try? await store.webView.evaluateJavaScript("(document.querySelector('button[data-core=\"add\"]') || {}).textContent || ''", in: nil, contentWorld: .defaultClient) as? String) ?? ""
-            }
-            check("the Chrome Web Store's button says Add to Core", label.contains("to Core"), "label=\(label)")
-            browser.close(store)
-
             // Dragging the first tab down two places moves it there; the
             // selected tab stays selected.
             if let table = browser.tabTableForTesting, browser.tabs.count >= 3 {
@@ -346,7 +326,7 @@ enum SelfTest {
                 browser.close(empty)
             }
             // A download goes where the save panel says, is listed, and shows
-            // in the sidebar; ⌥⌘L opens about://downloads.
+            // in the sidebar; ⌘J opens about://downloads.
             Downloads.autoDismiss = 4
             let downloader = browser.newTab(URL(string: "https://example.com/")!)
             try? await Task.sleep(for: .seconds(3))
@@ -358,12 +338,12 @@ enum SelfTest {
             check("a download saves where asked and shows in the sidebar",
                   got?.name == "core-test.txt" && got?.state == .finished && got.map { FileManager.default.fileExists(atPath: $0.file.path) } == true && browser.downloadRowsForTesting >= 1,
                   "name=\(got?.name ?? "none") state=\(got?.state.rawValue ?? "none") rows=\(browser.downloadRowsForTesting)")
-            key("l", in: window, modifiers: [.command, .option])
+            key("j", in: window)
             try? await Task.sleep(for: .seconds(1))
             try? await Task.sleep(for: .seconds(4))
             check("a done download leaves the sidebar by itself", browser.downloadRowsForTesting == 0, "rows=\(browser.downloadRowsForTesting)")
             Downloads.autoDismiss = 60
-            check("⌥⌘L opens about://downloads", browser.pageShownForTesting == "downloads", "page=\(browser.pageShownForTesting ?? "none")")
+            check("⌘J opens about://downloads", browser.pageShownForTesting == "downloads", "page=\(browser.pageShownForTesting ?? "none")")
             await shot("downloads", browser)
             browser.close(downloader)
 

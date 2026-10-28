@@ -15,12 +15,13 @@ public protocol ExtensionHost: AnyObject {
     var extensionWindowFrame: CGRect { get }
 }
 
-/// Extensions, on WebKit's own engine (the one Safari uses), installed from
-/// a Chrome Web Store link or a folder. They are the one thing in Core that
-/// keeps data on purpose: an extension's own storage (a password manager's
-/// vault) lives in a store of its own that no website ever loads into.
+/// Safari web extensions, from the apps installed on this Mac, on WebKit's
+/// own extension engine (the one Safari uses). They are the one thing in
+/// Core that keeps data on purpose: an extension's own storage (a password
+/// manager's vault) lives in a store of its own that no website ever loads
+/// into, and stays when the extension is turned off.
 ///
-/// Installing one is a trade the person makes: content scripts can change
+/// Turning one on is a trade the person makes: content scripts can change
 /// a page in ways the page can see.
 @MainActor
 public final class Extensions: NSObject {
@@ -31,20 +32,16 @@ public final class Extensions: NSObject {
     public private(set) var contexts: [WKWebExtensionContext] = []
     public private(set) var trouble: String?
 
-    public struct Installed: Codable, Equatable {
-        public var id: String
-        public var name: String
-        /// Where it came from: a Chrome Web Store id, or nil for a folder.
-        public var storeID: String?
+    /// A Safari web extension found inside an app, named by its bundle id.
+    public struct Found: Identifiable {
+        public let id: String
+        public let name: String
+        let bundle: Bundle
     }
 
-    public private(set) var installed: [Installed] = Store.read([Installed].self, "extensions.json") ?? []
-
-    static var folder: URL {
-        let url = Store.directory.appendingPathComponent("Extensions", isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
+    public private(set) var found: [Found] = []
+    /// The extensions turned on, in their buttons' order.
+    public private(set) var enabled: [String] = Store.read([String].self, "extensions.json") ?? []
 
     /// The extension controller's storage and its pages' data store.
     static let storeIDs = [UUID(uuidString: "C0DE0000-0000-4000-8000-0000000E7E45")!, UUID(uuidString: "C0DE0000-0000-4000-8000-00000000E75D")!]
@@ -65,97 +62,80 @@ public final class Extensions: NSObject {
     }
 
     public func start() {
+        found = Extensions.scan()
         Task {
-            for item in installed { await load(item) }
+            for id in enabled { await load(id) }
             host?.extensionActionsChanged()
         }
     }
 
-    private func load(_ item: Installed) async {
-        let url = Extensions.folder.appendingPathComponent(item.id, isDirectory: true)
+    /// Every app in /Applications and ~/Applications, and the Safari web
+    /// extensions in its PlugIns.
+    static func scan() -> [Found] {
+        let files = FileManager.default
+        let list = { (url: URL) in (try? files.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? [] }
+        return files.urls(for: .applicationDirectory, in: [.localDomainMask, .userDomainMask])
+            .flatMap(list).filter { $0.pathExtension == "app" }
+            .flatMap { list($0.appending(path: "Contents/PlugIns")) }
+            .compactMap(Bundle.init(url:))
+            .compactMap { bundle in
+                let point = (bundle.object(forInfoDictionaryKey: "NSExtension") as? [String: Any])?["NSExtensionPointIdentifier"] as? String
+                guard point == "com.apple.Safari.web-extension", let id = bundle.bundleIdentifier else { return nil }
+                let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") ?? bundle.object(forInfoDictionaryKey: "CFBundleName")
+                return Found(id: id, name: name as? String ?? id, bundle: bundle)
+            }
+    }
+
+    private func load(_ id: String) async {
+        guard let item = found.first(where: { $0.id == id }) else { return }
         do {
-            let ext = try await WKWebExtension(resourceBaseURL: url)
+            let ext = try await WKWebExtension(appExtensionBundle: item.bundle)
             let context = WKWebExtensionContext(for: ext)
             // A stable identifier: what the extension stored comes back.
-            context.uniqueIdentifier = item.id
+            context.uniqueIdentifier = id
             context.isInspectable = false
-            // Installing it was the consent: it gets what it asked for.
+            // Core's regular tabs use ephemeral (WebKit private) stores.
+            context.hasAccessToPrivateData = true
+            // Turning it on was the consent: it gets what it asked for.
             for permission in ext.requestedPermissions { context.setPermissionStatus(.grantedExplicitly, for: permission) }
-            for pattern in ext.requestedPermissionMatchPatterns { context.setPermissionStatus(.grantedExplicitly, for: pattern) }
             for pattern in ext.allRequestedMatchPatterns { context.setPermissionStatus(.grantedExplicitly, for: pattern) }
             try controller.load(context)
             contexts.append(context)
-            if let name = ext.displayName, let i = installed.firstIndex(where: { $0.id == item.id }), installed[i].name != name {
-                installed[i].name = name
-                Store.write(installed, "extensions.json")
-            }
         } catch {
             trouble = "\(item.name): \(error.localizedDescription)"
         }
     }
 
-    /// A Chrome Web Store link or a bare extension id.
-    public func install(from text: String) async {
-        guard let id = Crx.id(in: text) else { trouble = Crx.Refused.notAnID.localizedDescription; return }
-        do {
-            let crx = try await Crx.fetch(id)
-            let zip = try Crx.verifiedZip(crx, id: id)
-            let folder = Extensions.folder.appendingPathComponent(id, isDirectory: true)
-            try Crx.unpack(zip, into: folder)
-            await add(Installed(id: id, name: Extensions.name(in: folder) ?? id, storeID: id))
-        } catch {
-            trouble = error.localizedDescription
-        }
-    }
-
-    public func installFolder(_ source: URL) async {
-        let id = Crx.unpackedID(for: source)
-        let folder = Extensions.folder.appendingPathComponent(id, isDirectory: true)
-        do {
-            try? FileManager.default.removeItem(at: folder)
-            try FileManager.default.copyItem(at: source, to: folder)
-            await add(Installed(id: id, name: Extensions.name(in: folder) ?? source.lastPathComponent, storeID: nil))
-        } catch {
-            trouble = error.localizedDescription
-        }
-    }
-
-    private func add(_ item: Installed) async {
-        await remove(item.id, keepFiles: true)
-        installed.append(item)
-        Store.write(installed, "extensions.json")
-        trouble = nil
-        await load(item)
-        host?.extensionActionsChanged()
-    }
-
-    public func remove(_ id: String, keepFiles: Bool = false) async {
-        for context in contexts where context.uniqueIdentifier == id {
-            try? controller.unload(context)
-        }
+    public func setEnabled(_ id: String, _ on: Bool) async {
+        for context in contexts where context.uniqueIdentifier == id { try? controller.unload(context) }
         contexts.removeAll { $0.uniqueIdentifier == id }
-        installed.removeAll { $0.id == id }
-        Store.write(installed, "extensions.json")
-        if !keepFiles {
-            try? FileManager.default.removeItem(at: Extensions.folder.appendingPathComponent(id))
+        enabled.removeAll { $0 == id }
+        trouble = nil
+        if on {
+            enabled.append(id)
+            await load(id)
         }
+        Store.write(enabled, "extensions.json")
         host?.extensionActionsChanged()
     }
 
-    static func name(in folder: URL) -> String? {
-        guard let data = try? Data(contentsOf: folder.appendingPathComponent("manifest.json")),
-              let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let name = manifest["name"] as? String
-        else { return nil }
-        if name.hasPrefix("__MSG_") {
-            return folder.lastPathComponent
-        }
-        return name
+    func context(for url: URL) -> WKWebExtensionContext? {
+        contexts.first { $0.baseURL.scheme == url.scheme && $0.baseURL.host == url.host }
     }
 
     /// The button for each extension that has one, for the active tab.
     public func actions() -> [WKWebExtension.Action] {
-        contexts.compactMap { $0.action(for: host?.extensionActiveTab) }
+        enabled.compactMap { id in
+            contexts.first { $0.uniqueIdentifier == id }?.action(for: host?.extensionActiveTab)
+        }
+    }
+
+    public func move(_ id: String, before next: String?) {
+        guard enabled.contains(id) else { return }
+        enabled.removeAll { $0 == id }
+        enabled.insert(id, at: next.flatMap(enabled.firstIndex(of:)) ?? enabled.count)
+        Store.write(enabled, "extensions.json")
+        host?.extensionActionsChanged()
     }
 
     public func perform(_ action: WKWebExtension.Action) {

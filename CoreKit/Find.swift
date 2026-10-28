@@ -14,14 +14,12 @@ extension Tab {
         finder.tab = self
         webView.perform(NSSelectorFromString("_setFindDelegate:"), with: finder)
         let selector = NSSelectorFromString("_findString:options:maxCount:")
-        guard webView.responds(to: selector) else { return }
         typealias Call = @convention(c) (AnyObject, Selector, NSString, UInt, UInt) -> Void
         unsafeBitCast(webView.method(for: selector), to: Call.self)(webView, selector, text as NSString, Tab.options | (backwards ? Tab.backwards : 0), 1000)
     }
 
     public func hideFind() {
-        let selector = NSSelectorFromString("_hideFindUI")
-        if webView.responds(to: selector) { webView.perform(selector) }
+        webView.perform(NSSelectorFromString("_hideFindUI"))
     }
 }
 
