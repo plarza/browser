@@ -21,7 +21,7 @@ release/     build, sign, notarize, publish to Forgejo, update feed
 - Tabs run down the left, in a vertical list, in a pure white sidebar, flush with the page and with no dividing line, whose edge drags (200–420 pt). The page fills the rest of the window. There are no pinned tabs, no back/forward buttons and no New Tab button: ⌘T, ⌘[ and ⌘] do those, and a two-finger swipe goes back or forward.
 - Each tab is a separate identity, with its own web process and its own network session. The session holds the tab's cookies, localStorage, sessionStorage, IndexedDB, Cache API, service workers, HTTP cache, HSTS, TLS session cache, connection pool, DNS cache and its fingerprint seed.
 - **Wipe.** Every reload and every top-level navigation throws the whole session away and starts the next load in a brand-new one. That includes typed URLs, clicked links, back and forward, and redirects initiated by the page. Logins do not survive a reload.
-- **Persist** (⌘I, or right-click › Persist Tab). The tab keeps its session through reloads and navigation. The tab turns a soft sky blue while it is on. Persist belongs to the tab, not the site, and closing the tab still destroys everything.
+- **Persist** (⌘I, or right-click › Persist Tab). The tab keeps its session through reloads and navigation. The tab turns a soft sky blue while it is on. Persist belongs to the tab, not the site. Turning it on moves the tab into a jar of its own on disk, taking its cookies and the current page's storage with it, so the tab and its session survive quitting Core. Closing the tab, or turning Persist off, deletes that jar; jars nothing refers to are deleted at launch.
 - **Popups.** A `window.open` popup, such as an OAuth or 3-D Secure window, shares its opener's session and dies with it. Links opened in a new tab (⌘-click, middle-click) start fresh.
 - **Closing a tab** destroys its session. Quitting the app destroys every session.
 
@@ -34,7 +34,7 @@ release/     build, sign, notarize, publish to Forgejo, update feed
 
 Core has one user, so there is no crowd of Core users to hide in. It hides in the biggest crowd available instead: **stock Safari on the same macOS version**, with Safari's Private Browsing fingerprinting protections switched on permanently in the engine. Nothing is injected into pages and no prototype is patched, so CreepJS finds no "lies" to report. Whatever varies is derived from the identity's **seed**, so it changes on every wipe.
 
-- **Seeds.** A wiped tab gets a fresh seed. A Persist tab keeps its seed until it is closed. A whitelisted domain keeps its own fixed seed. Each site's noise salt is derived from the seed and the site, so two sites in one identity can't match their readings either.
+- **Seeds.** A wiped tab gets a fresh seed. A Persist tab keeps its seed until it is closed, across relaunches. A whitelisted domain keeps its own fixed seed. Each site's noise salt is derived from the seed and the site, so two sites in one identity can't match their readings either.
 - **Protections that are always on:** WebKit's baseline protections, fingerprinting protections (canvas, audio and screen), enhanced network privacy, link-decoration filtering, script-tracking privacy, and `hardwareConcurrency` reported as 8.
 - **User agent:** exactly Safari's for this macOS version.
 - **Language and time zone:** `en-US` everywhere, set in every child process, so `navigator.language(s)`, `Accept-Language` and `Intl` all agree. The time zone is UTC.
@@ -68,13 +68,13 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 ## Remembered on disk
 
-- **History:** each page's address, title and visit count, most recent first, with no visit times, icons or page contents. It feeds the address field (inline completion of a visited site's name, and a ranked list of matching pages underneath) and **about://history** (⌘Y): a page of its own, opened in a new tab, that searches every word across addresses and titles, removes entries one at a time, or clears everything. Like about://settings and about://help, it is a native view in the tab, not a web page.
-- **Open tabs:** URLs only. They come back on the next launch, each in a fresh session.
+- **History:** each page's address, title and visit count, most recent first, with no visit times, icons or page contents. It feeds the address field (inline completion of a visited site's name, and a ranked list of matching pages underneath) and **about://history** (⌘H): a page of its own, opened in a new tab, that searches every word across addresses and titles, removes entries one at a time, or clears everything. Like about://settings and about://help, it is a native view in the tab, not a web page.
+- **Open tabs:** URLs, and for a Persist tab the id of its jar and its seed. They come back on the next launch: a Persist tab in its jar, every other tab in a fresh session.
 - **Whitelist jars**, as described under Whitelist.
 - **Extension data.** Extensions' own storage, such as the Bitwarden vault, is kept.
 - Settings.
-- Nothing else is written: no cache, no favicons and no downloads list.
-- **Favicons** are read from the page's own `<link rel=icon>` through WebKit's isolated client world (invisible to the page), fetched with no cookies, and kept in memory only.
+- **Favicons** are read from the page's own `<link rel=icon>` through WebKit's isolated client world (invisible to the page) and fetched with no cookies. An icon is kept on disk, under a hashed name, only for a site already in History or on the whitelist, so it records nothing those don't. Removing a site from History removes its icon; clearing History clears them all. A kept icon is never fetched again.
+- Nothing else is written: no cache and no downloads list.
 
 ## Extensions
 
@@ -91,7 +91,7 @@ Core has one user, so there is no crowd of Core users to hide in. It hides in th
 
 ## Settings (the whole list)
 
-Settings is a page, **about://settings** (⌘,), with: where new tabs open (below the current tab, at the top, or at the bottom); what a blank tab shows (a picture, the default or one chosen in Finder; a colour; or blank, the desktop frosted through the window);
+Settings is a page, **about://settings** (⌘,), with: where new tabs open (below the current tab, at the top, or at the bottom); what a blank tab shows (a picture, the default or one chosen in Finder; a colour; or blank, the desktop frosted through the window), and whether that fills the whole window behind a frosted sidebar;
 
 1. Search engine (URL template)
 2. Cookie whitelist (domains)

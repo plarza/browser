@@ -16,6 +16,9 @@ public struct Settings: Codable, Equatable {
     /// What a blank tab shows: a picture, a colour, or the desktop, frosted.
     public var newTabPage: NewTabPage = .image
     public var newTabColor: String = "#2E4B76"
+    /// The new tab page's picture or colour fills the whole window, behind
+    /// a frosted sidebar.
+    public var fill: Bool = false
 
     public enum NewTabPage: String, Codable, CaseIterable {
         case image, color, blank
@@ -56,6 +59,7 @@ public struct Settings: Codable, Equatable {
         newTabPosition = try c.decodeIfPresent(TabPosition.self, forKey: .newTabPosition) ?? .below
         newTabPage = try c.decodeIfPresent(NewTabPage.self, forKey: .newTabPage) ?? .image
         newTabColor = try c.decodeIfPresent(String.self, forKey: .newTabColor) ?? "#2E4B76"
+        fill = try c.decodeIfPresent(Bool.self, forKey: .fill) ?? false
     }
 }
 
@@ -95,6 +99,7 @@ public final class Preferences: ObservableObject {
             Store.write(settings, "settings.json")
             for gone in Set(oldValue.whitelist).subtracting(settings.whitelist) {
                 Task { await Identity.forget(gone) }
+                if !History.shared.knows(host: gone) { Favicons.shared.forget(host: gone) }
             }
             if settings.filterLists != oldValue.filterLists { Blocker.shared.refresh(force: true) }
         }

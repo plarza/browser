@@ -319,17 +319,40 @@ final class SuggestionRow: NSView {
 /// between them.
 @MainActor
 final class Sidebar: NSView {
+    private let frost = NSVisualEffectView()
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        // A heavy frost over what's behind it in the window: the new tab
+        // page's picture or colour, when that fills the window.
+        frost.material = .fullScreenUI
+        frost.blendingMode = .withinWindow
+        frost.state = .active
+        frost.autoresizingMask = [.width, .height]
+        frost.isHidden = true
+        addSubview(frost)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// White, or frosted glass over the window's backdrop.
+    var isFrosted = false {
+        didSet {
+            frost.isHidden = !isFrosted
+            needsDisplay = true
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        frost.frame = bounds
+    }
+
     override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+            layer?.backgroundColor = isFrosted ? NSColor.clear.cgColor : NSColor.textBackgroundColor.cgColor
         }
     }
 

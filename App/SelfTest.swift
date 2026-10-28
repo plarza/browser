@@ -77,7 +77,14 @@ enum SelfTest {
             check("History search with no match shows nothing", history.results.isEmpty, "rows=\(history.results.count)")
             history.query = ""
 
-            await storage(browser)
+            let jar = await storage(browser)
+            // Turning Persist off, and closing, deletes the tab's jar from disk.
+            var left = await WKWebsiteDataStore.allDataStoreIdentifiers
+            for _ in 0 ..< 30 where jar.map({ left.contains($0) }) == true {
+                try? await Task.sleep(for: .seconds(1))
+                left = await WKWebsiteDataStore.allDataStoreIdentifiers
+            }
+            check("a Persist tab's jar is deleted once it's done with", jar.map { !left.contains($0) } == true, "left=\(left.count)")
 
             // ⌘, opens about://settings; an engine's button saves it.
             key(",", in: window)
@@ -91,6 +98,16 @@ enum SelfTest {
             let adder = fields(browser.pageHostForTesting).first { $0.placeholderString == "Add domain" || $0.placeholderAttributedString?.string == "Add domain" }
             check("Settings' Add domain row is a full-width field", adder.map { $0.isEditable && $0.frame.width > 200 } == true,
                   "field=\(adder.map { "\($0.frame)" } ?? "none")")
+            // Typing in it, then clicking the page's empty margin, lets go of it.
+            if let adder {
+                click(adder, in: window)
+                try? await Task.sleep(for: .milliseconds(300))
+                let typing = (window.firstResponder as? NSTextView)?.delegate === adder
+                click(browser.pageHostForTesting, in: window, at: NSPoint(x: 6, y: browser.pageHostForTesting.bounds.midY))
+                try? await Task.sleep(for: .milliseconds(300))
+                check("clicking off Settings' add field lets go of it", typing && !(window.firstResponder is NSTextView),
+                      "typing=\(typing) firstResponder=\(String(describing: window.firstResponder))")
+            }
             SearchEngine.all[0].choose()
             check("choosing a search engine in Settings saves it", Preferences.shared.settings.searchTemplate.contains("google.com"),
                   "template=\(Preferences.shared.settings.searchTemplate)")
@@ -240,6 +257,22 @@ enum SelfTest {
                 try? await Task.sleep(for: .milliseconds(400))
                 check("dragging a tab moves it, keeping the selection", browser.tabs[2] === moving && browser.selectedTab === keep,
                       "index=\(browser.tabs.firstIndex { $0 === moving } ?? -1)")
+                // The lifted row is a visible picture of the tab: its title's
+                // dark pixels, not an empty frame.
+                var ink = 0
+                if let image = TabTable.lastLift, let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                    let rep = NSBitmapImageRep(cgImage: cg)
+                    for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+                        for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+                            if let c = rep.colorAt(x: x, y: y), c.alphaComponent > 0.5, c.brightnessComponent < 0.5 { ink += 1 }
+                        }
+                    }
+                    if let folder = UserDefaults.standard.string(forKey: "coreShots") {
+                        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+                        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appendingPathComponent("lifted-tab.png"))
+                    }
+                }
+                check("a dragged tab stays visible while it moves", ink > 20, "ink=\(ink)")
             }
 
             // ⇧⌘↑ from the first tab goes round to the last; ⇧⌘↓ back to the first.
@@ -320,6 +353,29 @@ enum SelfTest {
                   "page=\(browser.pageShownForTesting ?? "none") shortcuts=\(shortcuts.replacingOccurrences(of: "\n", with: " | "))")
             await shot("help", browser)
 
+            // Icons of sites in History are kept on disk; clearing History
+            // deletes them.
+            let wikiIcon = Favicons.shared.file(for: "en.wikipedia.org")
+            let iconKept = FileManager.default.fileExists(atPath: wikiIcon.path)
+            History.shared.remove("https://en.wikipedia.org/wiki/WebKit")
+            let stillKnown = History.shared.search("en.wikipedia.org").isEmpty == false
+            History.shared.clear()
+            check("a site's icon is kept on disk while it's in History, and cleared with it",
+                  iconKept && !FileManager.default.fileExists(atPath: wikiIcon.path), "kept=\(iconKept) otherVisits=\(stillKnown)")
+
+            // Fill: the new tab page's picture under the whole window, the
+            // sidebar frosted over it.
+            Preferences.shared.settings.fill = true
+            let fillTab = browser.newTab(nil, focus: false)
+            try? await Task.sleep(for: .seconds(1))
+            check("Fill puts the picture behind a frosted sidebar", browser.fillsForTesting, "")
+            await shot("fill-newtab", browser)
+            browser.close(fillTab)
+            browser.select(browser.tabs[0])
+            try? await Task.sleep(for: .seconds(1))
+            await shot("fill-page", browser)
+            Preferences.shared.settings.fill = false
+
             browser.showSettings(nil)
             try? await Task.sleep(for: .seconds(1))
             await shot("settings", browser)
@@ -328,7 +384,8 @@ enum SelfTest {
     }
 
     /// The wipe, Persist and the whitelist, with a cookie and localStorage.
-    static func storage(_ browser: BrowserWindowController) async {
+    @discardableResult
+    static func storage(_ browser: BrowserWindowController) async -> UUID? {
         let site = URL(string: "https://example.com/")!
         func settle(_ tab: Tab) async {
             try? await Task.sleep(for: .milliseconds(800))
@@ -357,6 +414,20 @@ enum SelfTest {
         await settle(tab)
         let persisted = await read(tab)
         check("Persist keeps them through a reload", persisted == "cookie storage", "after=\(persisted)")
+
+        // A Persist tab is saved with its jar on disk and comes back with it,
+        // as after quitting and reopening.
+        let jar = tab.keptIdentity
+        browser.saveTabs()
+        let saved = OpenTabs.restore().tabs.contains { $0.kept?.id == jar?.id && $0.kept?.seed == jar?.seed }
+        let reopened = browser.newTab(nil, select: false, focus: false, restoring: true)
+        reopened.restore(site, kept: jar)
+        browser.select(reopened)
+        await settle(reopened)
+        let reread = await read(reopened)
+        check("a Persist tab comes back after quitting with its cookies and storage", jar != nil && saved && reopened.persist && reread == "cookie storage",
+              "jar=\(jar != nil) saved=\(saved) after=\(reread)")
+        browser.close(reopened)
         tab.persist = false
 
         Preferences.shared.settings.whitelist = ["example.com"]
@@ -376,6 +447,8 @@ enum SelfTest {
         await settle(other)
         let forgotten = await read(other)
         check("taking a site off the whitelist forgets its jar", forgotten.isEmpty, "after=\(forgotten)")
+
+        return jar?.id
     }
 
     /// `-coreShots <folder>`: Core's window, and only Core's window, into
@@ -434,8 +507,8 @@ enum SelfTest {
         NSLog("Core self-test: \(ok ? "PASS" : "FAIL") \(name)\(ok ? "" : " — \(detail)")")
     }
 
-    static func click(_ view: NSView, in window: NSWindow) {
-        let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+    static func click(_ view: NSView, in window: NSWindow, at local: NSPoint? = nil) {
+        let point = view.convert(local ?? NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
         func mouse(_ type: NSEvent.EventType) -> NSEvent {
             NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!

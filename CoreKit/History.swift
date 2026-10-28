@@ -1,7 +1,8 @@
 import Foundation
 
 /// Pages visited: the address and the page's title, most recent first.
-/// No times, no icons, no page contents. It is there for about://history.
+/// No times, no page contents; a site's icon is kept beside it while the
+/// site is in here. It is there for about://history.
 @MainActor
 public final class History {
     public static let shared = History()
@@ -52,12 +53,19 @@ public final class History {
 
     public func remove(_ url: String) {
         visits.removeAll { $0.url == url }
+        if let host = URL(string: url)?.host?.lowercased(), !knows(host: host) { Favicons.shared.forget(host: host) }
         save()
     }
 
     public func clear() {
         visits = []
+        Favicons.shared.forgetAll()
         save()
+    }
+
+    /// Whether any visit is to `host`.
+    func knows(host: String) -> Bool {
+        visits.contains { URL(string: $0.url)?.host?.lowercased() == host }
     }
 
     private func save() {
@@ -153,17 +161,33 @@ public final class History {
 /// new identity like any other load.
 @MainActor
 public enum OpenTabs {
-    public static func save(_ urls: [URL], selected: Int) {
-        Store.write(Saved(urls: urls.map(\.absoluteString), selected: selected), "tabs.json")
+    public typealias Kept = (id: UUID, seed: UInt64)
+
+    /// Each tab's address and, for a Persist tab, its jar on disk and seed.
+    public static func save(_ tabs: [(url: URL, kept: Kept?)], selected: Int) {
+        let saved = Saved(
+            urls: tabs.map(\.url.absoluteString),
+            kept: tabs.map { $0.kept.map { Saved.Jar(id: $0.id.uuidString, seed: String($0.seed)) } },
+            selected: selected
+        )
+        Store.write(saved, "tabs.json")
     }
 
-    public static func restore() -> (urls: [URL], selected: Int) {
+    public static func restore() -> (tabs: [(url: URL, kept: Kept?)], selected: Int) {
         guard let saved = Store.read(Saved.self, "tabs.json") else { return ([], 0) }
-        return (saved.urls.compactMap(URL.init(string:)), saved.selected)
+        let tabs: [(url: URL, kept: Kept?)] = saved.urls.enumerated().compactMap { i, string in
+            guard let url = URL(string: string) else { return nil }
+            let jar = saved.kept.flatMap { i < $0.count ? $0[i] : nil }
+            let kept = jar.flatMap { jar in UUID(uuidString: jar.id).flatMap { id in UInt64(jar.seed).map { (id, $0) } } }
+            return (url, kept)
+        }
+        return (tabs, saved.selected)
     }
 
     private struct Saved: Codable {
+        struct Jar: Codable { var id: String; var seed: String }
         var urls: [String]
+        var kept: [Jar?]?
         var selected: Int
     }
 }

@@ -15,6 +15,9 @@ public final class Identity {
         case fresh
         /// A whitelisted domain's one jar on disk, shared by every tab.
         case whitelisted(String)
+        /// A Persist tab's own jar on disk, kept across relaunches until the
+        /// tab closes or Persist is turned off.
+        case kept(UUID)
     }
 
     public let kind: Kind
@@ -44,6 +47,29 @@ public final class Identity {
         )
         jars[domain] = jar
         return jar
+    }
+
+    public static func kept(_ id: UUID = UUID(), seed: UInt64) -> Identity {
+        Identity(kind: .kept(id), store: WKWebsiteDataStore(forIdentifier: id), seed: seed)
+    }
+
+    /// Deleted once the web views using it have let go, which can take a
+    /// moment after they close.
+    static func forget(kept id: UUID) async {
+        for _ in 0 ..< 60 {
+            do { return try await WKWebsiteDataStore.remove(forIdentifier: id) } catch {}
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+    }
+
+    /// Jars on disk that nothing refers to any more (a Persist tab that was
+    /// open when Core stopped without saving, say) are deleted.
+    public static func removeOrphans(keeping kept: Set<UUID>) async {
+        var keep = kept.union(Preferences.shared.settings.whitelist.map(Whitelist.storeID(for:)))
+        keep.formUnion(Extensions.storeIDs)
+        for id in await WKWebsiteDataStore.allDataStoreIdentifiers where !keep.contains(id) {
+            try? await WKWebsiteDataStore.remove(forIdentifier: id)
+        }
     }
 
     /// A domain taken off the whitelist leaves nothing behind.

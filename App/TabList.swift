@@ -50,6 +50,25 @@ final class TabListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegat
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Tabs that fit don't scroll or bounce; only an overflowing list moves.
+    private var overflows: Bool {
+        table.bounds.height > contentView.bounds.height + 0.5
+    }
+
+    override func tile() {
+        super.tile()
+        verticalScrollElasticity = overflows ? .automatic : .none
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        verticalScrollElasticity = overflows ? .automatic : .none
+        if overflows || abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
+            super.scrollWheel(with: event)
+        } else {
+            nextResponder?.scrollWheel(with: event)
+        }
+    }
+
     func reload(_ tabs: [Tab], selected: Tab?) {
         let old = self.tabs
         let previous = self.selected
@@ -151,22 +170,48 @@ final class TabTable: NSTableView {
 
     /// A picture of the row, over the table; the row itself is left empty.
     private func lift(row: Int, frame: NSRect) -> NSImageView? {
-        guard let cell = view(atColumn: 0, row: row, makeIfNecessary: false), let layer = cell.layer else { return nil }
-        // The row's layer, background and all (selection, Persist's blue).
-        let image = NSImage(size: cell.bounds.size, flipped: false) { _ in
-            guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            layer.render(in: context)
-            return true
-        }
+        guard let cell = view(atColumn: 0, row: row, makeIfNecessary: false), let layer = cell.layer,
+              let image = TabTable.picture(of: cell, layer: layer) else { return nil }
         let view = NSImageView(frame: frame)
         view.image = image
+        view.imageScaling = .scaleAxesIndependently
         view.wantsLayer = true
         view.layer?.shadowOpacity = 0.15
         view.layer?.shadowRadius = 6
         view.layer?.shadowOffset = NSSize(width: 0, height: -2)
         addSubview(view)
+        #if DEBUG
+        TabTable.lastLift = image
+        #endif
         cell.alphaValue = 0
         return view
+    }
+
+    #if DEBUG
+    static var lastLift: NSImage?
+    #endif
+
+    /// Drawn now, while the row is still showing: the row's layers
+    /// (selection, Persist's blue, the icon and title) at screen scale.
+    static func picture(of cell: NSView, layer: CALayer) -> NSImage? {
+        let scale = cell.window?.backingScaleFactor ?? 2
+        let size = cell.bounds.size
+        guard size.width > 0, size.height > 0,
+              let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        context.scaleBy(x: scale, y: scale)
+        // A card under it, so the rows it passes over don't show through.
+        cell.effectiveAppearance.performAsCurrentDrawingAppearance {
+            context.setFillColor(NSColor.textBackgroundColor.cgColor)
+        }
+        context.addPath(CGPath(roundedRect: CGRect(origin: .zero, size: size), cornerWidth: 8, cornerHeight: 8, transform: nil))
+        context.fillPath()
+        cell.displayIfNeeded()
+        layer.render(in: context)
+        guard let cg = context.makeImage() else { return nil }
+        return NSImage(cgImage: cg, size: size)
     }
 }
 

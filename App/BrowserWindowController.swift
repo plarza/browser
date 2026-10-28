@@ -69,10 +69,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     private func watchNewTabPage() {
+        // Behind everything: under the page area, or under the whole
+        // window (the sidebar too) when it fills.
         backdrop.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(backdrop, positioned: .below, relativeTo: progress)
+        if let root = window?.contentView { root.addSubview(backdrop, positioned: .below, relativeTo: nil) }
+        backdropLeading = (
+            page: backdrop.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            window: backdrop.leadingAnchor.constraint(equalTo: window!.contentView!.leadingAnchor)
+        )
         NSLayoutConstraint.activate([
-            backdrop.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            backdropLeading.page,
             backdrop.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             backdrop.topAnchor.constraint(equalTo: content.topAnchor),
             backdrop.bottomAnchor.constraint(equalTo: content.bottomAnchor),
@@ -98,9 +104,27 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         prefs.$settings.combineLatest(prefs.$newTabImageVersion)
             .receive(on: RunLoop.main)
             .sink { [weak self] settings, version in
-                MainActor.assumeIsolated { self?.backdrop.update(settings, imageVersion: version) }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.backdrop.update(settings, imageVersion: version)
+                    self.fill(settings.fill)
+                }
             }
             .store(in: &watching)
+    }
+
+    private var backdropLeading: (page: NSLayoutConstraint, window: NSLayoutConstraint)!
+    private var fills = false
+
+    /// The new tab page's picture under the whole window, seen through a
+    /// frosted sidebar.
+    private func fill(_ on: Bool) {
+        guard on != fills else { return }
+        fills = on
+        backdropLeading.page.isActive = !on
+        backdropLeading.window.isActive = on
+        sidebar.isFrosted = on
+        updateNewTabPage()
     }
 
     /// The new tab page shows while the tab has nothing in it.
@@ -109,7 +133,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         let page = selected?.internalPage
         selected?.webView.isHidden = blank || page != nil
         content.isClear = blank
-        backdrop.isHidden = !blank
+        backdrop.isHidden = !blank && !fills
         backdrop.alphaValue = 1
         pageHost.isHidden = page == nil
         if let page, page != hostedPage {
@@ -215,6 +239,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
                 if inside, !self.address.isEditing, event.type == .leftMouseDown {
                     self.address.focus()
                     return nil
+                }
+                // Any other field being typed in (Settings' add rows, the
+                // find bar) lets go when the click lands outside it.
+                if !self.address.isEditing, let editor = window.firstResponder as? NSTextView, editor.isFieldEditor,
+                   let field = editor.delegate as? NSView,
+                   !field.bounds.contains(field.convert(event.locationInWindow, from: nil)) {
+                    window.makeFirstResponder(nil)
+                    return event
                 }
                 let list = self.address.suggestions
                 let onList = list.isShown && list.bounds.contains(list.convert(event.locationInWindow, from: nil))
@@ -353,7 +385,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     func restore() {
         let saved = OpenTabs.restore()
-        for url in saved.urls { newTab(nil, select: false, focus: false, restoring: true).restore(url) }
+        for saved in saved.tabs { newTab(nil, select: false, focus: false, restoring: true).restore(saved.url, kept: saved.kept) }
+        let kept = Set(saved.tabs.compactMap { $0.kept?.id })
+        Task { await Identity.removeOrphans(keeping: kept) }
         if tabs.isEmpty {
             newTab(nil)
         } else {
@@ -362,10 +396,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         saveTabs()
     }
 
+    private var savedSignature = ""
+
     func saveTabs() {
-        let urls = tabs.filter { $0.opener == nil }.compactMap(\.url)
-        let index = selected.flatMap { s in tabs.filter { $0.opener == nil }.firstIndex { $0 === s } } ?? 0
-        OpenTabs.save(urls, selected: index)
+        let own = tabs.filter { $0.opener == nil && $0.url != nil }
+        let index = selected.flatMap { s in own.firstIndex { $0 === s } } ?? 0
+        let tabs = own.map { ($0.url!, $0.keptIdentity) }
+        let signature = tabs.map { "\($0.0) \($0.1?.id.uuidString ?? "")" }.joined(separator: "\n") + "\n\(index)"
+        guard signature != savedSignature else { return }
+        savedSignature = signature
+        OpenTabs.save(tabs, selected: index)
     }
 
     @discardableResult
@@ -414,7 +454,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private func show(_ view: WKWebView) {
         guard view.superview !== content else { return }
         view.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(view, positioned: .below, relativeTo: backdrop)
+        content.addSubview(view, positioned: .below, relativeTo: pageHost)
         NSLayoutConstraint.activate([
             view.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             view.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -637,6 +677,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 extension BrowserWindowController: TabDelegate {
     func tabDidChange(_ tab: Tab) {
         tabList.refresh(tab)
+        saveTabs()
         if tab === selected { refreshChrome() }
     }
 
@@ -754,6 +795,7 @@ extension BrowserWindowController {
     var selectedTab: Tab? { selected }
     var pageShownForTesting: String? { pageHost.isHidden ? nil : hostedPage }
     var pageHostForTesting: NSView { pageHost }
+    var fillsForTesting: Bool { fills && sidebar.isFrosted && !backdrop.isHidden && backdrop.frame.minX == 0 && backdrop.frame.width > content.frame.width }
     var tabTableForTesting: NSTableView? { tabList.documentView as? NSTableView }
     var newTabPageShownForTesting: Bool { !backdrop.isHidden && backdrop.alphaValue > 0.5 }
     func mouseButtonForTesting(_ number: Int) { mouseButton(number) }

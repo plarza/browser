@@ -46,9 +46,12 @@ public final class Extensions: NSObject {
         return url
     }
 
+    /// The extension controller's storage and its pages' data store.
+    static let storeIDs = [UUID(uuidString: "C0DE0000-0000-4000-8000-0000000E7E45")!, UUID(uuidString: "C0DE0000-0000-4000-8000-00000000E75D")!]
+
     private override init() {
-        let configuration = WKWebExtensionController.Configuration(identifier: UUID(uuidString: "C0DE0000-0000-4000-8000-0000000E7E45")!)
-        let store = WKWebsiteDataStore(forIdentifier: UUID(uuidString: "C0DE0000-0000-4000-8000-00000000E75D")!)
+        let configuration = WKWebExtensionController.Configuration(identifier: Extensions.storeIDs[0])
+        let store = WKWebsiteDataStore(forIdentifier: Extensions.storeIDs[1])
         configuration.defaultWebsiteDataStore = store
         let views = configuration.webViewConfiguration ?? WKWebViewConfiguration()
         views.websiteDataStore = store

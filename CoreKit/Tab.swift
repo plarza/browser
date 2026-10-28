@@ -38,7 +38,60 @@ public final class Tab: NSObject {
     /// Keep this tab's identity through reloads and navigation. It still
     /// dies with the tab.
     public var persist = false {
-        didSet { if persist != oldValue { delegate?.tabDidChange(self) } }
+        didSet {
+            guard persist != oldValue else { return }
+            persistChanged()
+            delegate?.tabDidChange(self)
+        }
+    }
+
+    /// The tab's jar on disk while Persist is on, so it survives a relaunch.
+    public var keptIdentity: (id: UUID, seed: UInt64)? {
+        if case .kept(let id) = own.kind { return (id, own.seed) }
+        return nil
+    }
+
+    /// Jars given up by turning Persist off, deleted once nothing uses them.
+    private var retired: [UUID] = []
+
+    private func persistChanged() {
+        guard opener == nil else { return }
+        if persist {
+            guard case .fresh = own.kind else { return }
+            // The next load moves into the kept jar, bringing what the tab
+            // has so far (see `carry`).
+            own = Identity.kept(seed: own.seed)
+        } else if case .kept(let id) = own.kind {
+            retired.append(id)
+            own = .fresh()
+            dropRetired()
+        }
+    }
+
+    /// A carried page's storage is waiting to be written into the kept jar.
+    private var carrying = false
+    private var closed = false
+
+    /// Cookies from one jar into another, and a script that puts the page's
+    /// local and session storage back for the same origin.
+    static func carry(from: WKWebsiteDataStore, page: WKWebView, to: WKWebsiteDataStore) async -> WKUserScript? {
+        for cookie in await from.httpCookieStore.allCookies() { await to.httpCookieStore.setCookie(cookie) }
+        let read = "JSON.stringify({origin: location.origin, local: Object.entries(localStorage), session: Object.entries(sessionStorage)})"
+        guard let scheme = page.url?.scheme, scheme == "https" || scheme == "http",
+              let json = try? await page.evaluateJavaScript(read, in: nil, contentWorld: .defaultClient) as? String
+        else { return nil }
+        let source = """
+        (() => { const s = \(json); if (location.origin !== s.origin) return;
+          for (const [k, v] of s.local) if (localStorage.getItem(k) === null) localStorage.setItem(k, v);
+          for (const [k, v] of s.session) if (sessionStorage.getItem(k) === null) sessionStorage.setItem(k, v); })()
+        """
+        return WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .defaultClient)
+    }
+
+    private func dropRetired() {
+        let unused = retired.filter { identity.kind != .kept($0) }
+        retired.removeAll { unused.contains($0) }
+        for id in unused { Task { await Identity.forget(kept: id) } }
     }
 
     public private(set) var title = ""
@@ -159,6 +212,15 @@ public final class Tab: NSObject {
     /// (no process, no request) until it is first shown.
     public private(set) var pending: URL?
 
+    /// Restored with its kept jar: a Persist tab from the last session.
+    public func restore(_ url: URL, kept: (id: UUID, seed: UInt64)?) {
+        if let kept {
+            own = Identity.kept(kept.id, seed: kept.seed)
+            persist = true
+        }
+        restore(url)
+    }
+
     public func restore(_ url: URL) {
         pending = url
         self.url = url
@@ -188,6 +250,10 @@ public final class Tab: NSObject {
     public func stop() { webView.stopLoading() }
 
     public func close() {
+        closed = true
+        if case .kept(let id) = own.kind, opener == nil { retired.append(id) }
+        identity = .fresh()
+        dropRetired()
         for popup in popups { popup.close() }
         popups = []
         observations = []
@@ -262,6 +328,24 @@ public final class Tab: NSObject {
 
         // A wiped load gets a new identity, so it is never the current one.
         let target = identity(for: url.host)
+        if target !== identity, case .kept = target.kind, case .fresh = identity.kind {
+            // Persist was just turned on: the tab's cookies and the page's
+            // storage go into its kept jar before the load.
+            let from = identity.store, page = webView
+            Task {
+                let restore = await Tab.carry(from: from, page: page, to: target.store)
+                guard self.own === target, !self.closed else { return }
+                self.replaceWebView(with: target)
+                if let restore {
+                    self.webView.configuration.userContentController.addUserScript(restore)
+                    self.carrying = true
+                }
+                self.pendingDirection = direction
+                self.expecting = true
+                self.webView.load(request)
+            }
+            return
+        }
         if target !== identity { replaceWebView(with: target) }
         pendingDirection = direction
         expecting = true
@@ -271,6 +355,7 @@ public final class Tab: NSObject {
     private func replaceWebView(with target: Identity) {
         identity = target
         replaceWebView(with: Engine.configuration(for: target, content: Blocker.shared.controller()))
+        dropRetired()
     }
 
     private func replaceWebView(with configuration: WKWebViewConfiguration) {
@@ -459,6 +544,13 @@ extension Tab: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Favicons.shared.load(for: self)
+        if carrying {
+            // Carried storage goes in once; a site that later clears it stays cleared.
+            carrying = false
+            let content = webView.configuration.userContentController
+            content.removeAllUserScripts()
+            content.addUserScript(StoreRelay.userScript)
+        }
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

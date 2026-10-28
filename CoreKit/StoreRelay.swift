@@ -15,8 +15,12 @@ final class StoreRelay: NSObject, WKScriptMessageHandler {
     /// Into every tab's content controller; it returns at once anywhere but
     /// the store.
     static func install(in controller: WKUserContentController) {
-        controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+        controller.addUserScript(userScript)
         controller.add(shared, contentWorld: .defaultClient, name: name)
+    }
+
+    static var userScript: WKUserScript {
+        WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient)
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {

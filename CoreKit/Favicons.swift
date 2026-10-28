@@ -1,11 +1,15 @@
 import AppKit
+import CryptoKit
 import WebKit
 
 /// Site icons for the tabs. The page's own `<link rel=icon>` is read from
 /// WebKit's client world, which the page can't see or detect, and fetched
 /// with no cookies, no cache on disk and Safari's user agent: what any
-/// browser asks for a favicon. Icons live in memory only, by host, and are
-/// gone when Core quits.
+/// browser asks for a favicon. An icon is kept on disk only for a site that
+/// is already in History or on the cookie list, so the disk says nothing
+/// those don't; removing the site from History removes its icon, and
+/// clearing History clears them all. A kept icon is never fetched again,
+/// which is one request fewer for a site to see.
 @MainActor
 public final class Favicons {
     public static let shared = Favicons()
@@ -29,7 +33,36 @@ public final class Favicons {
 
     public func icon(for url: URL?) -> NSImage? {
         guard let host = url?.host?.lowercased() else { return nil }
-        return icons[host]
+        if let icon = icons[host] { return icon }
+        if let data = try? Data(contentsOf: file(for: host)), let image = NSImage(data: data), image.isValid {
+            icons[host] = image
+            return image
+        }
+        return nil
+    }
+
+    static var folder: URL { Store.directory.appendingPathComponent("Favicons", isDirectory: true) }
+
+    /// Named by a hash of the host, so a listing of the folder isn't a list of sites.
+    public func file(for host: String) -> URL {
+        let name = SHA256.hash(data: Data(("core.icon." + host).utf8)).map { String(format: "%02x", $0) }.joined()
+        return Favicons.folder.appendingPathComponent(name)
+    }
+
+    private func keep(_ data: Data, host: String) {
+        guard History.shared.knows(host: host) || Whitelist.domain(for: host) != nil else { return }
+        try? FileManager.default.createDirectory(at: Favicons.folder, withIntermediateDirectories: true)
+        try? data.write(to: file(for: host), options: [.atomic, .completeFileProtection])
+    }
+
+    func forget(host: String) {
+        icons[host] = nil
+        try? FileManager.default.removeItem(at: file(for: host))
+    }
+
+    func forgetAll() {
+        icons = [:]
+        try? FileManager.default.removeItem(at: Favicons.folder)
     }
 
     private static let script = """
@@ -38,7 +71,7 @@ public final class Favicons {
     """
 
     func load(for tab: Tab) {
-        guard let url = tab.url, url.scheme == "https" || url.scheme == "http", let host = url.host?.lowercased(), icons[host] == nil, !loading.contains(host) else { return }
+        guard let url = tab.url, url.scheme == "https" || url.scheme == "http", let host = url.host?.lowercased(), icon(for: url) == nil, !loading.contains(host) else { return }
         loading.insert(host)
         tab.webView.evaluateJavaScript(Favicons.script, in: nil, in: .defaultClient) { [weak self] result in
             guard let self else { return }
@@ -63,7 +96,7 @@ public final class Favicons {
     /// For a site not open in any tab (Settings' lists): its /favicon.ico,
     /// fetched the same cookie-free way, once.
     public func fetch(site url: URL) {
-        guard let host = url.host?.lowercased(), icons[host] == nil, !loading.contains(host),
+        guard let host = url.host?.lowercased(), icon(for: url) == nil, !loading.contains(host),
               let ico = URL(string: "https://\(host)/favicon.ico") else { return }
         loading.insert(host)
         Task { await fetch([ico], host: host) }
@@ -84,6 +117,7 @@ public final class Favicons {
                   let image = NSImage(data: data), image.isValid, image.size.width > 0
             else { continue }
             icons[host] = image
+            keep(data, host: host)
             NotificationCenter.default.post(name: Favicons.changed, object: host)
             return
         }

@@ -265,6 +265,7 @@ struct SettingsPage: View {
                 case .blank:
                     EmptyView()
                 }
+                Toggle("Fill Behind Sidebar", isOn: $prefs.settings.fill)
             }
 
             Section("Keep Cookies For") {
@@ -354,6 +355,7 @@ struct SettingsPage: View {
     private func chooseImage() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
+        panel.directoryURL = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
         guard panel.runModal() == .OK, let picked = panel.url else { return }
         try? FileManager.default.removeItem(at: Settings.newTabImage)
         try? FileManager.default.copyItem(at: picked, to: Settings.newTabImage)
@@ -473,24 +475,49 @@ extension NSColor {
 struct HelpPage: View {
     private let rows = NSApp.mainMenu.map(Menus.shortcuts(in:)) ?? []
 
+    /// Core's own pages: typed into the address field, or by their keys.
+    static let pages = [
+        ("History", "about://history", "⌘H"),
+        ("Settings", "about://settings", "⌘,"),
+        ("Help", "about://help", "⇧⌘/"),
+    ]
+
+    /// A shortcut's keys as keycaps; "A or B" is two.
+    struct Keys: View {
+        let text: String
+        var body: some View {
+            HStack(spacing: 4) {
+                ForEach(text.components(separatedBy: " or "), id: \.self) { keys in
+                    Text(keys)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+                }
+            }
+        }
+    }
+
     var body: some View {
         let sections = rows.reduce(into: [(String, [[String]])]()) { groups, row in
             if groups.last?.0 == row[0] { groups[groups.count - 1].1.append(row) } else { groups.append((row[0], [row])) }
         }
         Form {
+            Section("Core Pages") {
+                ForEach(HelpPage.pages, id: \.0) { page in
+                    LabeledContent(page.0) {
+                        HStack(spacing: 10) {
+                            Text(page.1)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                            Keys(text: page.2)
+                        }
+                    }
+                }
+            }
             ForEach(sections, id: \.0) { section in
                 Section(section.0) {
                     ForEach(section.1, id: \.self) { row in
-                        LabeledContent(row[1]) {
-                            HStack(spacing: 4) {
-                                ForEach(row[2].components(separatedBy: " or "), id: \.self) { keys in
-                                    Text(keys)
-                                        .padding(.horizontal, 7)
-                                        .padding(.vertical, 2)
-                                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
-                                }
-                            }
-                        }
+                        LabeledContent(row[1]) { Keys(text: row[2]) }
                     }
                 }
             }
