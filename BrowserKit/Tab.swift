@@ -235,7 +235,9 @@ public final class Tab: NSObject {
     public func restore(_ url: URL) {
         pending = url
         self.url = url
-        title = url.host ?? ""
+        // History's title, so nothing is kept that History doesn't already
+        // keep; the host if the page isn't in History.
+        title = History.shared.title(for: url) ?? url.host ?? ""
     }
 
     /// Loads a restored tab's address, if it has one waiting.

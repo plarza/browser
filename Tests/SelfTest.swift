@@ -446,6 +446,10 @@ enum SelfTest {
         let saved = OpenTabs.restore().tabs.contains { $0.kept?.id == jar?.id && $0.kept?.seed == jar?.seed }
         let reopened = browser.newTab(nil, select: false, focus: false, restoring: true)
         reopened.restore(site, kept: jar)
+        let restoredTitle = reopened.title
+        check("a reopened tab shows the page's title from History before it loads",
+              reopened.pending != nil && !restoredTitle.isEmpty && restoredTitle == tab.title && restoredTitle != site.host,
+              "restored=\(restoredTitle) page=\(tab.title)")
         await go(reopened, site) { browser.select(reopened) }
         let reread = await read(reopened)
         check("a Persist tab comes back after quitting with its cookies and storage", jar != nil && saved && reopened.persist && reread == "cookie storage",

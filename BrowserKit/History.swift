@@ -115,6 +115,11 @@ public final class History {
 
     /// Every word must appear somewhere in the address or the title. Most
     /// recent first.
+    /// The title History holds for this address, if it's in History.
+    func title(for url: URL) -> String? {
+        queue.sync { db?.title(for: url.absoluteString) }
+    }
+
     public func search(_ query: String, limit: Int = 500) -> [Visit] {
         queue.sync { db?.search(query, limit: limit) ?? [] }
     }
@@ -247,6 +252,12 @@ private final class Database {
         var found = false
         rows("SELECT 1 FROM visits WHERE host = ?1 LIMIT 1", [host]) { _ in found = true }
         return found
+    }
+
+    func title(for url: String) -> String? {
+        var title: String?
+        rows("SELECT title FROM visits WHERE url = ?1 AND title != ''", [url]) { title = $0.text(0) }
+        return title
     }
 
     func autofill(_ typed: String, today: Double) -> String? {
