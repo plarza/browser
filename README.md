@@ -16,7 +16,7 @@ Applied to upstream WebKit (`engine/patches/`).
 - Safari's Private Browsing fingerprinting protections are forced on: canvas and audio readouts get noise, `screen` reports the window's size, and link-decoration parameters are stripped.
 - `navigator.hardwareConcurrency` is always 8.
 - Each tab identity carries a seed; every site's noise is derived from that seed and the site, so the fingerprint changes on every wipe and differs between sites.
-- No JIT and no WebAssembly: JavaScriptCore runs on its interpreters only, set before the engine starts.
+- No JIT: JavaScriptCore, WebAssembly included, runs on its interpreters only, set before the engine starts.
 - Every web process runs in UTC.
 - Every WebKit process reports en-US, so `navigator.language`, `Accept-Language` and `Intl` agree.
 - WebRTC gathers relay candidates only, so neither your LAN address nor your public IP reaches a page or a peer.
@@ -85,6 +85,17 @@ It logs PASS/FAIL per check, ends with a count and quits, exiting non-zero if an
 ## Screenshot
 
 `release/screenshot.sh` redraws `release/screenshot.webp` (quality 80) from a debug build: the tabs listed in the script load from the internet into a throwaway data folder, and the new tab page is in front. The settings at the top of the script choose the tabs, the Persist tab, light or dark, and Fill.
+
+## iPhone
+
+`iOS/` is Browser for iPhone, on the system's WebKit: outside the EU and Japan, iOS doesn't let an app bring its own engine. It shares `BrowserKit` with the Mac app, so everything under Browser above holds, except that Safari extensions can't be loaded from other apps and downloads go to Browser's folder in Files. Of the engine patches, iOS keeps no JIT, UTC and en-US through WebKit's own switches, and Safari's Private Browsing protections through `_setNetworkConnectionIntegrityEnabled:`. It loses the seeded noise (Apple's noise can't be seeded) and relay-only WebRTC.
+
+```bash
+iOS/build.sh          # simulator build into build/ios
+iOS/build.sh device   # signed for, and installed on, a connected iPhone
+```
+
+It's installed from Xcode with a developer account, never the App Store: it uses WebKit's private API.
 
 ## Licence
 

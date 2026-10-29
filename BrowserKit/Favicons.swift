@@ -1,5 +1,16 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import CryptoKit
+
+#if os(macOS)
+public typealias PlatformImage = NSImage
+#else
+public typealias PlatformImage = UIImage
+extension UIImage { var isValid: Bool { size.width > 0 } }
+#endif
 import WebKit
 
 /// Site icons for the tabs. The page's own `<link rel=icon>` is read from
@@ -15,7 +26,7 @@ public final class Favicons {
     public static let shared = Favicons()
     public static let changed = Notification.Name("BrowserFaviconChanged")
 
-    private var icons: [String: NSImage] = [:]
+    private var icons: [String: PlatformImage] = [:]
     private var loading: Set<String> = []
     /// An icon is being fetched.
     public var isFetching: Bool { !loading.isEmpty }
@@ -24,11 +35,11 @@ public final class Favicons {
         "Accept-Language": "en-US,en;q=0.9",
     ])
 
-    public func icon(for url: URL?) -> NSImage? {
+    public func icon(for url: URL?) -> PlatformImage? {
         if InternalPage.page(url) != nil { return Favicons.browser }
         guard let host = url?.host?.lowercased() else { return nil }
         if let icon = icons[host] { return icon }
-        if let data = try? Data(contentsOf: file(for: host)), let image = NSImage(data: data), image.isValid {
+        if let data = try? Data(contentsOf: file(for: host)), let image = PlatformImage(data: data), image.isValid {
             icons[host] = image
             return image
         }
@@ -36,7 +47,8 @@ public final class Favicons {
     }
 
     /// Browser's own pages use the grey glyph on a transparent background.
-    public static let browser: NSImage? = {
+    public static let browser: PlatformImage? = {
+        #if os(macOS)
         guard let url = Bundle.main.url(forResource: "B", withExtension: "svg"), let glyph = NSImage(contentsOf: url) else { return nil }
         return NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
             glyph.draw(in: rect)
@@ -44,6 +56,9 @@ public final class Favicons {
             rect.fill(using: .sourceAtop)
             return true
         }
+        #else
+        return UIImage(named: "B")?.withTintColor(UIColor(white: 0.56, alpha: 1), renderingMode: .alwaysOriginal)
+        #endif
     }()
 
     static var folder: URL { Store.directory.appendingPathComponent("Favicons", isDirectory: true) }
@@ -114,7 +129,7 @@ public final class Favicons {
         for candidate in candidates.prefix(4) {
             guard let (data, response) = try? await session.data(from: candidate),
                   (response as? HTTPURLResponse)?.statusCode == 200, data.count < 1_000_000,
-                  let image = NSImage(data: data), image.isValid, image.size.width > 0
+                  let image = PlatformImage(data: data), image.isValid, image.size.width > 0
             else { continue }
             icons[host] = image
             keep(data, host: host)

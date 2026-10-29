@@ -1,5 +1,11 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
+#if os(macOS)
 import Security
+#endif
 import WebKit
 
 /// What the shell does for extensions: it owns the window and the tabs.
@@ -85,6 +91,7 @@ public final class Extensions: NSObject {
         }
     }
 
+    #if os(macOS)
     /// Every app in /Applications and ~/Applications, and the Safari web
     /// extensions in its PlugIns.
     static func scan() -> [Found] {
@@ -112,6 +119,10 @@ public final class Extensions: NSObject {
         else { return nil }
         return (info as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String
     }
+    #else
+    /// iOS keeps other apps' extensions out of reach: none to find.
+    static func scan() -> [Found] { [] }
+    #endif
 
     private func load(_ id: String) async {
         guard let item = found.first(where: { $0.id == id }) else { return }
@@ -199,7 +210,13 @@ final class ExtensionWindow: NSObject, WKWebExtensionWindow {
     func windowState(for context: WKWebExtensionContext) -> WKWebExtension.WindowState { .normal }
     func isPrivate(for context: WKWebExtensionContext) -> Bool { false }
     func frame(for context: WKWebExtensionContext) -> CGRect { Extensions.shared.host?.extensionWindowFrame ?? .null }
-    func screenFrame(for context: WKWebExtensionContext) -> CGRect { NSScreen.main?.frame ?? .null }
+    func screenFrame(for context: WKWebExtensionContext) -> CGRect {
+        #if os(macOS)
+        NSScreen.main?.frame ?? .null
+        #else
+        UIScreen.main.bounds
+        #endif
+    }
 }
 
 extension Tab: WKWebExtensionTab {

@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import WebKit
 
 @MainActor
@@ -165,7 +169,9 @@ public final class Tab: NSObject {
     private static func makeWebView(_ configuration: WKWebViewConfiguration) -> WKWebView {
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.allowsBackForwardNavigationGestures = false
+        #if os(macOS)
         view.allowsMagnification = true
+        #endif
         view.isInspectable = false
         return view
     }
@@ -432,13 +438,16 @@ public final class Tab: NSObject {
         }
         if scheme == "about" || scheme == "blob" || scheme == "data" || Extensions.shared.context(for: url) != nil { return .allow }
         if scheme == "mailto" || scheme == "tel" || scheme == "facetime" {
+            #if os(macOS)
             if action.navigationType == .linkActivated { NSWorkspace.shared.open(url) }
+            #else
+            if action.navigationType == .linkActivated { UIApplication.shared.open(url) }
+            #endif
             return .cancel
         }
         guard scheme == "http" || scheme == "https" else { return .cancel }
 
-        if action.navigationType == .linkActivated,
-           action.modifierFlags.contains(.command) || action.buttonNumber == 2 {
+        if action.navigationType == .linkActivated, Tab.wantsNewTab(action) {
             delegate?.tab(self, openInNewTab: url)
             return .cancel
         }
@@ -475,6 +484,15 @@ public final class Tab: NSObject {
     static func isLoopback(_ host: String?) -> Bool {
         guard let host = host?.lowercased() else { return false }
         return ["localhost", "127.0.0.1", "::1", "[::1]"].contains(host) || host.hasSuffix(".localhost")
+    }
+
+    /// ⌘-click or middle-click: the link goes to a new tab.
+    static func wantsNewTab(_ action: WKNavigationAction) -> Bool {
+        #if os(macOS)
+        action.modifierFlags.contains(.command) || action.buttonNumber == 2
+        #else
+        action.modifierFlags.contains(.command)
+        #endif
     }
 
     static func isUserInitiated(_ action: WKNavigationAction) -> Bool {
@@ -642,7 +660,7 @@ extension Tab: WKUIDelegate {
         delegate?.tabWantsToClose(self)
     }
 
-    public func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
+    public func webView(_ webView: WKWebView, decideMediaCapturePermissionsFor origin: WKSecurityOrigin, initiatedBy frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
         let who = origin.port == 0 ? "\(origin.protocol)://\(origin.host)" : "\(origin.protocol)://\(origin.host):\(origin.port)"
         guard let delegate else { return .deny }
         return await delegate.tab(self, allowCapture: type, for: who) ? .grant : .deny
@@ -660,7 +678,10 @@ extension Tab: WKUIDelegate {
         await delegate?.tab(self, runPrompt: prompt, defaultText: defaultText)
     }
 
+    #if os(macOS)
+    // iOS has WebKit's own picker (photos, camera, files) when this isn't implemented.
     public func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo) async -> [URL]? {
         await delegate?.tab(self, chooseFiles: parameters.allowsMultipleSelection, directories: parameters.allowsDirectories)
     }
+    #endif
 }

@@ -149,24 +149,22 @@ index ff78543e3be..f9220a4e96c 100644
      if (policy.contains(WebCore::AdvancedPrivacyProtections::BaselineProtections) && shouldBlockTrackersForThirdPartyCloaking(request))
          request._blockTrackers = YES;
 diff --git a/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm b/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm
-index 97c41013cba..f4116b538ca 100644
+index 97c41013cba..ec9aa1be94d 100644
 --- a/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm
 +++ b/Source/WebKit/Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm
-@@ -222,6 +222,14 @@ void setJSCOptions(xpc_object_t initializerMessage, EnableLockdownMode enableLoc
-         JSC::Options::initialize([] {
+@@ -223,6 +223,12 @@ void setJSCOptions(xpc_object_t initializerMessage, EnableLockdownMode enableLoc
              JSC::ExecutableAllocator::disableJIT();
              JSC::Options::allowSharedArrayBuffer() = false;
-+            JSC::Options::useWasm() = false;
-+        });
+         });
 +    } else if (isWebContentProcess) {
-+        // Browser: every page runs on JavaScriptCore's interpreters only, with
-+        // no WebAssembly, decided here before JSC starts.
++        // Browser: every page runs on JavaScriptCore's interpreters only,
++        // WebAssembly included, decided here before JSC starts.
 +        JSC::Options::initialize([] {
 +            JSC::ExecutableAllocator::disableJIT();
-+            JSC::Options::useWasm() = false;
-         });
++        });
      }
      // FIXME (276012): Remove this XPC bootstrap message when it's no longer necessary. See rdar://130669638 for more context.
+     if (xpc_dictionary_get_bool(initializerMessage, "disable-jit-cage")) {
 diff --git a/Source/WebKit/Shared/WebsitePoliciesData.cpp b/Source/WebKit/Shared/WebsitePoliciesData.cpp
 index 9d9ea6035f1..bbe4d09f973 100644
 --- a/Source/WebKit/Shared/WebsitePoliciesData.cpp

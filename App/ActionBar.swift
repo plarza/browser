@@ -85,10 +85,10 @@ final class ActionBar: NSView {
         let count = shown
         for (i, button) in buttons.enumerated() {
             button.isHidden = i >= count
-            button.frame = NSRect(x: CGFloat(i) * Self.step, y: (bounds.height - 22) / 2, width: 24, height: 22)
+            button.frame = NSRect(x: CGFloat(i) * Self.step, y: (bounds.height - 24) / 2, width: 24, height: 24)
         }
         more.isHidden = count == buttons.count
-        more.frame = NSRect(x: bounds.width - 24, y: (bounds.height - 22) / 2, width: 24, height: 22)
+        more.frame = NSRect(x: bounds.width - 24, y: (bounds.height - 24) / 2, width: 24, height: 24)
     }
 
     @objc private func dragged(_ gesture: NSPanGestureRecognizer) {

@@ -1,0 +1,64 @@
+# The iPhone app. `xcodegen` turns this into Browser.xcodeproj (not checked
+# in); iOS/build.sh does that and builds.
+name: Browser
+options:
+  bundleIdPrefix: network.aza
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: H5A6B4L9W8
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "3"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  BrowserKit:
+    type: framework
+    platform: iOS
+    sources:
+      - path: ../BrowserKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: network.aza.browser.kit
+        GENERATE_INFOPLIST_FILE: YES
+        SKIP_INSTALL: YES
+  Browser:
+    type: application
+    platform: iOS
+    dependencies:
+      - target: BrowserKit
+    sources:
+      - path: App
+      - path: ../release/Browser.icon
+        buildPhase: resources
+      - path: ../release/morning.webp
+        buildPhase: resources
+      - path: ../release/engines
+        type: folder
+        buildPhase: resources
+    info:
+      path: App/Info.plist
+      properties:
+        # ProMotion: animations at up to 120 Hz, not capped at 60.
+        CADisableMinimumFrameDurationOnPhone: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: network.aza.browser
+        PRODUCT_NAME: Browser
+        ASSETCATALOG_COMPILER_APPICON_NAME: Browser
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Browser
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UIRequiresFullScreen: YES
+        INFOPLIST_KEY_NSCameraUsageDescription: A website asked for the camera. Browser asks you each time.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: A website asked for the microphone. Browser asks you each time.
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: Saving an image from a page.
+        INFOPLIST_KEY_UIFileSharingEnabled: YES
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        # Only HTTPS from the system's own stack: nothing for export rules to cover.
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO

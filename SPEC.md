@@ -40,7 +40,7 @@ Browser has one user, so there is no crowd of Browser users to hide in. It hides
 - **Language and time zone:** `en-US` everywhere, set in every child process, so `navigator.language(s)`, `Accept-Language` and `Intl` all agree. The time zone is UTC.
 - **Screen.** `screen.*` reports the window's own size, as Safari Private Browsing does. The page's viewport sizes are the real ones: rounding them would disagree with CSS media queries, and that disagreement is exactly the kind of lie CreepJS looks for. The window stays freely resizable; there is no letterboxing.
 - **Fonts.** Fonts you installed yourself are invisible to pages; only macOS's own fonts can be seen.
-- **JavaScript engine.** No JIT and no WebAssembly. That shuts out a large class of exploits and removes two timing surfaces.
+- **JavaScript engine.** No JIT. That shuts out a large class of exploits and removes a timing surface. WebAssembly is on, run by the interpreter like everything else, since leaving it out would mark Browser apart from Safari and break sites.
 - **WebRTC.** WebRTC stays on, but ICE uses TURN relay only. Host and srflx candidates are never gathered, so neither the LAN IP nor the public IP leaks around the VPN.
 - **Media devices.** WebKit's default applies: no labels and no IDs until permission is granted.
 
@@ -54,7 +54,7 @@ Browser has one user, so there is no crowd of Browser users to hide in. It hides
 
 ## JavaScript
 
-- JavaScript is on everywhere. **JIT is off** (JSC runs on its interpreters only) and **WebAssembly is off**. Neither has a setting.
+- JavaScript is on everywhere. **JIT is off** (JSC runs on its interpreters only, WebAssembly too). It has no setting.
 
 ## Permissions
 
@@ -110,7 +110,7 @@ Listed at about://help (⇧⌘/), read from the menus. In every dialog, Return c
 
 ## Builds and updates
 
-- **Patched engine required.** Every build embeds Browser’s patched WebKit. Missing or unpatched engines are build errors. The launcher checks its bundled frameworks, and the executable verifies the loaded engine before creating the application, including direct and debug launches. There is no system-WebKit browsing mode.
+- **Patched engine required** on the Mac. Every Mac build embeds Browser’s patched WebKit. Missing or unpatched engines are build errors. The launcher checks its bundled frameworks, and the executable verifies the loaded engine before creating the application, including direct and debug launches. There is no system-WebKit browsing mode.
 
 - **Source.** The repository is `aza/browser` on `git.aza.network` (Forgejo), mirrored publicly to `github.com/plarza/browser` by a Forgejo push mirror on every push (an SSH deploy key, so Forgejo holds no GitHub token); push to Forgejo only. A `forgejo-runner` in host mode runs on this Mac with the label `macos-arm64`.
 - **Releases.** Pushing a tag builds the engine and the app, signs them with the Developer ID, notarizes them, and uploads the DMG to Forgejo Releases.
@@ -125,3 +125,14 @@ Things CreepJS still sees, measured on 2026-10-28 by loading it, wiping, and loa
 
 - **WebGL pixels and images** come out with the same hash in every identity, so they can link sessions across wipes. To do: patch the engine to add per-seed noise to WebGL `readPixels` and canvas readback of WebGL contexts, the same way canvas 2D and audio already get it.
 - **Fonts, speech voices and media device kinds** (microphone, webcam) are the same in every identity. They match what Safari shows on most Macs, so they are left alone for now.
+
+## iPhone
+
+- `iOS/` runs on the system's WebKit, the one browser engine iOS allows outside the EU and Japan. BrowserKit is shared; every Tabs, Whitelist, Network, Permissions, Address and History rule above holds.
+- **Engine.** JIT is off for every web process, which runs in UTC, and the app reports en-US. Safari's Private Browsing protections are on for every navigation. There is no seed: the noise is Apple's own, so it doesn't change on a wipe. WebAssembly runs on the interpreter, as on the Mac, and WebRTC is WebKit's default. Nothing is injected into pages here either.
+- **Bar.** Along the bottom, in Liquid Glass: Arc's stack of tabs (the tab to the left of the one showing at the back, the one showing in front; dealt along with a swipe between tabs; opens the grid), the address bar (the site's name), and New Tab. Scrolling down the page shrinks it to the site's name. Long press on the address bar: Persist, Reload, Copy Link, Find on Page, Share. Dragging it sideways pulls the next or previous tab in beside the page, the address changing as the swipe passes halfway; dragging it up shrinks the page into the grid under the finger, and letting go finishes or springs back at the finger's speed. A Persist tab's address bar has a blue ring.
+- **Back and forward** are swipes from the screen's left and right edges; pull down to reload. There are no buttons for them.
+- **Address sheet.** Tapping the address bar or New Tab brings up a glass sheet with the page as a card above it: the field (the address selected, to type over), then pages from History, then the typed words as a search. Nothing is fetched while typing. Pulling the sheet down, or tapping the card, puts it away. New Tab opens no tab until you go somewhere, so there are no blank tabs.
+- **Tab grid.** Two columns of cards, titles underneath, ✕ on each, a swipe sideways closes; a Persist tab's card has a blue ring. The page shrinks into its card on the way in and grows out of it on the way back. Along the bottom: Settings (…) and an address bar that opens a new tab. Tabs are never synced.
+- **Extensions.** iOS keeps other apps' Safari extensions out of reach, so none are found.
+- **Downloads** go to Browser's folder in the Files app.

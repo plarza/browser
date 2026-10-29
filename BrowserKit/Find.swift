@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import WebKit
 
 /// Find on page, with WebKit's own find engine (Safari's): every match
