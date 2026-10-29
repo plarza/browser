@@ -55,8 +55,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         window.isOpaque = false
         window.backgroundColor = .clear
         window.minSize = NSSize(width: 640, height: 420)
-        window.setFrameAutosaveName("Browser")
-        if window.frame.origin == .zero { window.center() }
+        // Every launch fills the screen, short of the menu bar and Dock; not
+        // full screen.
+        if let screen = NSScreen.main { window.setFrame(screen.visibleFrame, display: false) }
         window.isRestorable = false
         super.init(window: window)
         window.delegate = self
