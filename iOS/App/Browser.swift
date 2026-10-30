@@ -36,8 +36,6 @@ final class Browser {
     /// during layout, so nothing redraws for it.
     @ObservationIgnored var cardFrames: [UUID: CGRect] = [:]
     @ObservationIgnored private var states: [UUID: String] = [:]
-    @ObservationIgnored private var savedSignature = ""
-
     var gridShown: Bool { gridProgress >= 1 }
 
     // MARK: Tabs
@@ -53,15 +51,7 @@ final class Browser {
         if !tabs.isEmpty { select(tabs[min(max(saved.selected, 0), tabs.count - 1)]) }
     }
 
-    func saveTabs() {
-        let own = tabs.filter { $0.opener == nil && $0.url != nil }
-        let index = selected.flatMap { s in own.firstIndex { $0 === s } } ?? 0
-        let tabs = own.map { ($0.url!, $0.keptIdentity) }
-        let signature = tabs.map { "\($0.0) \($0.1?.uuidString ?? "")" }.joined(separator: "\n") + "\n\(index)"
-        guard signature != savedSignature else { return }
-        savedSignature = signature
-        OpenTabs.save(tabs, selected: index)
-    }
+    func saveTabs() { OpenTabs.save(tabs, selected: selected) }
 
     /// Tabs only ever start with somewhere to go: + asks first, so there
     /// are no blank tabs to tidy up.

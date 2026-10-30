@@ -330,15 +330,21 @@ enum SelfTest {
                         }
                         check("the \(side) inspector remains visible and stable", stable, "frame=\(frontendView.frame)")
                     }
-                    window.makeFirstResponder(tab.webView)
+                    window.makeFirstResponder(frontendView)
                     await key("I", in: window, modifiers: [.command, .shift])
-                    check("repeating ⇧⌘I keeps the inspector connected", (inspector?.value(forKey: "isConnected") as? Bool) == true, "")
+                    await expect("⇧⌘I in the inspector closes it", { (inspector?.value(forKey: "isVisible") as? Bool) != true })
                 }
-                inspector?.perform(NSSelectorFromString("close"))
-                await expect("closing Web Inspector restores the full page", {
+                @MainActor func restored() -> Bool {
                     window.contentView?.layoutSubtreeIfNeeded()
                     return tab.webView.frame == tab.webView.superview?.bounds
-                })
+                }
+                await expect("closing Web Inspector restores the full page", { restored() })
+                window.makeFirstResponder(tab.webView)
+                await key("I", in: window, modifiers: [.command, .shift])
+                await expect("⇧⌘I reopens Web Inspector", { (inspector?.value(forKey: "isVisible") as? Bool) == true })
+                window.makeFirstResponder(tab.webView)
+                await key("I", in: window, modifiers: [.command, .shift])
+                await expect("⇧⌘I on the page closes it again", { (inspector?.value(forKey: "isVisible") as? Bool) != true && restored() })
             }),
             ("Back to the new tab page", {
                 let tab = browser.selected!

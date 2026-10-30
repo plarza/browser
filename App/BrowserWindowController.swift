@@ -394,17 +394,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         saveTabs()
     }
 
-    private var savedSignature = ""
-
-    func saveTabs() {
-        let own = tabs.filter { $0.opener == nil && $0.url != nil }
-        let index = selected.flatMap { s in own.firstIndex { $0 === s } } ?? 0
-        let tabs = own.map { ($0.url!, $0.keptIdentity) }
-        let signature = tabs.map { "\($0.0) \($0.1?.uuidString ?? "")" }.joined(separator: "\n") + "\n\(index)"
-        guard signature != savedSignature else { return }
-        savedSignature = signature
-        OpenTabs.save(tabs, selected: index)
-    }
+    func saveTabs() { OpenTabs.save(tabs, selected: selected) }
 
     @discardableResult
     func newTab(_ url: URL?, after: Tab? = nil, select shouldSelect: Bool = true, focus: Bool = true, restoring: Bool = false) -> Tab {
@@ -654,12 +644,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     @objc func duplicateTab(_ sender: Any?) {
         if let tab = selected, let url = tab.url { newTab(url, after: tab) }
     }
-    /// ⇧⌘I: Web Inspector for this tab's page.
-    @objc func showInspector(_ sender: Any?) {
+    /// ⇧⌘I: Web Inspector for this tab's page, open or closed.
+    @objc func toggleInspector(_ sender: Any?) {
         guard let web = selected?.webView, selected?.internalPage == nil,
               let inspector = web.value(forKey: "_inspector") as? NSObject else { return }
         web.isInspectable = true
-        inspector.perform(NSSelectorFromString("show"))
+        let shown = inspector.value(forKey: "isVisible") as? Bool == true
+        inspector.perform(NSSelectorFromString(shown ? "close" : "show"))
     }
 
     @objc func showFind(_ sender: Any?) {
