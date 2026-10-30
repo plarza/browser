@@ -291,7 +291,8 @@ enum SelfTest {
                 tab.find("WebKit")
                 await expect("find again moves to the next", { found.1 == 1 }, "found=\(found)")
                 tab.hideFind()
-                browser.showInspector(nil)
+                window.makeFirstResponder(tab.webView)
+                await key("I", in: window, modifiers: [.command, .shift])
                 let inspector = tab.webView.value(forKey: "_inspector") as? NSObject
                 check("opening Web Inspector makes this page inspectable", tab.webView.isInspectable, "")
                 await expect("⇧⌘I opens a connected Web Inspector", {
@@ -308,7 +309,36 @@ enum SelfTest {
                     let text = try? await frontendView.evaluateJavaScript("document.body.innerText") as? String
                     return text?.contains("Elements") == true && text?.contains("Console") == true
                 })
+                if let frontendView {
+                    for side in ["left", "bottom"] {
+                        _ = try? await frontendView.evaluateJavaScript("InspectorFrontendHost.requestSetDockSide('\(side)')")
+                        await expect("Web Inspector docks to the \(side) without covering the page", seconds: 5, {
+                            window.contentView?.layoutSubtreeIfNeeded()
+                            let pageFrame = tab.webView.convert(tab.webView.bounds, to: nil)
+                            let inspectorFrame = frontendView.convert(frontendView.bounds, to: nil)
+                            return frontendView.window === window && inspectorFrame.width > 100 && inspectorFrame.height > 100
+                                && pageFrame.width > 100 && pageFrame.height > 100
+                                && pageFrame.intersection(inspectorFrame).isEmpty
+                        }, "page=\(tab.webView.frame) inspector=\(frontendView.frame)")
+                        var stable = true
+                        let frame = frontendView.frame
+                        for _ in 0 ..< 20 {
+                            try? await Task.sleep(for: .milliseconds(50))
+                            window.contentView?.layoutSubtreeIfNeeded()
+                            stable = stable && frontendView.frame == frame && !frontendView.isHidden
+                                && (inspector?.value(forKey: "isConnected") as? Bool) == true
+                        }
+                        check("the \(side) inspector remains visible and stable", stable, "frame=\(frontendView.frame)")
+                    }
+                    window.makeFirstResponder(tab.webView)
+                    await key("I", in: window, modifiers: [.command, .shift])
+                    check("repeating ⇧⌘I keeps the inspector connected", (inspector?.value(forKey: "isConnected") as? Bool) == true, "")
+                }
                 inspector?.perform(NSSelectorFromString("close"))
+                await expect("closing Web Inspector restores the full page", {
+                    window.contentView?.layoutSubtreeIfNeeded()
+                    return tab.webView.frame == tab.webView.superview?.bounds
+                })
             }),
             ("Back to the new tab page", {
                 let tab = browser.selected!
@@ -650,7 +680,7 @@ enum SelfTest {
     static func key(_ character: String, in window: NSWindow, modifiers: NSEvent.ModifierFlags = .command) async {
         let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
                                     windowNumber: window.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character,
-                                    isARepeat: false, keyCode: ["s": 1, "l": 37, "y": 16, String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)): 126,
+                                    isARepeat: false, keyCode: ["s": 1, "l": 37, "y": 16, "i": 34, "I": 34, String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)): 126,
                                                                 String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)): 125][character] ?? 0)!
         if !window.performKeyEquivalent(with: down) { window.sendEvent(down) }
     }

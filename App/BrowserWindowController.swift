@@ -450,7 +450,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     private func show(_ view: WKWebView) {
-        if view.superview !== content { content.addPinned(view, below: pageHost) }
+        guard view.superview !== content else { return }
+        // Web Inspector resizes the inspected view when docked. Edge
+        // constraints would force it back over the inspector on every layout.
+        view.translatesAutoresizingMaskIntoConstraints = true
+        view.autoresizingMask = [.width, .height]
+        view.frame = content.bounds
+        content.addSubview(view, positioned: .below, relativeTo: pageHost)
     }
 
     func close(_ tab: Tab) {
