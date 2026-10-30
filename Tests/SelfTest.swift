@@ -293,7 +293,21 @@ enum SelfTest {
                 tab.hideFind()
                 browser.showInspector(nil)
                 let inspector = tab.webView.value(forKey: "_inspector") as? NSObject
-                await expect("⇧⌘I opens Web Inspector", { (inspector?.value(forKey: "isVisible") as? Bool) == true })
+                check("opening Web Inspector makes this page inspectable", tab.webView.isInspectable, "")
+                await expect("⇧⌘I opens a connected Web Inspector", {
+                    (inspector?.value(forKey: "isVisible") as? Bool) == true && (inspector?.value(forKey: "isConnected") as? Bool) == true
+                })
+                func frontend(in view: NSView) -> WKWebView? {
+                    if let web = view as? WKWebView, web.url?.scheme == "inspector-resource" { return web }
+                    return view.subviews.lazy.compactMap { frontend(in: $0) }.first
+                }
+                var frontendView: WKWebView?
+                await expect("Web Inspector loads its frontend", {
+                    frontendView = NSApp.windows.lazy.compactMap { $0.contentView.flatMap { frontend(in: $0) } }.first
+                    guard let frontendView else { return false }
+                    let text = try? await frontendView.evaluateJavaScript("document.body.innerText") as? String
+                    return text?.contains("Elements") == true && text?.contains("Console") == true
+                })
                 inspector?.perform(NSSelectorFromString("close"))
             }),
             ("Back to the new tab page", {

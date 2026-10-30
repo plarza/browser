@@ -652,6 +652,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     @objc func showInspector(_ sender: Any?) {
         guard let web = selected?.webView, selected?.internalPage == nil,
               let inspector = web.value(forKey: "_inspector") as? NSObject else { return }
+        web.isInspectable = true
         inspector.perform(NSSelectorFromString("show"))
     }
 
