@@ -7,7 +7,7 @@ import SwiftUI
 ///
 ///   -browserOpen "https://a,https://b"   tabs to open, the last one showing
 ///   -browserPersist N                    tab N (from 0) on Persist
-///   -browserState grid|reopen|editing|newtab|settings|collapsed|swipe|swipeend
+///   -browserState grid|reopen|editing|newtab|settings|collapsed|swipe|swipeend|back
 ///   -browserType text                    typed into the address sheet
 @MainActor
 enum Shots {
@@ -44,7 +44,7 @@ enum Shots {
                 // A finger flicking left from the first tab, then letting go.
                 browser.select(browser.tabs[0])
                 try? await Task.sleep(for: .seconds(2))
-                if let tab = browser.selected { browser.snapshot(tab) }
+                if let tab = browser.selected { browser.capture(tab) }
                 for x in stride(from: 0.0, through: -160, by: -8) {
                     browser.pageOffset = x
                     try? await Task.sleep(for: .milliseconds(16 * Int(Motion.slow)))
@@ -53,12 +53,25 @@ enum Shots {
                 NSLog("pagelog after end offset=%.1f selected=%@", browser.pageOffset, browser.selected?.url?.lastPathComponent ?? "-")
                 try? await Task.sleep(for: .seconds(3))
                 NSLog("pagelog later offset=%.1f selected=%@", browser.pageOffset, browser.selected?.url?.lastPathComponent ?? "-")
+            case "back":
+                // A second page in the same tab, then a finger from the
+                // left edge, past a third of the way, letting go.
+                guard let tab = browser.selected, browser.tabs.count > 1, let url = browser.tabs[0].url else { break }
+                tab.load(url)
+                try? await Task.sleep(for: .seconds(4))
+                let pages = browser.stage.pages
+                pages.beginSwipe(back: true)
+                for x in stride(from: 0.0, through: 160, by: 6) {
+                    pages.follow(x)
+                    try? await Task.sleep(for: .milliseconds(16 * Int(Motion.slow)))
+                }
+                pages.endSwipe(at: 160, speed: 900)
             case "snap":
                 if let tab = browser.selected {
-                    browser.snapshot(tab)
-                    try? browser.snapshots[tab.id]?.pngData()?.write(to: URL.temporaryDirectory.appending(path: "snap.png"))
+                    browser.capture(tab)
+                    try? browser.picture(tab)?.pngData()?.write(to: URL.temporaryDirectory.appending(path: "snap.png"))
                 }
-            case "swipe": browser.select(browser.tabs[0]); try? await Task.sleep(for: .seconds(1)); if let tab = browser.selected { browser.snapshot(tab) }; browser.pageOffset = -170
+            case "swipe": browser.select(browser.tabs[0]); try? await Task.sleep(for: .seconds(1)); if let tab = browser.selected { browser.capture(tab) }; browser.pageOffset = -170
             default: break
             }
         }

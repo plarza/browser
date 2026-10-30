@@ -94,7 +94,6 @@ struct BottomBar: View {
                 let x = value.translation.width, y = value.translation.height
                 if axis == nil {
                     axis = abs(x) > abs(y) ? .horizontal : (y < 0 && tab != nil ? .vertical : nil)
-                    if axis != nil, let tab { browser.snapshot(tab) }
                 }
                 switch axis {
                 case .horizontal:
@@ -217,7 +216,7 @@ struct TabStack: View {
         let tabs = browser.tabs
         let current = browser.selected.flatMap { s in tabs.firstIndex { $0 === s } } ?? 0
         // How far along the swipe is, in tabs: towards the left is positive.
-        let shift = browser.pageOffset / (Screen.bounds.width + PageArea.gap)
+        let shift = browser.pageOffset / (Screen.bounds.width + Pages.gap)
         let near = tabs.indices.filter { abs($0 - current) <= 2 }
         Button {
             browser.showGrid()
@@ -238,9 +237,9 @@ struct TabStack: View {
     }
 
     private func card(_ tab: Tab) -> some View {
-        TabPicture(image: browser.snapshots[tab.id])
+        TabPicture(image: browser.picture(tab))
             .overlay {
-                if browser.snapshots[tab.id] == nil, let icon = Favicons.shared.icon(for: tab.url) {
+                if browser.picture(tab) == nil, let icon = Favicons.shared.icon(for: tab.url) {
                     Image(uiImage: icon).resizable().scaledToFit().frame(width: 14, height: 14)
                 }
             }

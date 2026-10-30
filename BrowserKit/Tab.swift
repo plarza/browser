@@ -37,6 +37,9 @@ public final class Tab: NSObject {
     public weak var delegate: TabDelegate?
 
     public private(set) var webView: WKWebView
+    /// What the shell shows: the web view, and across a wipe the page
+    /// before it, until the next one draws.
+    public let view = PageView()
     public private(set) var identity: Identity
 
     /// Keep this tab's identity through reloads and navigation. It still
@@ -151,6 +154,7 @@ public final class Tab: NSObject {
         webView = Tab.makeWebView(Engine.configuration(for: identity, content: Blocker.shared.controller()))
         super.init()
         attach()
+        view.show(webView, replacing: nil)
     }
 
     /// A popup: WebKit hands over the configuration it must be made with,
@@ -164,6 +168,7 @@ public final class Tab: NSObject {
         webView = Tab.makeWebView(configuration)
         super.init()
         attach()
+        view.show(webView, replacing: nil)
     }
 
     private static func makeWebView(_ configuration: WKWebViewConfiguration) -> WKWebView {
@@ -179,6 +184,7 @@ public final class Tab: NSObject {
     private func attach() {
         webView.navigationDelegate = self
         webView.uiDelegate = self
+        Tab.observeFirstDraw(webView)
         observations = [
             webView.observe(\.title) { [weak self] view, _ in
                 MainActor.assumeIsolated {
@@ -270,6 +276,7 @@ public final class Tab: NSObject {
         for popup in popups { popup.close() }
         popups = []
         detach(webView)
+        view.clear()
         opener?.popups.removeAll { $0 === self }
     }
 
@@ -286,7 +293,7 @@ public final class Tab: NSObject {
     static let blank = URL(string: "about:newtab")!
 
     private func showBlank(direction: Direction) {
-        replaceWebView(with: .fresh())
+        replaceWebView(with: .fresh(), handover: false)
         pendingDirection = direction
         recordEntry(Tab.blank)
         update(.URL) { $0.url = nil }
@@ -298,7 +305,7 @@ public final class Tab: NSObject {
 
     private func showInternal(_ page: String, direction: Direction) {
         // An empty web view underneath: nothing of the last page stays.
-        replaceWebView(with: .fresh())
+        replaceWebView(with: .fresh(), handover: false)
         internalPage = page
         pendingDirection = direction
         let address = InternalPage.address(page)
@@ -369,13 +376,14 @@ public final class Tab: NSObject {
         webView.load(request)
     }
 
-    private func replaceWebView(with target: Identity) {
+    private func replaceWebView(with target: Identity, handover: Bool = true) {
         identity = target
-        replaceWebView(with: Engine.configuration(for: target, content: Blocker.shared.controller()))
+        replaceWebView(with: Engine.configuration(for: target, content: Blocker.shared.controller()), handover: handover)
         dropRetired()
     }
 
-    private func replaceWebView(with configuration: WKWebViewConfiguration) {
+    /// `handover`: the old page stays up until the new one draws.
+    private func replaceWebView(with configuration: WKWebViewConfiguration, handover: Bool = true) {
         internalPage = nil
         let old = webView
         detach(old, keepOnScreen: true)
@@ -385,12 +393,12 @@ public final class Tab: NSObject {
         popups = []
         webView = Tab.makeWebView(configuration)
         attach()
+        view.show(webView, replacing: handover ? old : nil)
         delegate?.tab(self, didReplace: old)
-        old.removeFromSuperview()
     }
 
     /// Lets go of a web view: nothing it does reaches this tab any more.
-    /// One being replaced stays on screen until its successor is shown.
+    /// One being replaced stays on screen until its successor draws.
     private func detach(_ view: WKWebView, keepOnScreen: Bool = false) {
         observations = []
         view.stopLoading()
@@ -567,6 +575,7 @@ extension Tab: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         provisional = false
+        view.committed()
         httpAllowed = nil
         if let url = webView.url {
             if Extensions.shared.context(for: url) != nil { recordEntry(url) }
@@ -598,16 +607,36 @@ extension Tab: WKNavigationDelegate {
         delegate?.tabDidChange(self)
     }
 
+    /// The new page's first layout with something in it: WebKit's private
+    /// call, the moment it stops showing the last page itself.
+    @objc(_webView:renderingProgressDidChange:)
+    public func webView(_ webView: WKWebView, renderingProgressDidChange events: UInt) {
+        if webView === self.webView, events & Tab.firstVisuallyNonEmptyLayout != 0 { view.drew() }
+    }
+
+    static let firstVisuallyNonEmptyLayout: UInt = 1 << 1
+
+    /// Asks WebKit for the call above.
+    static func observeFirstDraw(_ webView: WKWebView) {
+        let set = NSSelectorFromString("_setObservedRenderingProgressEvents:")
+        guard webView.responds(to: set) else { return }
+        typealias Setter = @convention(c) (AnyObject, Selector, UInt) -> Void
+        unsafeBitCast(webView.method(for: set), to: Setter.self)(webView, set, firstVisuallyNonEmptyLayout)
+    }
+
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         provisional = false
         let code = (error as NSError).code
         if let original = upgradedFrom, (error as NSError).domain == NSURLErrorDomain, code != NSURLErrorCancelled {
             upgradedFrom = nil
             showInterstitial(for: original)
+        } else {
+            view.drew()
         }
     }
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        view.drew()
         Favicons.shared.load(for: self)
         if carrying {
             // Carried storage goes in once; a site that later clears it stays cleared.
@@ -620,6 +649,7 @@ extension Tab: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         provisional = false
+        view.drew()
     }
 
     public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

@@ -80,13 +80,14 @@ private struct GridBarReveal: ViewModifier {
     }
 }
 
-/// A card is hidden while the page is on its way to or from it.
+/// The selected card is hidden while the page is away from it: the page,
+/// in flight, stands in for it.
 private struct CardLanding: ViewModifier {
     @Environment(Browser.self) private var browser
     let tab: Tab
 
     func body(content: Content) -> some View {
-        content.modifier(Settled(progress: tab === browser.selected ? browser.gridProgress : 1, showsAt: 1))
+        content.opacity(tab === browser.selected && !browser.landed ? 0 : 1)
     }
 }
 
@@ -98,9 +99,9 @@ struct TabCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            TabPicture(image: browser.snapshots[tab.id])
+            TabPicture(image: browser.picture(tab))
                 .overlay {
-                    if browser.snapshots[tab.id] == nil { placeholder }
+                    if browser.picture(tab) == nil { placeholder }
                 }
                 .aspectRatio(0.78, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: Self.radius, style: .continuous))

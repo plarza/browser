@@ -128,7 +128,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     private func updateNewTabPage() {
         let blank = selected.map { $0.url == nil && $0.pending == nil && !$0.isLoading } ?? false
         let page = selected?.internalPage
-        selected?.webView.isHidden = blank || page != nil
+        selected?.view.isHidden = blank || page != nil
         content.isClear = blank
         backdrop.isHidden = !blank && !fills
         backdrop.alphaValue = 1
@@ -180,21 +180,22 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// Two-finger swipes left and right go back and forward, as in Safari.
     /// Browser keeps its own back and forward lists (a wipe swaps the web view
     /// out), so the swipe is followed here, from the scroll gesture's phases:
-    /// a chevron follows the fingers in from the edge, and letting go past
-    /// it navigates.
-    private let swipeArrow = NSImageView()
-    private var swipe: (back: Bool, distance: CGFloat)?
-    private static let swipeDistance: CGFloat = 160
+    /// going back, the page follows the fingers off to the right, a picture
+    /// of the page before coming out from under it; going forward, the page
+    /// after slides in over it. Letting go far enough, or with a flick,
+    /// finishes, and the picture stays until the next page draws.
+    private var swipe: (back: Bool, distance: CGFloat, last: CGFloat, picture: NSImageView)?
+    private var loading: Set<UUID> = []
 
     private func watchSwipes() {
-        swipeArrow.symbolConfiguration = .init(pointSize: 30, weight: .regular).applying(.init(hierarchicalColor: .secondaryLabelColor))
-        swipeArrow.alphaValue = 0
-        content.addSubview(swipeArrow)
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             MainActor.assumeIsolated {
-                guard let self, event.window === self.window, NSEvent.isSwipeTrackingFromScrollEventsEnabled,
+                guard let self, event.window === self.window,
                       self.content.bounds.contains(self.content.convert(event.locationInWindow, from: nil))
                 else { return }
+                // The page came to rest: its picture, for swiping back to it.
+                if event.phase == .ended || event.momentumPhase == .ended { self.captureSoon() }
+                guard NSEvent.isSwipeTrackingFromScrollEventsEnabled else { return }
                 self.follow(event.phase, dx: event.scrollingDeltaX, dy: event.scrollingDeltaY)
             }
             return event
@@ -208,37 +209,95 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             guard abs(dx) > abs(dy) * 2 else { return }
             // Fingers moving right (a positive delta) mean back.
             let back = dx > 0
-            guard back ? tab.canGoBack : tab.canGoForward else { return }
-            swipe = (back, abs(dx))
-            swipeArrow.image = NSImage(systemSymbolName: back ? "chevron.backward.circle.fill" : "chevron.forward.circle.fill", accessibilityDescription: nil)
-            showSwipe()
+            guard back ? tab.canGoBack : tab.canGoForward, tab.internalPage == nil, !tab.view.isHidden else { return }
+            capture(tab)
+            let picture = NSImageView(frame: content.bounds)
+            picture.imageScaling = .scaleAxesIndependently
+            picture.image = pictures[Self.key(tab, tab.index + (back ? -1 : 1))]
+            picture.wantsLayer = true
+            picture.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+            content.addSubview(picture, positioned: back ? .below : .above, relativeTo: tab.view)
+            let top = back ? tab.view : picture
+            top.wantsLayer = true
+            top.layer?.shadowColor = NSColor.black.cgColor
+            top.layer?.shadowOpacity = 0.2
+            top.layer?.shadowRadius = 12
+            top.layer?.shadowPath = CGPath(rect: content.bounds, transform: nil)
+            swipe = (back, abs(dx), abs(dx), picture)
+            placeSwipe()
         case .changed:
             guard let current = swipe else { return }
-            swipe?.distance = max(0, current.distance + (current.back ? dx : -dx))
-            showSwipe()
+            let step = current.back ? dx : -dx
+            swipe?.distance = min(content.bounds.width, max(0, current.distance + step))
+            swipe?.last = step
+            placeSwipe()
         case .ended, .cancelled:
             guard let current = swipe else { return }
-            swipe = nil
-            if phase == .ended, current.distance >= Self.swipeDistance {
-                if current.back { tab.goBack() } else { tab.goForward() }
-            }
+            let width = content.bounds.width
+            let done = phase == .ended && (current.distance > width / 4 || current.last > 6 && current.distance > 40)
+            swipe?.distance = done ? width : 0
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.2
-                swipeArrow.animator().alphaValue = 0
+                context.duration = 0.28
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+                placeSwipe(animated: true)
+            } completionHandler: {
+                MainActor.assumeIsolated { self.endSwipe(done: done) }
             }
         default:
             break
         }
     }
 
-    private func showSwipe() {
-        guard let swipe else { return }
-        let size: CGFloat = 44
-        let progress = min(swipe.distance / Self.swipeDistance, 1)
-        let rest = swipe.back ? -size : content.bounds.width
-        let travel = (size + 20) * progress
-        swipeArrow.frame = NSRect(x: swipe.back ? rest + travel : rest - travel, y: content.bounds.midY - size / 2, width: size, height: size)
-        swipeArrow.alphaValue = progress
+    /// The page the fingers move, and under it, a third as far, the other.
+    private func placeSwipe(animated: Bool = false) {
+        guard let swipe, let page = selected?.view else { return }
+        let width = content.bounds.width, x = swipe.distance
+        let (moving, under) = swipe.back ? (x, -(width - x) / 3) : (-x / 3, width - x)
+        (animated ? page.animator() : page).setFrameOrigin(NSPoint(x: moving, y: 0))
+        (animated ? swipe.picture.animator() : swipe.picture).setFrameOrigin(NSPoint(x: under, y: 0))
+    }
+
+    private func endSwipe(done: Bool) {
+        guard let swipe, let tab = selected else { return }
+        self.swipe = nil
+        tab.view.frame = content.bounds
+        tab.view.layer?.shadowOpacity = 0
+        swipe.picture.layer?.shadowOpacity = 0
+        swipe.picture.removeFromSuperview()
+        guard done else { return }
+        // The picture stays over the page until the next one draws.
+        tab.view.hold(swipe.picture)
+        if swipe.back { tab.goBack() } else { tab.goForward() }
+    }
+
+    // MARK: Pictures
+
+    /// Pictures of pages by tab and place in its back and forward list,
+    /// for swipes: the latest few, taken by WebKit off the main thread.
+    private var pictures: [String: NSImage] = [:]
+    private var pictureOrder: [String] = []
+    private var settle: Task<Void, Never>?
+
+    private static func key(_ tab: Tab, _ index: Int) -> String { "\(tab.id) \(index)" }
+
+    private func captureSoon() {
+        settle?.cancel()
+        settle = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            if !Task.isCancelled, let self, let tab = self.selected { self.capture(tab) }
+        }
+    }
+
+    private func capture(_ tab: Tab) {
+        guard tab.index >= 0, tab.url != nil, tab.internalPage == nil, tab.view.window != nil else { return }
+        let key = Self.key(tab, tab.index), web = tab.webView
+        Task { [weak self] in
+            guard let image = try? await web.takeSnapshot(configuration: nil), let self else { return }
+            self.pictures[key] = image
+            self.pictureOrder.removeAll { $0 == key }
+            self.pictureOrder.append(key)
+            while self.pictureOrder.count > 8 { self.pictures[self.pictureOrder.removeFirst()] = nil }
+        }
     }
 
     /// A click anywhere but the field, while editing it, leaves it: on the
@@ -427,20 +486,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         guard tabs.contains(where: { $0 === tab }) else { return }
         let previous = selected
         if selected !== tab {
-            selected?.webView.removeFromSuperview()
+            selected?.view.removeFromSuperview()
         }
         selected = tab
         tab.wake()
         if previous !== tab { Extensions.shared.didActivate(tab, previous: previous) }
         actionBar.reload()
-        show(tab.webView)
+        show(tab.view)
         tabList.reload(tabs, selected: tab)
         refreshChrome()
         if tab.url == nil && tab.pending == nil { focusAddress(nil) } else { focusPage() }
         hideFind()
     }
 
-    private func show(_ view: WKWebView) {
+    private func show(_ view: PageView) {
         guard view.superview !== content else { return }
         // Web Inspector resizes the inspected view when docked. Edge
         // constraints would force it back over the inspector on every layout.
@@ -684,10 +743,11 @@ extension BrowserWindowController: TabDelegate {
         tabList.refresh(tab)
         saveTabs()
         if tab === selected { refreshChrome() }
+        if tab.isLoading { loading.insert(tab.id) } else if loading.remove(tab.id) != nil, tab === selected { captureSoon() }
     }
 
     func tab(_ tab: Tab, didReplace old: WKWebView?) {
-        if tab === selected { show(tab.webView); window?.makeFirstResponder(tab.webView) }
+        if tab === selected { window?.makeFirstResponder(tab.webView) }
     }
 
     func tab(_ tab: Tab, openInNewTab url: URL) {

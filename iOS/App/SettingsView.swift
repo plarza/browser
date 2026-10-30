@@ -224,7 +224,8 @@ struct HistoryList: View {
                 visits.remove(atOffsets: offsets)
             }
         }
-        .searchable(text: $query)
+        // At the top: along the bottom, the address bar would cover it.
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always))
         .toolbar {
             Button("Clear") {
                 Task {
@@ -276,6 +277,5 @@ struct InternalPageView: View {
             }
             .navigationTitle(page.capitalized)
         }
-        .safeAreaPadding(.bottom, 70)
     }
 }

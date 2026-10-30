@@ -30,13 +30,30 @@ final class Browser {
 
     enum Editing { case current, newTab }
 
-    /// The last picture of each tab, for the grid and the tab stack.
-    private(set) var snapshots: [UUID: UIImage] = [:]
+    /// The selected tab's page sits on its card in the grid, so the card
+    /// shows it; otherwise the page is on its way to or from it.
+    var landed = false
+    /// Pictures of pages, by tab and place in its back and forward list:
+    /// each tab's current page for the grid and the tab stack, and the
+    /// pages either side for swipes.
+    private(set) var pictures: [PictureKey: UIImage] = [:]
+    @ObservationIgnored private var recent: [PictureKey] = []
+    @ObservationIgnored private(set) var stage: Stage!
     /// Where each card sits on screen, for the page to shrink into. Written
     /// during layout, so nothing redraws for it.
     @ObservationIgnored var cardFrames: [UUID: CGRect] = [:]
     @ObservationIgnored private var states: [UUID: String] = [:]
+    @ObservationIgnored private var loading: Set<UUID> = []
     var gridShown: Bool { gridProgress >= 1 }
+
+    struct PictureKey: Hashable {
+        let tab: UUID
+        let index: Int
+    }
+
+    init() {
+        stage = Stage(browser: self)
+    }
 
     // MARK: Tabs
 
@@ -78,11 +95,8 @@ final class Browser {
         showPage()
     }
 
-    /// `picture`: take the leaving tab's picture now, while it's on screen.
-    /// A swipe took it already, before the page was hidden.
-    func select(_ tab: Tab, picture: Bool = true) {
+    func select(_ tab: Tab) {
         guard tabs.contains(where: { $0 === tab }), selected !== tab else { return }
-        if picture, let old = selected { snapshot(old) }
         selected = tab
         tab.wake()
         barCollapsed = false
@@ -101,7 +115,7 @@ final class Browser {
         for popup in tab.popups { close(popup) }
         tab.close()
         tabs.remove(at: i)
-        snapshots[tab.id] = nil
+        forgetPictures { $0.tab == tab.id }
         cardFrames[tab.id] = nil
         states[tab.id] = nil
         if selected === tab {
@@ -135,7 +149,6 @@ final class Browser {
     /// The page shrinks into its card. `velocity` is the finger's, in
     /// progress per second, so a flick carries on at its own speed.
     func showGrid(velocity: CGFloat = 0) {
-        if let selected { snapshot(selected) }
         barCollapsed = false
         withAnimation(Motion.spring(velocity: velocity)) { gridProgress = 1 }
     }
@@ -146,23 +159,42 @@ final class Browser {
         withAnimation(Motion.spring(velocity: velocity)) { gridProgress = 0 }
     }
 
-    /// What the tab looks like now, drawn from the screen at once, so it's
-    /// there for the very first frame of whatever needs it.
-    func snapshot(_ tab: Tab) {
-        let view = tab.webView
-        guard view.window != nil, tab.url != nil, tab.internalPage == nil, !view.bounds.isEmpty else { return }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 2
-        format.opaque = true
-        snapshots[tab.id] = UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { _ in
-            view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
-        }
+    // MARK: Pictures
+
+    /// The picture of `tab`'s page at `index` in its back and forward
+    /// list; by default, the page it's on.
+    func picture(_ tab: Tab, at index: Int? = nil) -> UIImage? {
+        pictures[PictureKey(tab: tab.id, index: index ?? tab.index)]
     }
 
-    /// The address sheet up or down. The page's picture is taken first, to
-    /// step back in its place.
+    /// What the selected tab shows now, taken while nothing moves (once a
+    /// page comes to rest or finishes loading) so nothing waits for it.
+    func capture(_ tab: Tab) {
+        guard tab === selected, tab.index >= 0, let image = stage.pages.render() else { return }
+        // Kept a moment later: this can be asked for in the middle of
+        // SwiftUI drawing, which mustn't change what it's drawing.
+        let key = PictureKey(tab: tab.id, index: tab.index)
+        DispatchQueue.main.async { self.keep(image, key) }
+    }
+
+    private func keep(_ image: UIImage, _ key: PictureKey) {
+        guard tabs.contains(where: { $0.id == key.tab }) else { return }
+        pictures[key] = image
+        recent.removeAll { $0 == key }
+        recent.append(key)
+        // Each tab's current page stays; of the rest, the latest few.
+        let current = Set(tabs.map { PictureKey(tab: $0.id, index: $0.index) })
+        let others = recent.filter { !current.contains($0) }
+        if others.count > 12 { forgetPictures(Set(others.prefix(others.count - 12)).contains) }
+    }
+
+    private func forgetPictures(_ matching: (PictureKey) -> Bool) {
+        for key in pictures.keys where matching(key) { pictures[key] = nil }
+        recent.removeAll(where: matching)
+    }
+
+    /// The address sheet up or down.
     func edit(_ target: Editing?) {
-        if target != nil, editing == nil, let selected { snapshot(selected) }
         withAnimation(Motion.spring()) { editing = target }
     }
 
@@ -176,11 +208,11 @@ final class Browser {
         let projected = translation + velocity * 0.15
         let target = projected > width / 3 ? previous : projected < -width / 3 ? next : nil
         if let target {
-            let step = (target === previous ? 1 : -1) * (width + PageArea.gap)
+            let step = (target === previous ? 1 : -1) * (width + Pages.gap)
             var still = Transaction()
             still.disablesAnimations = true
             withTransaction(still) {
-                select(target, picture: false)
+                select(target)
                 pageOffset -= step
             }
         }
@@ -244,11 +276,21 @@ extension Browser: TabDelegate {
         let state = "\(tab.title)|\(tab.url?.absoluteString ?? "")|\(tab.isLoading)|\(tab.persist)|\(tab.internalPage ?? "")|\(tab.index)"
         guard states[tab.id] != state else { return }
         states[tab.id] = state
+        // Pages gone from the back and forward list take their pictures.
+        let count = tab.entries.count
+        if pictures.keys.contains(where: { $0.tab == tab.id && $0.index >= count }) {
+            forgetPictures { $0.tab == tab.id && $0.index >= count }
+        }
+        // A page done loading has its picture taken once it's drawn.
+        if tab.isLoading { loading.insert(tab.id) } else if loading.remove(tab.id) != nil, tab === selected {
+            stage.pages.captureSoon()
+        }
         revision += 1
         saveTabs()
     }
 
     func tab(_ tab: Tab, didReplace old: WKWebView?) {
+        stage.pages.prepare(tab.webView)
         revision += 1
     }
 
