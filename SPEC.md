@@ -121,13 +121,74 @@ System WebKit does not give Browser control over fingerprint noise lifetimes. We
 
 ## iPhone
 
-- `iOS/` runs on the system's WebKit, the one browser engine iOS allows outside the EU and Japan. BrowserKit is shared; every Tabs, Whitelist, Network, Permissions, Address and History rule above holds.
-- **Engine.** The same system WebKit configuration as the Mac: normal JIT and WebRTC behavior, UTC, en-US requested by the app, and baseline, fingerprinting and link-decoration protections enabled on every navigation.
-- **Bar.** Along the bottom, in Liquid Glass: Arc's stack of tabs (the tab to the left of the one showing at the back, the one showing in front; dealt along with a swipe between tabs; opens the grid), the address bar (the site's name), and New Tab. Scrolling down the page shrinks it to the site's name. Long press on the address bar: Persist, Reload, Copy Link, Find on Page, Share. Dragging it sideways pulls the next or previous tab in beside the page, the address changing as the swipe passes halfway; dragging it up shrinks the page into the grid under the finger, and letting go finishes or springs back at the finger's speed. A Persist tab's address bar has a blue ring.
-- **Back and forward** are swipes from the screen's left and right edges, as in Safari: the page follows the finger, the page before (or after) as a picture beside it, and stays as that picture until the real one draws. Pull down to reload. There are no buttons for them. Pictures are taken while nothing moves (a page coming to rest, finishing loading, or coming on screen) and kept in memory only: each tab's current page, and the last twelve others.
-- **Address sheet.** Tapping the address bar or New Tab brings up a glass sheet with the page as a card above it: the field (the address selected, to type over), then pages from History, then the typed words as a search. Nothing is fetched while typing. Pulling the sheet down, or tapping the card, puts it away. New Tab opens no tab until you go somewhere, so there are no blank tabs.
-- **Tab grid.** Two columns of cards, titles underneath, ✕ on each, a swipe sideways closes; a Persist tab's card has a blue ring. The page shrinks into its card on the way in and grows out of it on the way back. Along the bottom: Settings (…) and an address bar that opens a new tab. Tabs are never synced.
-- **Motion.** Every move (the grid, the sheet, swipes between tabs and pages) is one spring that carries the finger's speed, run by Core Animation off the main thread, so a page loading never stutters it. The live page is never scaled; a picture of it does the shrinking.
-- about://history's search field sits at the top, clear of the bar.
-- **Extensions.** iOS keeps other apps' Safari extensions out of reach, so none are found.
-- **Downloads** go to Browser's folder in the Files app.
+There is no iPhone app in the repository: it is to be built from this section, as `iOS/`, on top of BrowserKit, which already compiles for iOS (UIKit where AppKit differs). Every Tabs, Whitelist, Network, Permissions, Address and History rule above holds. What follows is what differs from the Mac, and what was learned building the last one.
+
+### The app
+
+- Called Browser, bundle id `network.aza.browser`, team `H5A6B4L9W8`, iPhone only, portrait only, iOS 26 and later. Icon from `release/Browser.icon`; the default new tab picture is `release/morning.webp`; search engine icons are in `release/engines`.
+- Animations run at up to 120 Hz (`CADisableMinimumFrameDurationOnPhone`).
+- Camera and microphone ask every time: "A website asked for the camera. Browser asks you each time." (and the same for the microphone). Saving an image from a page asks for photo library add access.
+- Downloads go to `Downloads` in Browser's own folder in the Files app (file sharing on, opened in place). A name already taken gets " 2", " 3" and so on before its extension. Starting one says "Downloading <name>".
+- `ITSAppUsesNonExemptEncryption` is NO.
+- Only the system's WebKit runs on iOS outside the EU and Japan. Safari extensions belong to other apps and are out of reach, so there are none. Browser uses WebKit's private API, so it is never sent to the App Store; it goes out through TestFlight, to internal testers only.
+- `iOS/build.sh` builds for the simulator; `device` installs on a connected iPhone; `testflight` archives a Release build with a build number higher than the last (the UTC time, `YYYYMMDDHHMM`) and uploads it with the App Store Connect key in `ASC_KEY_ID` and `ASC_ISSUER_ID` (the key at `~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8`).
+- Before WebKit starts a process, the app sets `AppleLanguages` to `en-US` and `AppleLocale` to `en_US` in its own defaults, so every web process reports en-US. BrowserKit's configuration already sets UTC.
+- Open tabs are saved whenever the app leaves the foreground, and come back at launch as on the Mac. http and https links from other apps open in a new tab.
+
+### Look
+
+- Liquid Glass throughout. Behind the grid and the cards, Arc's and Safari's soft lavender: light, a diagonal of `#E8E6F7`, `#DBDBF0`, `#EBE3ED`; dark, `#1F1F2B` to `#141419`.
+- Persist is the Mac's blue, `#5C99FF`: a ring on a Persist tab's address bar and on its card.
+- A frost behind the clock fades into the page, so text scrolling up never runs into the clock.
+- Short messages ("No search engine set. Add one in Settings.") drop in as a glass capsule along the top and go by themselves.
+- Appearance (Light, Dark, System) applies to the whole app.
+
+### Bar
+
+- Along the bottom, over the page: Arc's stack of tabs, the address bar (the site's name, without `www.`; Browser's own pages by name), and New Tab.
+- **The stack.** Small pictures of the tabs, slightly turned: the tab to the left of the one showing at the back, the one showing in front. A swipe between tabs deals them along with the finger. Tapping it opens the grid.
+- Scrolling down the page shrinks the bar to the site's name alone; scrolling back up, reaching the top, or tapping it brings it back.
+- A thin line along the address bar's bottom edge shows loading.
+- Long press on the address bar: Persist (not for a popup), Reload, Copy Link, Find on Page (the system's find bar), Share.
+- Dragging the address bar sideways pulls the next or previous tab in beside the page, 12 pt apart, as in Safari. The address changes as the swipe passes halfway. Letting go past a third of the way (counting the flick) moves to that tab; at the first or last tab the page only gives a little.
+- Dragging it up shrinks the page into its card in the grid, under the finger (about 320 pt takes it all the way). Letting go finishes or springs back at the finger's speed.
+
+### Pages
+
+- Back and forward are swipes from the screen's left and right edges, as in Safari. Going back, the page follows the finger off to the right, with a shadow, and the page before comes out from under it, moving a third as far. Going forward, the page after slides in over it. Letting go past a third of the way (counting the flick) finishes; the picture stays until the real page draws (see `Tab.view.hold`). Pull down to reload. There are no buttons.
+- The page fills the screen and scrolls under the clock and the bar. WebKit is told what they cover, so a page's top starts below the clock and its end scrolls clear of the bar.
+- Browser's own pages (History, Downloads, Settings, Help) show in the tab as native screens. History's search field is at the top: along the bottom, the bar would cover it.
+- A tab with nowhere to go shows the new tab page: the picture, colour or blank chosen in Settings.
+- A page's alert, confirm and prompt are system alerts. The file picker is WebKit's own.
+
+### Address sheet
+
+- Tapping the address bar (or New Tab) brings up a glass sheet from the bottom. What's behind steps back into a card above it: scaled to 92% from its top, 36 pt down, its corners rounded. Tapping the card, or pulling the sheet down, puts it away.
+- At the top of the sheet, the field, already focused, with the address selected to type over (New Tab: empty). Under it, pages from History (BrowserKit's completion, looked up as you type). If what's typed isn't an address, a last row searches for it. Nothing is fetched while typing. The list scrolls clear of the keyboard; the keyboard covers whatever is under it, and nothing moves out of its way.
+- Typing more fills in the rest of the most frecent site, selected, as Safari does; deleting never fills back in. Picking a page tells History what was typed.
+- New Tab opens no tab until you go somewhere, so there are no blank tabs.
+
+### Tab grid
+
+- Two columns of cards, in the order of the tabs: each a picture of the page, its favicon and title underneath (a tab never shown since launch: its icon and host instead), and an ✕ in its corner. Swiping a card sideways closes it. Long press: Persist, Close Tab. Cards fade out under the clock. Opening the grid scrolls it to the selected card.
+- Closing a Persist tab yourself asks first: "Close “<title>”? Its cookies and site data will be deleted." A page closing one doesn't ask.
+- Along the bottom: Settings (…) and an address bar that opens a new tab. Closing the last tab leaves the empty grid ("No Tabs").
+- Settings is a sheet with the Mac's settings: the search engine (a URL template field, with Google, DuckDuckGo, Brave, Startpage and Kagi to pick), appearance, where new tabs open, the new tab page (a picture from Photos or the default, a colour, or blank), the cookie whitelist, the filter lists (Update Now, Defaults), and links to History and Downloads. Removing a whitelisted domain asks, since its jar goes with it.
+
+### Motion
+
+The point is Safari's smoothness: nothing stutters, nothing flashes, nothing pops.
+
+- One spring for every move: quick and settled, with very little bounce (about 0.34 s), always carrying the finger's speed when a finger lets go. Every move can be grabbed and turned around midway.
+- Moves run in Core Animation, off the main thread, so a page loading never stutters them. SwiftUI and UIKit keep step through `context.animate` in a representable, or `UIView.animate` with a SwiftUI `Animation`.
+- Opening the grid, the page shrinks into its card: scaled to the card's width, cut to its height, its corners going from the screen's own to the card's (22 pt). Coming back, it grows out of the card. The grid fades up behind it, and the bar sinks and fades. With no card to land on, the page shrinks towards the middle and fades.
+- At every handover between the live page and a picture, both look identical.
+
+### Facts that cost time to find out
+
+- WebKit moves a page's scroll position when it sees its own view scaled. The live page is never scaled: a picture of it (`snapshotView(afterScreenUpdates: false)` is exact and costs nothing) does the shrinking. Sliding sideways is fine.
+- WebKit keeps a page's place and drawing only while its view is in the window. Keep every shown tab's web view in the window, hidden when it isn't the selected one. A page shown again can take a moment to draw, so it shows its picture until then.
+- A page that loaded while hidden starts at offset 0, under the clock, and WebKit can move it back to 0 just after it shows. Until a finger moves it, put its top back below the clock.
+- `drawHierarchy` costs several milliseconds on the main thread. Take pictures for the grid, the stack and swipes when nothing moves (a page coming to rest, finishing loading, or coming on screen), never as a move starts. Keep them in memory only: each tab's current page, and the last few others of its back and forward list.
+- Every navigation replaces the web view (the wipe). `Tab.view` (BrowserKit's `PageView`) already keeps the old page up until the next one draws; show `tab.view`, not `tab.webView`. Each new web view arrives through `tab(_:didReplace:)` before it loads: give it its insets, pull to reload and find then.
+- A view controller's view hosted inside SwiftUI without being a child view controller gets no margins and no safe area. A bottom search field ignores safe area padding.

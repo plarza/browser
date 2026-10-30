@@ -11,7 +11,7 @@
 
 ## WebKit
 
-Browser uses the system WebKit on macOS and iOS, with normal JavaScript and WebAssembly JIT compilation and WebRTC behavior. WebKit is updated with the operating system.
+Browser uses the system WebKit, with normal JavaScript and WebAssembly JIT compilation and WebRTC behavior. WebKit is updated with the operating system.
 
 - WebKit's baseline, fingerprinting and link-decoration protections are enabled for every navigation through its private API.
 - Fingerprint noise is managed by WebKit.
@@ -74,14 +74,7 @@ It logs PASS/FAIL per check, ends with a count and quits, exiting non-zero if an
 
 ## iPhone
 
-`iOS/` is Browser for iPhone. It shares BrowserKit and the same system WebKit configuration with the Mac app. Safari extensions cannot be loaded from other apps, and downloads go to Browser's folder in Files.
-
-```bash
-iOS/build.sh          # simulator build into build/ios
-iOS/build.sh device   # signed for, and installed on, a connected iPhone
-```
-
-It's installed from Xcode with a developer account, never the App Store: it uses WebKit's private API.
+The iPhone app is being rebuilt from SPEC.md's iPhone section; `iOS/` is gone until then.
 
 ## Licence
 
