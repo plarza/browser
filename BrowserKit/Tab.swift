@@ -50,8 +50,8 @@ public final class Tab: NSObject {
     }
 
     /// The tab's jar on disk while Persist is on, so it survives a relaunch.
-    public var keptIdentity: (id: UUID, seed: UInt64)? {
-        if case .kept(let id) = own.kind { return (id, own.seed) }
+    public var keptIdentity: UUID? {
+        if case .kept(let id) = own.kind { return id }
         return nil
     }
 
@@ -64,7 +64,7 @@ public final class Tab: NSObject {
             guard case .fresh = own.kind else { return }
             // The next load moves into the kept jar, bringing what the tab
             // has so far (see `carry`).
-            own = Identity.kept(seed: own.seed)
+            own = Identity.kept()
         } else if case .kept(let id) = own.kind {
             retired.append(id)
             own = .fresh()
@@ -224,9 +224,9 @@ public final class Tab: NSObject {
     public private(set) var pending: URL?
 
     /// Restored with its kept jar: a Persist tab from the last session.
-    public func restore(_ url: URL, kept: (id: UUID, seed: UInt64)?) {
+    public func restore(_ url: URL, kept: UUID?) {
         if let kept {
-            own = Identity.kept(kept.id, seed: kept.seed)
+            own = Identity.kept(kept)
             persist = true
         }
         restore(url)
@@ -545,7 +545,7 @@ public final class Tab: NSObject {
 
 extension Tab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
-        Engine.harden(preferences, seed: identity.seed)
+        Engine.harden(preferences)
         if action.shouldPerformDownload { return (.download, preferences) }
         guard action.targetFrame?.isMainFrame ?? false else { return (.allow, preferences) }
         return (decide(action), preferences)

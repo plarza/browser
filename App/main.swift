@@ -1,16 +1,7 @@
 import AppKit
-import Darwin
 import BrowserKit
 
-// No AppKit window, store, extension or network request before this check.
-MainActor.assumeIsolated { Engine.requirePatched() }
-if CommandLine.arguments.contains("--check-engine") {
-    print("Browser's patched WebKit verified.")
-    exit(EXIT_SUCCESS)
-}
-
-// Pages see en-US whatever the Mac is set to. The patched engine enforces
-// it too; this keeps the shell and the engine telling the same story.
+// Set the browsing language before WebKit starts any child processes.
 UserDefaults.standard.set(["en-US"], forKey: "AppleLanguages")
 UserDefaults.standard.set("en_US", forKey: "AppleLocale")
 

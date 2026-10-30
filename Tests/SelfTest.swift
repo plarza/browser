@@ -86,6 +86,28 @@ enum SelfTest {
             return tab
         }
         return [
+            ("system WebKit", {
+                let tab = await open(page)
+                let pool = tab.webView.configuration.processPool.value(forKey: "_configuration") as! NSObject
+                check("WebKit's JIT policy is enabled", pool.value(forKey: "JITEnabled") as? Bool == true, "")
+                let policy = tab.webView.configuration.defaultWebpagePreferences.value(forKey: "_networkConnectionIntegrityPolicy") as? UInt
+                check("baseline, fingerprinting and link protections are enabled without Private Relay", policy == 321, "policy=\(policy.map(String.init) ?? "nil")")
+                let locale = await js(tab, "Intl.DateTimeFormat().resolvedOptions().timeZone + ' ' + navigator.language", in: .page) as? String
+                check("pages use UTC and en-US", locale == "UTC en-US", locale ?? "nil")
+                let worker = await js(tab, """
+                new Promise((resolve, reject) => {
+                    const url = URL.createObjectURL(new Blob(["postMessage(Intl.DateTimeFormat().resolvedOptions().timeZone + ' ' + navigator.language)"], {type: 'text/javascript'}));
+                    const worker = new Worker(url);
+                    worker.onmessage = event => { worker.terminate(); URL.revokeObjectURL(url); resolve(event.data); };
+                    worker.onerror = reject;
+                })
+                """, in: .page, awaiting: true) as? String
+                check("workers use UTC and en-US", worker == "UTC en-US", worker ?? "nil")
+                let wasm = await js(tab, """
+                WebAssembly.instantiate(new Uint8Array([0,97,115,109,1,0,0,0,1,7,1,96,2,127,127,1,127,3,2,1,0,7,7,1,3,97,100,100,0,0,10,9,1,7,0,32,0,32,1,106,11])).then(result => result.instance.exports.add(20, 22))
+                """, in: .page, awaiting: true) as? Int
+                check("WebAssembly executes in the page", wasm == 42, "result=\(wasm ?? -1)")
+            }),
             ("address field", {
                 _ = await open(page)
                 let field = browser.address
@@ -141,7 +163,7 @@ enum SelfTest {
                     tab.persist = true
                     await go(tab, one) { tab.reload() }
                     closed = tab
-                    return tab.keptIdentity?.id
+                    return tab.keptIdentity
                 }()
                 guard let jar else { return check("a Persist tab has a jar", false, "") }
                 await expect("a Persist tab has a jar on disk", { await WKWebsiteDataStore.allDataStoreIdentifiers.contains(jar) })
@@ -269,10 +291,60 @@ enum SelfTest {
                 tab.find("WebKit")
                 await expect("find again moves to the next", { found.1 == 1 }, "found=\(found)")
                 tab.hideFind()
-                browser.showInspector(nil)
+                window.makeFirstResponder(tab.webView)
+                await key("I", in: window, modifiers: [.command, .shift])
                 let inspector = tab.webView.value(forKey: "_inspector") as? NSObject
-                await expect("⇧⌘I opens Web Inspector", { (inspector?.value(forKey: "isVisible") as? Bool) == true })
-                inspector?.perform(NSSelectorFromString("close"))
+                check("opening Web Inspector makes this page inspectable", tab.webView.isInspectable, "")
+                await expect("⇧⌘I opens a connected Web Inspector", {
+                    (inspector?.value(forKey: "isVisible") as? Bool) == true && (inspector?.value(forKey: "isConnected") as? Bool) == true
+                })
+                func frontend(in view: NSView) -> WKWebView? {
+                    if let web = view as? WKWebView, web.url?.scheme == "inspector-resource" { return web }
+                    return view.subviews.lazy.compactMap { frontend(in: $0) }.first
+                }
+                var frontendView: WKWebView?
+                await expect("Web Inspector loads its frontend", {
+                    frontendView = NSApp.windows.lazy.compactMap { $0.contentView.flatMap { frontend(in: $0) } }.first
+                    guard let frontendView else { return false }
+                    let text = try? await frontendView.evaluateJavaScript("document.body.innerText") as? String
+                    return text?.contains("Elements") == true && text?.contains("Console") == true
+                })
+                if let frontendView {
+                    for side in ["left", "bottom"] {
+                        _ = try? await frontendView.evaluateJavaScript("InspectorFrontendHost.requestSetDockSide('\(side)')")
+                        await expect("Web Inspector docks to the \(side) without covering the page", seconds: 5, {
+                            window.contentView?.layoutSubtreeIfNeeded()
+                            let pageFrame = tab.webView.convert(tab.webView.bounds, to: nil)
+                            let inspectorFrame = frontendView.convert(frontendView.bounds, to: nil)
+                            return frontendView.window === window && inspectorFrame.width > 100 && inspectorFrame.height > 100
+                                && pageFrame.width > 100 && pageFrame.height > 100
+                                && pageFrame.intersection(inspectorFrame).isEmpty
+                        }, "page=\(tab.webView.frame) inspector=\(frontendView.frame)")
+                        var stable = true
+                        let frame = frontendView.frame
+                        for _ in 0 ..< 20 {
+                            try? await Task.sleep(for: .milliseconds(50))
+                            window.contentView?.layoutSubtreeIfNeeded()
+                            stable = stable && frontendView.frame == frame && !frontendView.isHidden
+                                && (inspector?.value(forKey: "isConnected") as? Bool) == true
+                        }
+                        check("the \(side) inspector remains visible and stable", stable, "frame=\(frontendView.frame)")
+                    }
+                    window.makeFirstResponder(frontendView)
+                    await key("I", in: window, modifiers: [.command, .shift])
+                    await expect("⇧⌘I in the inspector closes it", { (inspector?.value(forKey: "isVisible") as? Bool) != true })
+                }
+                @MainActor func restored() -> Bool {
+                    window.contentView?.layoutSubtreeIfNeeded()
+                    return tab.webView.frame == tab.webView.superview?.bounds
+                }
+                await expect("closing Web Inspector restores the full page", { restored() })
+                window.makeFirstResponder(tab.webView)
+                await key("I", in: window, modifiers: [.command, .shift])
+                await expect("⇧⌘I reopens Web Inspector", { (inspector?.value(forKey: "isVisible") as? Bool) == true })
+                window.makeFirstResponder(tab.webView)
+                await key("I", in: window, modifiers: [.command, .shift])
+                await expect("⇧⌘I on the page closes it again", { (inspector?.value(forKey: "isVisible") as? Bool) != true && restored() })
             }),
             ("Back to the new tab page", {
                 let tab = browser.selected!
@@ -440,10 +512,10 @@ enum SelfTest {
         let persisted = await read(tab)
         check("Persist keeps them through a reload", persisted == "cookie storage", "after=\(persisted)")
 
-        // Saved with its jar and seed, and back with them, as after quitting.
+        // Saved with its jar and reopened with it, as after quitting.
         let jar = tab.keptIdentity
         browser.saveTabs()
-        let saved = OpenTabs.restore().tabs.contains { $0.kept?.id == jar?.id && $0.kept?.seed == jar?.seed }
+        let saved = OpenTabs.restore().tabs.contains { $0.kept == jar }
         let reopened = browser.newTab(nil, select: false, focus: false, restoring: true)
         reopened.restore(site, kept: jar)
         let restoredTitle = reopened.title
@@ -618,7 +690,7 @@ enum SelfTest {
     static func key(_ character: String, in window: NSWindow, modifiers: NSEvent.ModifierFlags = .command) async {
         let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
                                     windowNumber: window.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character,
-                                    isARepeat: false, keyCode: ["s": 1, "l": 37, "y": 16, String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)): 126,
+                                    isARepeat: false, keyCode: ["s": 1, "l": 37, "y": 16, "i": 34, "I": 34, String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)): 126,
                                                                 String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)): 125][character] ?? 0)!
         if !window.performKeyEquivalent(with: down) { window.sendEvent(down) }
     }

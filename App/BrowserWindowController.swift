@@ -385,7 +385,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     func restore() {
         let saved = OpenTabs.restore()
         for saved in saved.tabs { newTab(nil, select: false, focus: false, restoring: true).restore(saved.url, kept: saved.kept) }
-        let kept = Set(saved.tabs.compactMap { $0.kept?.id })
+        let kept = Set(saved.tabs.compactMap { $0.kept })
         Task { await Identity.removeOrphans(keeping: kept) }
         if tabs.isEmpty {
             newTab(nil)
@@ -395,17 +395,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         saveTabs()
     }
 
-    private var savedSignature = ""
-
-    func saveTabs() {
-        let own = tabs.filter { $0.opener == nil && $0.url != nil }
-        let index = selected.flatMap { s in own.firstIndex { $0 === s } } ?? 0
-        let tabs = own.map { ($0.url!, $0.keptIdentity) }
-        let signature = tabs.map { "\($0.0) \($0.1?.id.uuidString ?? "")" }.joined(separator: "\n") + "\n\(index)"
-        guard signature != savedSignature else { return }
-        savedSignature = signature
-        OpenTabs.save(tabs, selected: index)
-    }
+    func saveTabs() { OpenTabs.save(tabs, selected: selected) }
 
     @discardableResult
     func newTab(_ url: URL?, after: Tab? = nil, select shouldSelect: Bool = true, focus: Bool = true, restoring: Bool = false) -> Tab {
@@ -451,7 +441,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 
     private func show(_ view: WKWebView) {
-        if view.superview !== content { content.addPinned(view, below: pageHost) }
+        guard view.superview !== content else { return }
+        // Web Inspector resizes the inspected view when docked. Edge
+        // constraints would force it back over the inspector on every layout.
+        view.translatesAutoresizingMaskIntoConstraints = true
+        view.autoresizingMask = [.width, .height]
+        view.frame = content.bounds
+        content.addSubview(view, positioned: .below, relativeTo: pageHost)
     }
 
     func close(_ tab: Tab) {
@@ -649,11 +645,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     @objc func duplicateTab(_ sender: Any?) {
         if let tab = selected, let url = tab.url { newTab(url, after: tab) }
     }
-    /// ⇧⌘I: Web Inspector for this tab's page.
-    @objc func showInspector(_ sender: Any?) {
+    /// ⇧⌘I: Web Inspector for this tab's page, open or closed.
+    @objc func toggleInspector(_ sender: Any?) {
         guard let web = selected?.webView, selected?.internalPage == nil,
               let inspector = web.value(forKey: "_inspector") as? NSObject else { return }
-        inspector.perform(NSSelectorFromString("show"))
+        web.isInspectable = true
+        let shown = inspector.value(forKey: "isVisible") as? Bool == true
+        inspector.perform(NSSelectorFromString(shown ? "close" : "show"))
     }
 
     @objc func showFind(_ sender: Any?) {

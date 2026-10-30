@@ -1,25 +1,24 @@
 # Browser
 
-Browser is a macOS browser that gives you the privacy and anonymity of Mullvad Browser on a WebKit base. The UI is kept deliberately plain, just enough to use it as a browser.
+Browser is a macOS browser with isolated tab identities and system WebKit privacy protections. The UI is kept deliberately plain, just enough to use it as a browser.
 
 ## Shape
 
 ```
-engine/      patched WebKit: pinned upstream commit + our patch series
 BrowserKit/     Swift framework: tabs, sessions, wipe, blocking, bangs, policy.
-             Every rule below lives here or in the engine. Its API has no
+             Every rule below lives here or in the system WebKit configuration. Its API has no
              switches that weaken them.
 App/         thin AppKit shell: window, vertical tabs, address field, settings
 release/     build, sign, notarize, publish to Forgejo, update feed
 ```
 
 - Apple Silicon only, on the current macOS.
-- The app ships its own `WebKit.framework` and its own `JavaScriptCore.framework`. It never loads the system copies.
+- The app uses the system WebKit and JavaScriptCore. Engine updates follow the operating system.
 
 ## Tabs
 
 - Tabs run down the left, in a vertical list, in a pure white sidebar, flush with the page and with no dividing line, whose edge drags (200–420 pt). The page fills the rest of the window. Every launch opens the window filling the screen, short of the menu bar and Dock, not in full screen. There are no pinned tabs, no back/forward buttons and no New Tab button: ⌘T, ⌘[ and ⌘] do those, and a two-finger swipe goes back or forward.
-- Each tab is a separate identity, with its own web process and its own network session. The session holds the tab's cookies, localStorage, sessionStorage, IndexedDB, Cache API, service workers, HTTP cache, HSTS, TLS session cache, connection pool, DNS cache and its fingerprint seed.
+- Each tab is a separate identity, with its own web process and its own network session. The session holds the tab's cookies, localStorage, sessionStorage, IndexedDB, Cache API, service workers, HTTP cache, HSTS, TLS session cache, connection pool and DNS cache.
 - **Wipe.** Every reload and every top-level navigation throws the whole session away and starts the next load in a brand-new one. That includes typed URLs, clicked links, back and forward, and redirects initiated by the page. Logins do not survive a reload.
 - **Persist** (⌘I, or right-click › Persist Tab). The tab keeps its session through reloads and navigation. The tab turns a soft sky blue while it is on. Persist belongs to the tab, not the site. Turning it on moves the tab into a jar of its own on disk, taking its cookies and the current page's storage with it, so the tab and its session survive quitting Browser. Closing the tab, or turning Persist off, deletes that jar; jars nothing refers to are deleted at launch. Closing a Persist tab yourself (⌘W, its ✕, its menu, middle-click) asks first; a page or extension closing it doesn't.
 - **Popups.** A `window.open` popup, such as an OAuth or 3-D Secure window, shares its opener's session and dies with it. Links opened in a new tab (⌘-click, middle-click) start fresh.
@@ -28,25 +27,22 @@ release/     build, sign, notarize, publish to Forgejo, update feed
 ## Whitelist
 
 - Settings holds a list of domains, meant for your self-hosted sites. A whitelisted domain and its subdomains get one jar on disk (encrypted at rest by FileVault), shared by every tab, that survives refresh, close and quit. The jar holds both cookies and site storage.
-- Each whitelisted domain has one fixed fingerprint seed.
 
 ## Fingerprinting
 
-Browser has one user, so there is no crowd of Browser users to hide in. It hides in the biggest crowd available instead: **stock Safari on the same macOS version**, with Safari's Private Browsing fingerprinting protections switched on permanently in the engine. Nothing is injected into pages and no prototype is patched, so CreepJS finds no "lies" to report. Whatever varies is derived from the identity's **seed**, so it changes on every wipe.
+Browser uses Safari's user agent and WebKit's existing privacy protections. Fingerprint noise is managed by WebKit; wiping a tab clears its website data, with no guarantee that every fingerprint surface changes. Browser does not patch page prototypes to disguise browser APIs.
 
-- **Seeds.** A wiped tab gets a fresh seed. A Persist tab keeps its seed until it is closed, across relaunches. A whitelisted domain keeps its own fixed seed. Each site's noise salt is derived from the seed and the site, so two sites in one identity can't match their readings either.
-- **Protections that are always on:** WebKit's baseline protections, fingerprinting protections (canvas, audio and screen), enhanced network privacy, link-decoration filtering, script-tracking privacy, and `hardwareConcurrency` reported as 8.
-- **User agent:** exactly Safari's for this macOS version.
-- **Language and time zone:** `en-US` everywhere, set in every child process, so `navigator.language(s)`, `Accept-Language` and `Intl` all agree. The time zone is UTC.
-- **Screen.** `screen.*` reports the window's own size, as Safari Private Browsing does. The page's viewport sizes are the real ones: rounding them would disagree with CSS media queries, and that disagreement is exactly the kind of lie CreepJS looks for. The window stays freely resizable; there is no letterboxing.
-- **Fonts.** Fonts you installed yourself are invisible to pages; only macOS's own fonts can be seen.
-- **JavaScript engine.** No JIT. That shuts out a large class of exploits and removes a timing surface. WebAssembly is on, run by the interpreter like everything else, since leaving it out would mark Browser apart from Safari and break sites.
-- **WebRTC.** WebRTC stays on, but ICE uses TURN relay only. Host and srflx candidates are never gathered, so neither the LAN IP nor the public IP leaks around the VPN.
+- **Protections:** baseline protections, fingerprinting protections and link-decoration filtering are enabled through WebKit's private webpage-policy API on every navigation. Browser does not force a hardware concurrency value or the separate script-tracking privacy policy.
+- **User agent:** Safari's for this macOS version.
+- **Language and time zone:** the app requests en-US and sets UTC for its WebKit process pool.
+- **Screen, fonts, canvas, audio and WebGL:** WebKit's own behavior and fingerprinting mitigations apply.
+- **JavaScript engine.** JavaScript and WebAssembly use JavaScriptCore's normal JIT policy. There is no Browser setting to disable it.
+- **WebRTC.** WebKit's default behavior applies, including its candidate filtering. Browser does not force TURN relays.
 - **Media devices.** WebKit's default applies: no labels and no IDs until permission is granted.
 
 ## Network
 
-- No proxy or Tor is built in. The user brings their own VPN. The engine never sends a request through iCloud Private Relay (Safari's "hide IP address" protection is forced off), so every request leaves by the same route and the same address.
+- No proxy or Tor is built in. The user brings their own VPN. Browser does not enable WebKit's enhanced network privacy (iCloud Private Relay); traffic follows the system network configuration.
 - **HTTPS-only.** Every load is upgraded to HTTPS, except to this Mac itself (`localhost`, `127.0.0.1`, `::1`), which never leaves the machine. If the upgrade fails, an interstitial offers to continue over HTTP for that one load in that tab.
 - **Third-party cookies** are never allowed. Referer is trimmed to the origin when the request crosses sites.
 - **Tracking parameters** (`utm_*`, `fbclid`, `gclid`, `mc_eid` and similar) are stripped from every navigation.
@@ -54,7 +50,7 @@ Browser has one user, so there is no crowd of Browser users to hide in. It hides
 
 ## JavaScript
 
-- JavaScript is on everywhere. **JIT is off** (JSC runs on its interpreters only, WebAssembly too). It has no setting.
+- JavaScript is on everywhere. **JIT is on** for JavaScript and WebAssembly on macOS. It has no setting.
 
 ## Permissions
 
@@ -69,7 +65,7 @@ Browser has one user, so there is no crowd of Browser users to hide in. It hides
 ## Remembered on disk
 
 - **History:** each page's address, title, visit count, when it was last visited and its frecency, with no icons or page contents, in a SQLite file (`history.db`) whose deleted rows are overwritten. Frecency works as Firefox's does: each visit adds its weight (2 typed or picked in the address field, 1 a link, ¼ a reload, a tab reopened at launch, or a page that sent itself on by script) and the total halves every 30 days. History also keeps what was typed before picking a page from the list under the address field; each pick counts more, up to a limit, and fades by 2.5% a day, gone after about 90 days unused. It feeds the address field, looked up off the main thread: inline completion of a visited site's name (the most frecent), and a list of matching pages underneath, with pages picked before for what's typed first (at most half the list), then the rest by where the words match plus frecency. And **about://history** (⌘H): a page of its own, opened in a new tab, that searches every word across addresses and titles, removes entries one at a time, or clears everything. Removing a page or clearing History removes its picks too. Like about://settings and about://help, it is a native view in the tab, not a web page.
-- **Open tabs:** URLs, and for a Persist tab the id of its jar and its seed. They come back on the next launch: a Persist tab in its jar, every other tab in a fresh session. Until first shown, a reopened tab is titled from History, so no title is written anywhere else; a page not in History shows its host.
+- **Open tabs:** URLs, and for a Persist tab the id of its jar. They come back on the next launch: a Persist tab in its jar, every other tab in a fresh session. Until first shown, a reopened tab is titled from History, so no title is written anywhere else; a page not in History shows its host.
 - **Whitelist jars**, as described under Whitelist.
 - **Extension data.** Extensions' own storage, such as the Bitwarden vault, is kept.
 - Settings.
@@ -110,10 +106,10 @@ Listed at about://help (⇧⌘/), read from the menus. In every dialog, Return c
 
 ## Builds and updates
 
-- **Patched engine required** on the Mac. Every Mac build embeds Browser’s patched WebKit. Missing or unpatched engines are build errors. The launcher checks its bundled frameworks, and the executable verifies the loaded engine before creating the application, including direct and debug launches. There is no system-WebKit browsing mode.
+- **System engine.** Every build links directly to macOS WebKit. The app contains one executable and its resources.
 
 - **Source.** The repository is `aza/browser` on `git.aza.network` (Forgejo), mirrored publicly to `github.com/plarza/browser` by a Forgejo push mirror on every push (an SSH deploy key, so Forgejo holds no GitHub token); push to Forgejo only. A `forgejo-runner` in host mode runs on this Mac with the label `macos-arm64`.
-- **Releases.** Pushing a tag builds the engine and the app, signs them with the Developer ID, notarizes them, and uploads the DMG to Forgejo Releases.
+- **Releases.** Pushing a tag builds the app, signs it with the Developer ID, notarizes them, and uploads the DMG to Forgejo Releases.
 - **Updates** are manual: install the new DMG from the release. Browser never checks for updates itself.
 - **Telemetry.** None. The only request Browser makes on its own is the daily filter-list fetch.
 
@@ -121,15 +117,12 @@ Appearance in Settings offers Light, Dark and System. System is the default and 
 
 ## Known gaps
 
-Things CreepJS still sees, measured on 2026-10-28 by loading it, wiping, and loading it again:
-
-- **WebGL pixels and images** come out with the same hash in every identity, so they can link sessions across wipes. To do: patch the engine to add per-seed noise to WebGL `readPixels` and canvas readback of WebGL contexts, the same way canvas 2D and audio already get it.
-- **Fonts, speech voices and media device kinds** (microphone, webcam) are the same in every identity. They match what Safari shows on most Macs, so they are left alone for now.
+System WebKit does not give Browser control over fingerprint noise lifetimes. WebGL results, fonts, speech voices and media device kinds may remain recognisable across identity wipes. Storage isolation does not guarantee anonymity against fingerprinting.
 
 ## iPhone
 
 - `iOS/` runs on the system's WebKit, the one browser engine iOS allows outside the EU and Japan. BrowserKit is shared; every Tabs, Whitelist, Network, Permissions, Address and History rule above holds.
-- **Engine.** JIT is off for every web process, which runs in UTC, and the app reports en-US. Safari's Private Browsing protections are on for every navigation. There is no seed: the noise is Apple's own, so it doesn't change on a wipe. WebAssembly runs on the interpreter, as on the Mac, and WebRTC is WebKit's default. Nothing is injected into pages here either.
+- **Engine.** The same system WebKit configuration as the Mac: normal JIT and WebRTC behavior, UTC, en-US requested by the app, and baseline, fingerprinting and link-decoration protections enabled on every navigation.
 - **Bar.** Along the bottom, in Liquid Glass: Arc's stack of tabs (the tab to the left of the one showing at the back, the one showing in front; dealt along with a swipe between tabs; opens the grid), the address bar (the site's name), and New Tab. Scrolling down the page shrinks it to the site's name. Long press on the address bar: Persist, Reload, Copy Link, Find on Page, Share. Dragging it sideways pulls the next or previous tab in beside the page, the address changing as the swipe passes halfway; dragging it up shrinks the page into the grid under the finger, and letting go finishes or springs back at the finger's speed. A Persist tab's address bar has a blue ring.
 - **Back and forward** are swipes from the screen's left and right edges; pull down to reload. There are no buttons for them.
 - **Address sheet.** Tapping the address bar or New Tab brings up a glass sheet with the page as a card above it: the field (the address selected, to type over), then pages from History, then the typed words as a search. Nothing is fetched while typing. Pulling the sheet down, or tapping the card, puts it away. New Tab opens no tab until you go somewhere, so there are no blank tabs.

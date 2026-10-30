@@ -430,20 +430,27 @@ private final class Database {
 /// new identity like any other load.
 @MainActor
 public enum OpenTabs {
-    public typealias Kept = (id: UUID, seed: UInt64)
+    private static var last: Saved?
 
-    /// Each tab's address and, for a Persist tab, its jar on disk and seed.
-    public static func save(_ tabs: [(url: URL, kept: Kept?)], selected: Int) {
-        Store.write(Saved(tabs: tabs.map { .init(url: $0.url, jar: $0.kept?.id, seed: $0.kept?.seed) }, selected: selected), "tabs.json")
+    /// Each tab's address and, for a Persist tab, its jar on disk. Popups
+    /// and tabs with nowhere to go are left out; an unchanged list isn't
+    /// written again.
+    public static func save(_ tabs: [Tab], selected: Tab?) {
+        let own = tabs.filter { $0.opener == nil && $0.url != nil }
+        let saved = Saved(tabs: own.map { .init(url: $0.url!, jar: $0.keptIdentity) },
+                          selected: selected.flatMap { s in own.firstIndex { $0 === s } } ?? 0)
+        guard saved != last else { return }
+        last = saved
+        Store.write(saved, "tabs.json")
     }
 
-    public static func restore() -> (tabs: [(url: URL, kept: Kept?)], selected: Int) {
+    public static func restore() -> (tabs: [(url: URL, kept: UUID?)], selected: Int) {
         guard let saved = Store.read(Saved.self, "tabs.json") else { return ([], 0) }
-        return (saved.tabs.map { tab in (tab.url, tab.jar.flatMap { id in tab.seed.map { (id, $0) } }) }, saved.selected)
+        return (saved.tabs.map { tab in (tab.url, tab.jar) }, saved.selected)
     }
 
-    private struct Saved: Codable {
-        struct Tab: Codable { var url: URL; var jar: UUID?; var seed: UInt64? }
+    private struct Saved: Codable, Equatable {
+        struct Tab: Codable, Equatable { var url: URL; var jar: UUID? }
         var tabs: [Tab]
         var selected: Int
     }

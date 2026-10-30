@@ -3,8 +3,7 @@ import WebKit
 
 /// One identity: everything a site could use to recognise this tab again.
 /// A website data store (cookies, every kind of storage, HTTP cache, HSTS,
-/// TLS sessions, the connection pool, all in its own network session) plus
-/// the seed the engine derives this identity's fingerprint from.
+/// TLS sessions and the connection pool, all in its own network session).
 ///
 /// A fresh identity is ephemeral: nothing it holds ever touches the disk,
 /// and dropping the last reference to it is the wipe.
@@ -22,16 +21,14 @@ public final class Identity {
 
     public let kind: Kind
     public let store: WKWebsiteDataStore
-    public let seed: UInt64
 
-    private init(kind: Kind, store: WKWebsiteDataStore, seed: UInt64) {
+    private init(kind: Kind, store: WKWebsiteDataStore) {
         self.kind = kind
         self.store = store
-        self.seed = seed
     }
 
     public static func fresh() -> Identity {
-        Identity(kind: .fresh, store: .nonPersistent(), seed: .random(in: .min ... .max))
+        Identity(kind: .fresh, store: .nonPersistent())
     }
 
     private static var jars: [String: Identity] = [:]
@@ -42,15 +39,14 @@ public final class Identity {
         if let jar = jars[domain] { return jar }
         let jar = Identity(
             kind: .whitelisted(domain),
-            store: WKWebsiteDataStore(forIdentifier: Whitelist.storeID(for: domain)),
-            seed: Whitelist.seed(for: domain)
+            store: WKWebsiteDataStore(forIdentifier: Whitelist.storeID(for: domain))
         )
         jars[domain] = jar
         return jar
     }
 
-    public static func kept(_ id: UUID = UUID(), seed: UInt64) -> Identity {
-        Identity(kind: .kept(id), store: WKWebsiteDataStore(forIdentifier: id), seed: seed)
+    public static func kept(_ id: UUID = UUID()) -> Identity {
+        Identity(kind: .kept(id), store: WKWebsiteDataStore(forIdentifier: id))
     }
 
     /// Deleted once the web views using it have let go, which can take a

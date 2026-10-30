@@ -54,7 +54,7 @@ enum Menus {
             item("Hide Sidebar", #selector(BrowserWindowController.toggleBrowserSidebar(_:)), "s"),
             item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
             .separator(),
-            item("Web Inspector", #selector(BrowserWindowController.showInspector(_:)), "i", [.command, .shift]),
+            item("Web Inspector", #selector(BrowserWindowController.toggleInspector(_:)), "i", [.command, .shift]),
         ]))
 
         main.addItem(submenu("History", [
