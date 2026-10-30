@@ -1,26 +1,13 @@
-import Darwin
 import Foundation
 import WebKit
 #if os(iOS)
 import UIKit
 #endif
 
-/// What BrowserKit asks of the WebKit it runs on. On the Mac, the patched
-/// engine (engine/) adds `_browserFingerprintSeed` to the webpage preferences
-/// and does the rest of the fingerprinting work itself: the screen, the
-/// clocks, the fonts, canvas, WebGL, audio, JIT off, UTC and
-/// en-US. iOS runs the system's WebKit: its own switches do what they can.
+/// Browser's configuration of the system WebKit on macOS and iOS.
 @MainActor
 public enum Engine {
     #if os(macOS)
-    /// This applies to every build and to direct executable launches too.
-    public static func requirePatched() {
-        guard WKWebpagePreferences.instancesRespond(to: NSSelectorFromString("_setBrowserFingerprintSeed:")) else {
-            fputs("Browser cannot start without its patched WebKit. Rebuild Browser with the engine embedded.\n", stderr)
-            exit(EX_CONFIG)
-        }
-    }
-
     /// Safari's own, for the macOS this runs on: the largest crowd a WebKit
     /// browser can stand in.
     public static let applicationName: String = {
@@ -34,8 +21,6 @@ public enum Engine {
 
     static var userAgent: String { "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) \(applicationName)" }
     #else
-    public static func requirePatched() {}
-
     /// Safari's own, for the iOS this runs on.
     public static let applicationName: String = {
         let parts = UIDevice.current.systemVersion.split(separator: ".")
@@ -49,22 +34,18 @@ public enum Engine {
         config.applicationNameForUserAgent = applicationName
         return WKWebView(frame: .zero, configuration: config).value(forKey: "_userAgent") as? String ?? ""
     }()
-
-    /// Every web process: no JIT, so WebAssembly runs interpreted too, and UTC.
-    static let processPool: WKProcessPool = {
-        guard let type = NSClassFromString("_WKProcessPoolConfiguration") as? NSObject.Type else { return WKProcessPool() }
-        let config = type.init()
-        config.setValue(false, forKey: "JITEnabled")
-        config.setValue("UTC", forKey: "timeZoneOverride")
-        // One pool for the app's life: alloc and init by hand, its
-        // reference never given back.
-        let make = NSSelectorFromString("_initWithConfiguration:")
-        guard let blank = (WKProcessPool.self as AnyObject).perform(NSSelectorFromString("alloc"))?.takeUnretainedValue(),
-              blank.responds(to: make) else { return WKProcessPool() }
-        typealias Init = @convention(c) (AnyObject, Selector, AnyObject) -> Unmanaged<WKProcessPool>
-        return unsafeBitCast(blank.method(for: make), to: Init.self)(blank, make, config).takeUnretainedValue()
-    }()
     #endif
+
+    /// UTC in pages and workers; JavaScriptCore keeps its default JIT policy.
+    static let processPool: WKProcessPool = {
+        let type = NSClassFromString("_WKProcessPoolConfiguration") as! NSObject.Type
+        let config = type.init()
+        config.setValue("UTC", forKey: "timeZoneOverride")
+        let pool = (WKProcessPool.self as AnyObject).perform(NSSelectorFromString("alloc"))!.takeUnretainedValue()
+        let initialize = NSSelectorFromString("_initWithConfiguration:")
+        typealias Initialize = @convention(c) (AnyObject, Selector, AnyObject) -> Unmanaged<WKProcessPool>
+        return unsafeBitCast(pool.method(for: initialize), to: Initialize.self)(pool, initialize, config).takeRetainedValue()
+    }()
 
     /// For Browser's own requests (filter lists, icons): no cookies, no
     /// cache, Safari's user agent, nothing that ties one request to the next.
@@ -81,12 +62,9 @@ public enum Engine {
     /// A configuration for a page in `identity`. Everything a page can
     /// switch on through preferences is decided here, once.
     static func configuration(for identity: Identity, content: WKUserContentController) -> WKWebViewConfiguration {
-        requirePatched()
         let config = WKWebViewConfiguration()
         config.websiteDataStore = identity.store
-        #if os(iOS)
         config.processPool = processPool
-        #endif
         config.userContentController = content
         Links.install(in: content)
         config.webExtensionController = Extensions.shared.controller
@@ -110,24 +88,18 @@ public enum Engine {
         config.allowsInlineMediaPlayback = true
         config.dataDetectorTypes = []
         #endif
-        harden(config.defaultWebpagePreferences, seed: identity.seed)
+        harden(config.defaultWebpagePreferences)
         return config
     }
 
-    /// The identity's seed, sent with every navigation: the engine derives
-    /// each site's canvas, audio and WebGL noise and its reported hardware
-    /// from it.
-    static func harden(_ preferences: WKWebpagePreferences, seed: UInt64) {
-        #if os(macOS)
-        preferences.perform(NSSelectorFromString("_setBrowserFingerprintSeed:"), with: NSNumber(value: seed))
-        #else
-        // No seed to give: Safari's Private Browsing protections (baseline,
-        // fingerprinting, enhanced network privacy, link decoration), with
-        // the system's own noise.
-        let set = NSSelectorFromString("_setNetworkConnectionIntegrityEnabled:")
-        guard preferences.responds(to: set) else { return }
-        typealias Call = @convention(c) (AnyObject, Selector, Bool) -> Void
-        unsafeBitCast(preferences.method(for: set), to: Call.self)(preferences, set, true)
-        #endif
+    /// WebKit's baseline, fingerprinting and link-decoration protections.
+    /// Enhanced network privacy (Private Relay) is left off.
+    static func harden(_ preferences: WKWebpagePreferences) {
+        let baseline: UInt = 1 << 0
+        let fingerprinting: UInt = 1 << 6
+        let linkDecoration: UInt = 1 << 8
+        let set = NSSelectorFromString("_setNetworkConnectionIntegrityPolicy:")
+        typealias Call = @convention(c) (AnyObject, Selector, UInt) -> Void
+        unsafeBitCast(preferences.method(for: set), to: Call.self)(preferences, set, baseline | fingerprinting | linkDecoration)
     }
 }

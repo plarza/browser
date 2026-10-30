@@ -59,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.orderFrontStandardAboutPanel(options: [
             .applicationName: "Browser",
             .credits: NSAttributedString(
-                string: "Browser's own WebKit.",
+                string: "Uses macOS WebKit.",
                 attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]
             ),
         ])

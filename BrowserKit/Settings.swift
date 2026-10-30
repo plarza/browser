@@ -116,8 +116,7 @@ public final class Preferences: ObservableObject {
 }
 
 /// The domains whose jar survives. Each gets a data store of its own on
-/// disk and a fingerprint seed that never changes, so a site that is
-/// logged in keeps seeing the same machine.
+/// disk, so a site stays logged in across tabs and relaunches.
 @MainActor
 public enum Whitelist {
     public static func normalise(_ domains: [String]) -> [String] {
@@ -141,16 +140,6 @@ public enum Whitelist {
     }
 
     static func storeID(for domain: String) -> UUID { UUID(hashing: "browser.jar." + domain) }
-
-    /// Random the first time, then fixed for as long as the domain stays.
-    static func seed(for domain: String) -> UInt64 {
-        var seeds = Store.read([String: UInt64].self, "seeds.json") ?? [:]
-        if let seed = seeds[domain] { return seed }
-        let seed = UInt64.random(in: .min ... .max)
-        seeds[domain] = seed
-        Store.write(seeds, "seeds.json")
-        return seed
-    }
 }
 
 extension UUID {

@@ -384,7 +384,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     func restore() {
         let saved = OpenTabs.restore()
         for saved in saved.tabs { newTab(nil, select: false, focus: false, restoring: true).restore(saved.url, kept: saved.kept) }
-        let kept = Set(saved.tabs.compactMap { $0.kept?.id })
+        let kept = Set(saved.tabs.compactMap { $0.kept })
         Task { await Identity.removeOrphans(keeping: kept) }
         if tabs.isEmpty {
             newTab(nil)
@@ -400,7 +400,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         let own = tabs.filter { $0.opener == nil && $0.url != nil }
         let index = selected.flatMap { s in own.firstIndex { $0 === s } } ?? 0
         let tabs = own.map { ($0.url!, $0.keptIdentity) }
-        let signature = tabs.map { "\($0.0) \($0.1?.id.uuidString ?? "")" }.joined(separator: "\n") + "\n\(index)"
+        let signature = tabs.map { "\($0.0) \($0.1?.uuidString ?? "")" }.joined(separator: "\n") + "\n\(index)"
         guard signature != savedSignature else { return }
         savedSignature = signature
         OpenTabs.save(tabs, selected: index)

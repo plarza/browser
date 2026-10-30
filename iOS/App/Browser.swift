@@ -49,7 +49,7 @@ final class Browser {
             tab.restore(saved.url, kept: saved.kept)
             tabs.append(tab)
         }
-        Task { await Identity.removeOrphans(keeping: Set(saved.tabs.compactMap { $0.kept?.id })) }
+        Task { await Identity.removeOrphans(keeping: Set(saved.tabs.compactMap { $0.kept })) }
         if !tabs.isEmpty { select(tabs[min(max(saved.selected, 0), tabs.count - 1)]) }
     }
 
@@ -57,7 +57,7 @@ final class Browser {
         let own = tabs.filter { $0.opener == nil && $0.url != nil }
         let index = selected.flatMap { s in own.firstIndex { $0 === s } } ?? 0
         let tabs = own.map { ($0.url!, $0.keptIdentity) }
-        let signature = tabs.map { "\($0.0) \($0.1?.id.uuidString ?? "")" }.joined(separator: "\n") + "\n\(index)"
+        let signature = tabs.map { "\($0.0) \($0.1?.uuidString ?? "")" }.joined(separator: "\n") + "\n\(index)"
         guard signature != savedSignature else { return }
         savedSignature = signature
         OpenTabs.save(tabs, selected: index)

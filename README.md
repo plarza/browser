@@ -9,24 +9,21 @@
 
 ![Browser](release/screenshot.webp)
 
-## Engine patches
+## WebKit
 
-Applied to upstream WebKit (`engine/patches/`).
+Browser uses the system WebKit on macOS and iOS, with normal JavaScript and WebAssembly JIT compilation and WebRTC behavior. WebKit is updated with the operating system.
 
-- Safari's Private Browsing fingerprinting protections are forced on: canvas and audio readouts get noise, `screen` reports the window's size, and link-decoration parameters are stripped.
-- `navigator.hardwareConcurrency` is always 8.
-- Each tab identity carries a seed; every site's noise is derived from that seed and the site, so the fingerprint changes on every wipe and differs between sites.
-- No JIT: JavaScriptCore, WebAssembly included, runs on its interpreters only, set before the engine starts.
-- Every web process runs in UTC.
-- Every WebKit process reports en-US, so `navigator.language`, `Accept-Language` and `Intl` agree.
-- WebRTC gathers relay candidates only, so neither your LAN address nor your public IP reaches a page or a peer.
+- WebKit's baseline, fingerprinting and link-decoration protections are enabled for every navigation through its private API.
+- Fingerprint noise is managed by WebKit.
+- Web processes use UTC, and the app requests en-US.
+- Browser does not request iCloud Private Relay; traffic uses the system network configuration, including your VPN.
 
 ## Browser
 
 - Each tab gets its own data store and network session (cookies, all storage, HTTP cache, HSTS, TLS sessions, connections) and its own web process.
 - Every reload and navigation, back and forward included, throws that identity away and loads into a new one.
 - Persist (⌘I) keeps a tab's identity until the tab closes, across relaunches.
-- Domains on the cookie whitelist keep one jar on disk, shared by all tabs, with one fixed fingerprint seed.
+- Domains on the cookie whitelist keep one jar on disk, shared by all tabs.
 - `window.open` popups (sign-in, 3-D Secure) share their opener's identity and close with it; links opened in a new tab start fresh.
 - The user agent is Safari's for the installed macOS.
 - HTTPS-only: plain HTTP is upgraded, with a one-load fallback page if the site has no HTTPS. Loopback (`localhost`) is left alone.
@@ -39,24 +36,19 @@ Applied to upstream WebKit (`engine/patches/`).
 - History keeps addresses, titles, visit counts, last-visit times and frecency in SQLite, plus which suggestion you picked for what you typed, for address-bar completion and `about://history`.
 - Safari web extensions from apps in Applications turn on in Settings and run on WebKit's extension engine; their own storage is kept.
 - No telemetry and no update checks. The only request Browser makes by itself is the daily filter-list fetch.
-- No proxy or Tor: use a VPN. iCloud Private Relay is never used, even when it's on for the Mac.
+- No proxy or Tor: use a VPN. Browser does not enable WebKit's iCloud Private Relay policy.
 
 Keyboard shortcuts are at `about://help` (⇧⌘/).
 
 ## Build
 
-Requires Apple Silicon, macOS 26, Xcode 27 and about 60 GB of disk.
+Requires Apple Silicon, macOS 26 and Xcode 27.
 
 ```bash
-engine/build.sh          # WebKit at engine/WEBKIT_COMMIT + engine/patches, ~1 h first time
-./build.sh               # build/Browser.app with the engine embedded
+./build.sh               # release build into build/Browser.app
 ./build.sh debug         # debug build
 ./build.sh release ship  # Developer ID sign + notarize -> build/release/Browser-<version>.dmg
 ```
-
-Every build requires Browser’s patched engine. Missing or unpatched frameworks stop the build; both the launcher and the executable refuse to start without them, including debug builds. `BROWSER_ENGINE` can name an existing patched runtime’s framework directory, for example `BROWSER_ENGINE=/Applications/Browser.app/Contents/Frameworks ./build.sh` when rebuilding from an installed patched app.
-
-`engine/build.sh rebase` moves to the latest WebKit commit.
 
 `ship` needs a Developer ID Application certificate and one-time notary setup:
 
@@ -67,12 +59,6 @@ xcrun notarytool store-credentials browser
 Pushing a `v*` tag runs the same build on the Forgejo runner (`.forgejo/workflows/release.yml`). `release/runner.sh <token>` registers this Mac as that runner. Updates are manual.
 
 ## Test
-
-The engine launch/build checks run without opening a browser:
-
-```bash
-python3 Tests/engine.py build/Browser.app
-```
 
 The UI self-test only works in debug builds:
 
@@ -88,7 +74,7 @@ It logs PASS/FAIL per check, ends with a count and quits, exiting non-zero if an
 
 ## iPhone
 
-`iOS/` is Browser for iPhone, on the system's WebKit: outside the EU and Japan, iOS doesn't let an app bring its own engine. It shares `BrowserKit` with the Mac app, so everything under Browser above holds, except that Safari extensions can't be loaded from other apps and downloads go to Browser's folder in Files. Of the engine patches, iOS keeps no JIT, UTC and en-US through WebKit's own switches, and Safari's Private Browsing protections through `_setNetworkConnectionIntegrityEnabled:`. It loses the seeded noise (Apple's noise can't be seeded) and relay-only WebRTC.
+`iOS/` is Browser for iPhone. It shares BrowserKit and the same system WebKit configuration with the Mac app. Safari extensions cannot be loaded from other apps, and downloads go to Browser's folder in Files.
 
 ```bash
 iOS/build.sh          # simulator build into build/ios
@@ -99,13 +85,12 @@ It's installed from Xcode with a developer account, never the App Store: it uses
 
 ## Licence
 
-MIT, in `LICENSE`. WebKit, which `engine/patches/` changes, keeps its own licences.
+MIT, in `LICENSE`.
 
 ## Layout
 
 | Folder | Contents |
 |---|---|
-| `engine/` | WebKit commit, patches, build/embed scripts, launcher |
 | `BrowserKit/` | Tabs, identities, blocker, bangs, history, extensions |
 | `App/` | Window, sidebar, settings |
 | `Tests/` | End-to-end app self-test |

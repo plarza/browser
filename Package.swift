@@ -9,7 +9,7 @@ let package = Package(
         .executable(name: "Browser", targets: ["Browser"]),
     ],
     targets: [
-        // Every privacy rule lives here (or in the patched engine). Its API
+        // Every privacy rule lives here (or in the system WebKit configuration). Its API
         // has nothing that weakens one.
         .target(
             name: "BrowserKit",
@@ -21,7 +21,7 @@ let package = Package(
             name: "Browser",
             dependencies: ["BrowserKit"],
             path: ".",
-            exclude: ["BrowserKit", "engine", "release", "build", "README.md", "SPEC.md", "LICENSE", "VERSION", "build.sh", "Tests/engine.py"],
+            exclude: ["BrowserKit", "iOS", "release", "build", "README.md", "SPEC.md", "LICENSE", "VERSION", "build.sh"],
             sources: ["App", "Tests"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
