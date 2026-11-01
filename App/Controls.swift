@@ -361,6 +361,34 @@ final class Surface: NSView {
     }
 }
 
+/// Where pages show, and the only place they do: one tab's page at a time.
+/// Showing a tab takes everything else off it, so no other tab's page, and
+/// no picture of one, can be seen in its place. A blank tab or one of
+/// Browser's own pages hides it, page and all.
+@MainActor
+final class Stage: NSView {
+    private(set) var page: PageView?
+
+    func show(_ page: PageView) {
+        self.page = page
+        for view in subviews where view !== page { view.removeFromSuperview() }
+        guard page.superview !== self else { return }
+        // Web Inspector resizes the inspected view when docked. Edge
+        // constraints would force it back over the inspector on every layout.
+        page.translatesAutoresizingMaskIntoConstraints = true
+        page.autoresizingMask = [.width, .height]
+        page.frame = bounds
+        addSubview(page)
+    }
+
+    /// A picture of the page's own back or forward page, beside it during a
+    /// swipe; it goes with the page the moment another tab shows.
+    func add(_ picture: NSView, below: Bool) {
+        guard let page else { return }
+        addSubview(picture, positioned: below ? .below : .above, relativeTo: page)
+    }
+}
+
 extension CATransaction {
     /// Layer changes made at once, or over `duration` when given.
     static func run(duration: CFTimeInterval? = nil, _ changes: () -> Void) {

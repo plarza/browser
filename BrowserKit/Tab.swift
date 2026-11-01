@@ -277,6 +277,7 @@ public final class Tab: NSObject {
         popups = []
         detach(webView)
         view.clear()
+        view.removeFromSuperview()
         opener?.popups.removeAll { $0 === self }
     }
 

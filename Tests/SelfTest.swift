@@ -236,6 +236,40 @@ enum SelfTest {
                 await go(tab, one) { browser.mouseButton(3) }
                 check("the mouse's back button goes back", tab.url == one, "url=\(tab.url?.absoluteString ?? "nil")")
             }),
+            ("a new tab shows nothing of another", {
+                let tab = await open(one)
+                await go(tab, two) { tab.load(two) }
+                // Nothing of a page sits in the page area outside the stage,
+                // and the stage holds the selected tab's page alone.
+                @MainActor func onlySelected(_ name: String) {
+                    let strays = browser.content.subviews.filter { $0 is PageView || $0 is NSImageView }
+                    let stage = browser.stage.subviews
+                    check(name, strays.isEmpty && stage.count == 1 && stage.first === browser.selected?.view,
+                          "strays=\(strays.count) stage=\(stage.count)")
+                }
+                // A swipe whose end never comes (the fingers left the
+                // trackpad over the sidebar), and a second one on top of it.
+                browser.follow(.began, dx: 20, dy: 0)
+                browser.follow(.changed, dx: 25, dy: 0)
+                browser.follow(.began, dx: 20, dy: 0)
+                browser.follow(.changed, dx: 25, dy: 0)
+                await key("t", in: window)
+                let blank = browser.selected
+                await expect("⌘T selects a blank tab", { blank !== tab && blank?.url == nil })
+                onlySelected("a new tab during a swipe holds no other tab's page or picture")
+                check("a blank tab shows the new tab page, not a page", browser.stage.isHidden && !browser.backdrop.isHidden, "")
+                browser.follow(.ended, dx: 0, dy: 0)
+                onlySelected("the old swipe ending in another tab leaves nothing behind")
+                check("the old swipe ending in another tab doesn't navigate it", tab.url == two, "url=\(tab.url?.absoluteString ?? "nil")")
+                browser.select(tab)
+                onlySelected("going back to the tab shows its page alone")
+                check("its page is back in place", tab.view.frame == browser.stage.bounds, "frame=\(tab.view.frame)")
+                if let blank { browser.select(blank) }
+                onlySelected("and a blank tab again, nothing of it")
+                if let blank { browser.close(blank) }
+                onlySelected("closing a blank tab shows the next one alone")
+                await shot("new tab after swipe", browser)
+            }),
             ("typing in the address field", {
                 _ = await open(page)
                 let field = browser.address

@@ -18,6 +18,7 @@ release/     build, sign, notarize, publish to Forgejo, update feed
 ## Tabs
 
 - Tabs run down the left, in a vertical list, in a pure white sidebar, flush with the page and with no dividing line, whose edge drags (200–420 pt). The page fills the rest of the window. Every launch opens the window filling the screen, short of the menu bar and Dock, not in full screen. There are no pinned tabs, no back/forward buttons and no New Tab button: ⌘T, ⌘[ and ⌘] do those, and a two-finger swipe goes back or forward.
+- The page area shows the selected tab's page and nothing else. No tab ever shows another tab's page, or a picture of one: showing a tab takes everything else out of the page area, and a blank tab shows only the new tab page.
 - Each tab is a separate identity, with its own web process and its own network session. The session holds the tab's cookies, localStorage, sessionStorage, IndexedDB, Cache API, service workers, HTTP cache, HSTS, TLS session cache, connection pool and DNS cache.
 - **Wipe.** Every reload and every top-level navigation throws the whole session away and starts the next load in a brand-new one. That includes typed URLs, clicked links, back and forward, and redirects initiated by the page. Logins do not survive a reload. The page showing stays up, frozen, until the next one has drawn (or three seconds after it commits), as Safari keeps a page up, so a wipe never flashes blank.
 - **Persist** (⌘I, or right-click › Persist Tab). The tab keeps its session through reloads and navigation. The tab turns a soft sky blue while it is on. Persist belongs to the tab, not the site. Turning it on moves the tab into a jar of its own on disk, taking its cookies and the current page's storage with it, so the tab and its session survive quitting Browser. Closing the tab, or turning Persist off, deletes that jar; jars nothing refers to are deleted at launch. Closing a Persist tab yourself (⌘W, its ✕, its menu, middle-click) asks first; a page or extension closing it doesn't.
@@ -81,7 +82,7 @@ Browser uses Safari's user agent and WebKit's existing privacy protections. Fing
 
 ## Mouse and trackpad
 
-- The mouse's back and forward buttons, and two-finger swipes, go through Browser's own back and forward lists, the same as ⌘[ and ⌘]. As in Safari, a swipe back slides the page off to the right with the fingers, a picture of the page before coming out from under it; forward slides the page after in over it. Pictures of the last few pages are kept in memory only, never on disk.
+- The mouse's back and forward buttons, and two-finger swipes, go through Browser's own back and forward lists, the same as ⌘[ and ⌘]. As in Safari, a swipe back slides the page off to the right with the fingers, a picture of the page before coming out from under it; forward slides the page after in over it. Pictures of the last few pages are kept in memory only, never on disk. A swipe belongs to the tab it started in: changing tabs, or a second swipe starting, ends it in place, and it follows the fingers off the page so its end is never lost. A closed tab's pictures go with it.
 - Middle-clicking a link opens it in a fresh tab. Hovering a tab reveals an x to close it.
 
 ## Downloads
