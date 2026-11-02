@@ -83,11 +83,14 @@ public final class Tab: NSObject {
     /// Cookies from one jar into another, and a script that puts the page's
     /// local and session storage back for the same origin.
     static func carry(from: WKWebsiteDataStore, page: WKWebView, to: WKWebsiteDataStore) async -> WKUserScript? {
+        // The page first: reading `document.cookie` waits for the cookies
+        // the page has just set to reach the jar, which they do on their own
+        // time, so the copy below has them.
+        let read = "document.cookie, JSON.stringify({origin: location.origin, local: Object.entries(localStorage), session: Object.entries(sessionStorage)})"
+        let isWeb = page.url?.scheme == "https" || page.url?.scheme == "http"
+        let json = isWeb ? try? await page.evaluateJavaScript(read, in: nil, contentWorld: .defaultClient) as? String : nil
         for cookie in await from.httpCookieStore.allCookies() { await to.httpCookieStore.setCookie(cookie) }
-        let read = "JSON.stringify({origin: location.origin, local: Object.entries(localStorage), session: Object.entries(sessionStorage)})"
-        guard let scheme = page.url?.scheme, scheme == "https" || scheme == "http",
-              let json = try? await page.evaluateJavaScript(read, in: nil, contentWorld: .defaultClient) as? String
-        else { return nil }
+        guard let json else { return nil }
         let source = """
         (() => { const s = \(json); if (location.origin !== s.origin) return;
           for (const [k, v] of s.local) if (localStorage.getItem(k) === null) localStorage.setItem(k, v);

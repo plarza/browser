@@ -22,6 +22,9 @@ public final class Blocker {
 
     private static let filtersID = "browser-filters"
     private static let baseID = "browser-base"
+    /// Raised when the same lists compile into different rules, so lists
+    /// compiled by an older Browser are compiled again at launch.
+    private static let format = 2
 
     private init() {
         let folder = Store.url("Rules")
@@ -61,8 +64,7 @@ public final class Blocker {
             let rules = await Task.detached(operation: { Store.read(ScriptletRules.self, "scriptlets.json") }).value
             if let rules { Scriptlets.shared.rules = rules }
             await removeStale(keeping: count)
-            // Lists compiled before Browser ran scriptlets are compiled again now.
-            refresh(force: rules == nil)
+            refresh(force: rules == nil || Store.read(Int.self, "filters-format.json") != Blocker.format)
         }
         Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { _ in
             Task { @MainActor in Blocker.shared.refresh(force: false) }
@@ -119,6 +121,7 @@ public final class Blocker {
                 ruleCount = output.blocks.count + output.hides.count + output.exceptions.count + output.scriptlets.count
                 trouble = fetched.count < urls.count ? "\(urls.count - fetched.count) of \(urls.count) lists couldn't be fetched." : nil
                 Store.write(Date(), "filters-fetched.json")
+                Store.write(Blocker.format, "filters-format.json")
             } catch {
                 trouble = "Compiling the filter lists failed: \(error.localizedDescription)"
             }
