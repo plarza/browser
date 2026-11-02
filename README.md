@@ -32,6 +32,7 @@ Browser uses the system WebKit, with normal JavaScript and WebAssembly JIT compi
 - The lists' scriptlets (`+js(…)`) run from Browser's own library of uBlock Origin's scriptlets, only on the sites a rule names: this is what takes YouTube's ads out.
 - Location, notifications, MIDI, USB, serial, HID, Bluetooth and sensors are always denied; camera and microphone ask every time and the answer isn't kept.
 - Downloads open the save panel and keep macOS's quarantine flag; about://downloads lists them.
+- A file path pasted into the address bar (`/…`, `~/…`, quoted or with Terminal's backslashes, or `file://`) opens the file, with the images, scripts and styles it points to; a web page can never open one.
 - Bangs (`!w`, `!gh`, `!yt` and about 300 more) resolve from a table inside the app.
 - Favicons are read from the page through WebKit's isolated script world, fetched without cookies, and kept on disk only for sites in History.
 - History keeps addresses, titles, visit counts, last-visit times and frecency in SQLite, plus which suggestion you picked for what you typed, for address-bar completion and `about://history`.

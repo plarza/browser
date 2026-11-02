@@ -107,6 +107,7 @@ final class AddressField: NSSearchField, NSSearchFieldDelegate {
 
     static func display(_ url: URL) -> String {
         if url.scheme == "about" { return url.absoluteString }
+        if url.isFileURL { return (url.path as NSString).abbreviatingWithTildeInPath }
         var host = url.host ?? url.absoluteString
         if host.hasPrefix("www.") { host.removeFirst(4) }
         return host

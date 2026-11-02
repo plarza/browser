@@ -22,6 +22,7 @@ public enum Address {
     /// An address, if the text looks like one. Plain `http` is turned into
     /// `https` later, by the navigation policy, so it can fall back.
     public static func url(from typed: String) -> URL? {
+        if let file = file(from: typed) { return file }
         if typed.contains(" ") { return nil }
         let lower = typed.lowercased()
         if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
@@ -37,6 +38,28 @@ public enum Address {
               tld.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" })
         else { return nil }
         return candidate
+    }
+
+    /// A file on this Mac: an absolute path (`/…`, `~/…`), as Finder's Copy
+    /// as Pathname or a drag into Terminal gives it, or a `file://` address.
+    static func file(from typed: String) -> URL? {
+        var path = typed
+        if path.count >= 2, let first = path.first, first == path.last, first == "'" || first == "\"" {
+            path = String(path.dropFirst().dropLast())
+        }
+        if path.lowercased().hasPrefix("file://") {
+            return URL(string: path).flatMap { $0.isFileURL && !$0.path.isEmpty ? $0 : nil }
+        }
+        guard path.hasPrefix("/") || path.hasPrefix("~/") else { return nil }
+        // Terminal escapes spaces and the like with a backslash.
+        if !FileManager.default.fileExists(atPath: (path as NSString).expandingTildeInPath) {
+            var plain = "", escaping = false
+            for ch in path {
+                if ch == "\\", !escaping { escaping = true } else { plain.append(ch); escaping = false }
+            }
+            path = plain
+        }
+        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL
     }
 
     static func search(_ words: String, template: String) -> URL? {

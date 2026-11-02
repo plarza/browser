@@ -295,6 +295,44 @@ enum SelfTest {
                 window.makeFirstResponder(nil)
                 check("leaving the field hides the suggestions", !field.suggestions.isShown || field.suggestions.alphaValue < 1, "")
             }),
+            ("a pasted file path", {
+                let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Browser Local \(UUID().uuidString)", isDirectory: true)
+                try? FileManager.default.createDirectory(at: folder.appendingPathComponent("more"), withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: folder) }
+                let dot = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")!
+                try? dot.write(to: folder.appendingPathComponent("dot.png"))
+                try? "<title>Local</title><img id=dot src=dot.png>".write(to: folder.appendingPathComponent("map.html"), atomically: true, encoding: .utf8)
+                try? "<title>More</title><img id=dot src=../dot.png>".write(to: folder.appendingPathComponent("more/page.html"), atomically: true, encoding: .utf8)
+                let file = folder.appendingPathComponent("map.html"), more = folder.appendingPathComponent("more/page.html")
+                let escaped = file.path.replacingOccurrences(of: " ", with: "\\ ")
+                check("a path Terminal escaped is the same file", Address.url(from: escaped) == file && Address.url(from: "'\(file.path)'") == file,
+                      "escaped=\(Address.url(from: escaped)?.absoluteString ?? "nil")")
+
+                let tab = browser.newTab(nil)
+                let field = browser.address
+                field.focus()
+                let editor = window.fieldEditor(true, for: field) as? NSTextView
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(file.path, forType: .string)
+                editor?.paste(nil)
+                await go(tab, file) { editor?.doCommand(by: #selector(NSResponder.insertNewline(_:))) }
+                await expect("a pasted path opens the file, image and all", {
+                    await js(tab, "document.getElementById('dot').naturalWidth", in: .page) as? Int == 1
+                })
+                check("the field shows the file's path", field.stringValue == file.path, "field=\(field.stringValue)")
+                await go(tab, more) { follow(tab, more) }
+                await expect("a link from a local page opens another, with what's beside it", {
+                    await js(tab, "document.getElementById('dot').naturalWidth", in: .page) as? Int == 1
+                })
+                await go(tab, file) { tab.goBack() }
+                let read = await js(tab, "fetch('dot.png').then(r => r.text()).then(() => 'read', () => 'blocked')", in: .page, awaiting: true) as? String
+                check("a local page shows other files but can't read them", read == "blocked", "fetch=\(read ?? "nil")")
+
+                await go(tab, one) { tab.load(one) }
+                tab.webView.evaluateJavaScript("location.href = '\(file.absoluteString)'", in: nil, in: .page) { _ in }
+                try? await Task.sleep(for: .seconds(1))
+                check("a web page can't open a file on this Mac", tab.url == one && tab.webView.url == one, "url=\(tab.webView.url?.absoluteString ?? "nil")")
+            }),
             ("suggestions learn from picks", {
                 for _ in 0 ..< 3 { _ = await open(one) }
                 _ = await open(two)

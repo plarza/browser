@@ -201,7 +201,7 @@ public final class Tab: NSObject {
             },
             webView.observe(\.url) { [weak self] view, _ in
                 MainActor.assumeIsolated {
-                    guard let self, let url = view.url, url.scheme == "http" || url.scheme == "https" || Extensions.shared.context(for: url) != nil else { return }
+                    guard let self, let url = view.url, url.scheme == "http" || url.scheme == "https" || url.isFileURL || Extensions.shared.context(for: url) != nil else { return }
                     self.update(.URL) { $0.url = url }
                 }
             },
@@ -352,6 +352,16 @@ public final class Tab: NSObject {
             webView.load(request)
             return
         }
+        if url.isFileURL {
+            let target = identity(for: url)
+            if target !== identity || webView.configuration.websiteDataStore !== target.store { replaceWebView(with: target) }
+            pendingDirection = direction
+            expecting = true
+            // Images, scripts and styles anywhere on the Mac, `../` ones included;
+            // WebKit still keeps a file's page from reading other files.
+            webView.loadFileURL(url, allowingReadAccessTo: URL(fileURLWithPath: "/"))
+            return
+        }
         url = CleanLink.clean(url)
         upgradedFrom = nil
         if url.scheme?.lowercased() == "http", url != httpAllowed, !Tab.isLoopback(url.host) {
@@ -469,7 +479,9 @@ public final class Tab: NSObject {
             #endif
             return .cancel
         }
-        guard scheme == "http" || scheme == "https" else { return .cancel }
+        // A file only from Browser itself or another file: never from a web page.
+        let local = scheme == "file" && (expecting || webView.url?.isFileURL == true)
+        guard scheme == "http" || scheme == "https" || local else { return .cancel }
 
         if action.navigationType == .linkActivated, Tab.wantsNewTab(action) {
             delegate?.tab(self, openInNewTab: url)
@@ -594,7 +606,7 @@ extension Tab: WKNavigationDelegate {
         view.committed()
         httpAllowed = nil
         if let url = webView.url {
-            if Extensions.shared.context(for: url) != nil { recordEntry(url) }
+            if Extensions.shared.context(for: url) != nil || url.isFileURL { recordEntry(url) }
             else if url.scheme == "http" || url.scheme == "https" { record(url) }
         }
     }
@@ -604,7 +616,7 @@ extension Tab: WKNavigationDelegate {
     /// since nothing commits. 0 anchor, 1 push, 2 replace, 3 pop.
     @objc(_webView:navigation:didSameDocumentNavigation:)
     public func webView(_ webView: WKWebView, navigation: WKNavigation?, didSameDocumentNavigation type: Int) {
-        guard webView === self.webView, let url = webView.url, url.scheme == "http" || url.scheme == "https",
+        guard webView === self.webView, let url = webView.url, url.scheme == "http" || url.scheme == "https" || url.isFileURL,
               index >= 0, entries[index] != url else { return }
         switch type {
         case 2:
