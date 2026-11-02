@@ -36,6 +36,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         browser.restore()
         #if DEBUG
         SelfTest.screenshot(browser)
+        // The self-test runs behind whatever is in front, and never takes focus.
+        if SelfTest.enabled {
+            browser.window?.orderBack(nil)
+            return
+        }
         #endif
         browser.showWindow(nil)
         NSApp.activate()

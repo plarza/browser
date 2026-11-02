@@ -686,6 +686,13 @@ extension Tab: WKNavigationDelegate {
         download.delegate = Downloads.shared.adopt(download, for: self)
     }
 
+    /// Download Image and Download Linked File from the page's context menu:
+    /// WebKit's private call, since no navigation becomes these downloads.
+    @objc(_webView:contextMenuDidCreateDownload:)
+    public func webView(_ webView: WKWebView, contextMenuDidCreate download: WKDownload) {
+        download.delegate = Downloads.shared.adopt(download, for: self)
+    }
+
     /// A crashed page reloads once. If it crashes again soon after, it
     /// stays down and says so, rather than reloading forever.
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

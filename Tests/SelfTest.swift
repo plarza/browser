@@ -42,8 +42,14 @@ enum SelfTest {
 
     static func run(_ browser: BrowserWindowController) {
         guard enabled, let window = browser.window else { return }
+        // Never in anyone's way: all but transparent, and clicks go through
+        // it. It still draws, as a window someone could see.
+        window.alphaValue = 0.02
+        window.ignoresMouseEvents = true
         Task { @MainActor in
-            for (name, body) in cases(browser, window) {
+            // -browserSelfTestOnly <case>: just that one.
+            let only = UserDefaults.standard.string(forKey: "browserSelfTestOnly")
+            for (name, body) in cases(browser, window) where only == nil || name == only {
                 await reset(browser, window)
                 // A case that never finishes fails, and the next one runs.
                 var finished = false
@@ -534,6 +540,31 @@ enum SelfTest {
                 await expect("a done download leaves the sidebar by itself", { browser.downloadRows == 0 })
                 await shot("downloads", browser)
             }),
+            ("download image", {
+                let tab = await open(server.url("/picture"))
+                await expect("the picture loads", { await js(tab, "document.images[0].complete && document.images[0].naturalWidth", in: .page) as? Int == 32 })
+                let view = tab.webView
+                let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+                await expect("the page is in front of the one it replaced", { window.contentView?.superview?.hitTest(point)?.isDescendant(of: view) == true })
+                // The page's own context menu: Download Image, picked while it's open.
+                let picked = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+                    guard let menu = note.object as? NSMenu, let index = menu.items.firstIndex(where: { $0.title == "Download Image" }) else { return }
+                    // Chosen from the keyboard, as someone can: down to it, then Return.
+                    let arrow = String(Character(UnicodeScalar(NSDownArrowFunctionKey)!))
+                    for (character, code) in Array(repeating: (arrow, UInt16(125)), count: index + 1) + [("\r", 36)] {
+                        NSApp.postEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                         windowNumber: 0, context: nil, characters: character, charactersIgnoringModifiers: character,
+                                                         isARepeat: false, keyCode: code)!, atStart: false)
+                    }
+                }
+                defer { NotificationCenter.default.removeObserver(picked) }
+                NSApp.sendEvent(NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                   windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+                await expect("Download Image on a picture saves it", {
+                    let got = Downloads.shared.items.first
+                    return got?.name == "icon.png" && got?.state == .finished && got.map { FileManager.default.fileExists(atPath: $0.file.path) } == true
+                }, "items=\(Downloads.shared.items.map { "\($0.name) \($0.state)" })")
+            }),
             ("cancel download", {
                 let tab = await open(one)
                 tab.webView.evaluateJavaScript("location.href = '/download-slow'", in: nil, in: .page)
@@ -828,7 +859,11 @@ enum SelfTest {
         // then draws nothing. Lifted on top but all but transparent (and
         // ignoring the mouse) it draws; then back behind everything at full
         // opacity, where the window server still holds what it drew.
-        let level = window.level
+        let level = window.level, alpha = window.alphaValue, ignores = window.ignoresMouseEvents
+        defer {
+            window.alphaValue = alpha
+            window.ignoresMouseEvents = ignores
+        }
         window.ignoresMouseEvents = true
         window.alphaValue = 0.02
         window.level = .floating

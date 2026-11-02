@@ -83,6 +83,8 @@ final class TestServer: @unchecked Sendable {
             """)
         case "/frame":
             return html("Frame", "<script>var frameAds = false; parent.postMessage(String(frameAds), '*');</script>")
+        case "/picture":
+            return html("Picture", "<img src=/icon.png style='position:fixed;inset:0;width:100vw;height:100vh'>")
         case "/icon.png": return ("200 OK", "image/png", icon)
         case "/filters.txt": return ("200 OK", "text/plain", filters)
         case "/download": return ("200 OK", "text/plain", Data("browser".utf8))

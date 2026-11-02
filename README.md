@@ -68,7 +68,7 @@ The UI self-test only works in debug builds:
 build/Browser.app/Contents/MacOS/Browser -browserStore /tmp/browser-test -browserSelfTest YES
 ```
 
-It logs PASS/FAIL per check, ends with a count and quits, exiting non-zero if any check failed. Every page it loads comes from a web server inside the test, on this Mac, so it needs no internet; each step waits for what it expects rather than a set time, and works with Browser in the background. `-browserStore` uses a separate data folder; `-browserShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). `-browserProbe <url> -browserProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS. With `-browserProbeScript <js>` it writes what that expression gives in the page instead, once the filter lists are compiled (for checking YouTube's ads are gone).
+It logs PASS/FAIL per check, ends with a count and quits, exiting non-zero if any check failed. Every page it loads comes from a web server inside the test, on this Mac, so it needs no internet; each step waits for what it expects rather than a set time. It runs out of the way: no Dock icon, never in front, its window all but transparent and clicks going through it. `-browserSelfTestOnly <case>` runs one case by name. `-browserStore` uses a separate data folder; `-browserShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). `-browserProbe <url> -browserProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS. With `-browserProbeScript <js>` it writes what that expression gives in the page instead, once the filter lists are compiled (for checking YouTube's ads are gone).
 
 ## Screenshot
 

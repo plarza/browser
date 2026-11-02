@@ -16,5 +16,11 @@ if let path = UserDefaults.standard.string(forKey: "browserStore") {
 let app = NSApplication.shared
 let delegate = MainActor.assumeIsolated { AppDelegate() }
 app.delegate = delegate
+#if DEBUG
+// The self-test is a background app: no Dock icon, never in front of what
+// someone is doing.
+app.setActivationPolicy(MainActor.assumeIsolated { SelfTest.enabled } ? .accessory : .regular)
+#else
 app.setActivationPolicy(.regular)
+#endif
 app.run()
