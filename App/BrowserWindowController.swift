@@ -52,10 +52,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        // Clear, so a blank tab's frosted page can show the desktop through
-        // it; the sidebar and the page paint their own white.
-        window.isOpaque = false
-        window.backgroundColor = .clear
+        // Opaque, except while the desktop shows through (see `updateOpacity`).
+        window.isOpaque = true
+        window.backgroundColor = .windowBackgroundColor
         window.minSize = NSSize(width: 640, height: 420)
         // Every launch fills the screen, short of the menu bar and Dock; not
         // full screen.
@@ -107,6 +106,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
                     guard let self else { return }
                     self.backdrop.update(settings, imageVersion: version)
                     self.fill(settings.fill)
+                    self.updateOpacity()
                 }
             }
             .store(in: &watching)
@@ -140,6 +140,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
             pageHost.rootView = Pages.view(page) { [weak self] url in self?.selected?.load(url) }
         }
         hostedPage = page
+        updateOpacity()
+    }
+
+    /// Clear only while the Blank new tab page frosts the desktop through
+    /// the window (a blank tab, or every tab with Fill). An opaque window's
+    /// pages and video go to the screen without being blended with whatever
+    /// is behind the window, every frame.
+    private func updateOpacity() {
+        guard let window else { return }
+        let blank = selected.map { $0.url == nil && $0.pending == nil && !$0.isLoading } ?? false
+        let clear = Preferences.shared.settings.newTabPage == .blank && (blank || fills)
+        guard window.isOpaque == clear else { return }
+        window.isOpaque = !clear
+        window.backgroundColor = clear ? .clear : .windowBackgroundColor
     }
 
     /// The window's local event monitors, kept for as long as it is.

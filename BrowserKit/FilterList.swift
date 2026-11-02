@@ -1,15 +1,15 @@
 import Foundation
 
 /// Adblock Plus / uBlock Origin filter syntax, turned into WebKit content
-/// rules. What WebKit can enforce inside its networking and its style
-/// resolver is kept; what needs a script running in the page (scriptlets,
-/// procedural cosmetics, redirects) is dropped, since a script in the page
-/// is something the page can detect.
+/// rules, plus the scriptlets (`+js(…)`) the `Scriptlets` library runs.
+/// What WebKit can enforce inside its networking and its style resolver
+/// is kept; procedural cosmetics and redirects are dropped.
 public enum FilterList {
     public struct Output {
         public var blocks: [[String: Any]] = []
         public var hides: [[String: Any]] = []
         public var exceptions: [[String: Any]] = []
+        public var scriptlets = ScriptletRules()
         public var skipped = 0
 
         /// The rules as several lists: WebKit takes at most 150,000 rules in
@@ -27,20 +27,34 @@ public enum FilterList {
         }
     }
 
-    public static func compile(_ texts: [String]) -> Output {
+    /// `trusted`, per text: whether its `trusted-` scriptlets may run, as
+    /// uBlock Origin allows only its own lists.
+    public static func compile(_ texts: [String], trusted: [Bool] = []) -> Output {
         var out = Output()
         var genericHides: [String] = []
+        var siteHides: [String: [String]] = [:]
+        var sites: [String] = []
         var seen = Set<String>()
         // Strings, not Data: Data hashes only its first bytes, and every
         // rule's JSON starts the same, so a Set<Data> is quadratic here.
         var seenRules = Set<String>()
-        for text in texts {
+        for (n, text) in texts.enumerated() {
+            let isTrusted = n < trusted.count && trusted[n]
             text.enumerateLines { raw, _ in
                 let line = raw.trimmingCharacters(in: .whitespaces)
                 guard !line.isEmpty, !line.hasPrefix("!"), !line.hasPrefix("["), seen.insert(line).inserted else { return }
+                if let added = out.scriptlets.add(line, trusted: isTrusted) {
+                    if !added { out.skipped += 1 }
+                    return
+                }
                 if let cosmetic = cosmetic(line) {
                     switch cosmetic {
                     case .generic(let selector): genericHides.append(selector)
+                    case .sites(let hosts, let selector):
+                        for host in hosts {
+                            if siteHides[host] == nil { sites.append(host) }
+                            siteHides[host, default: []].append(selector)
+                        }
                     case .scoped(let rule): out.hides.append(rule)
                     case .skip: out.skipped += 1
                     }
@@ -66,6 +80,16 @@ public enum FilterList {
                 "action": ["type": "css-display-none", "selector": selectors.joined(separator: ", ")],
             ])
         }
+        // A site's hides match the address of a page on it, not the site
+        // showing: WebKit then passes them over in its URL matching for
+        // every other page and every subresource, where tens of thousands
+        // of `if-domain` rules are each checked on every request.
+        for host in sites {
+            out.hides.append([
+                "trigger": ["url-filter": "^[^:]+://+([^:/]+\\.)?" + escape(host) + "[/:]", "resource-type": ["document"]],
+                "action": ["type": "css-display-none", "selector": siteHides[host]!.joined(separator: ", ")],
+            ])
+        }
         return out
     }
 
@@ -73,6 +97,8 @@ public enum FilterList {
 
     enum Cosmetic {
         case generic(String)
+        /// Hidden on pages from these hosts and their subdomains.
+        case sites([String], String)
         case scoped([String: Any])
         case skip
     }
@@ -98,8 +124,12 @@ public enum FilterList {
         guard let (include, exclude) = domainLists(domains.split(separator: ",").map(String.init)),
               include.isEmpty != exclude.isEmpty
         else { return .skip }
-        var trigger: [String: Any] = ["url-filter": ".*"]
-        if !include.isEmpty { trigger["if-domain"] = include } else { trigger["unless-domain"] = exclude }
+        if !include.isEmpty {
+            let hosts = include.map { String($0.dropFirst()) }
+            guard hosts.allSatisfy({ $0.allSatisfy { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" } }) else { return .skip }
+            return .sites(hosts, selector)
+        }
+        let trigger: [String: Any] = ["url-filter": ".*", "unless-domain": exclude]
         return .scoped(["trigger": trigger, "action": ["type": "css-display-none", "selector": selector]])
     }
 

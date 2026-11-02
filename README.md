@@ -21,7 +21,7 @@ Browser uses the system WebKit, with normal JavaScript and WebAssembly JIT compi
 ## Browser
 
 - Each tab gets its own data store and network session (cookies, all storage, HTTP cache, HSTS, TLS sessions, connections) and its own web process.
-- Every reload and navigation, back and forward included, throws that identity away and loads into a new one.
+- Every reload, typed address and navigation to another site throws that identity away and loads into a new one; links, back and forward within one site keep it, cache and connections included.
 - Persist (⌘I) keeps a tab's identity until the tab closes, across relaunches.
 - Domains on the cookie whitelist keep one jar on disk, shared by all tabs.
 - `window.open` popups (sign-in, 3-D Secure) share their opener's identity and close with it; links opened in a new tab start fresh.
@@ -29,6 +29,7 @@ Browser uses the system WebKit, with normal JavaScript and WebAssembly JIT compi
 - HTTPS-only: plain HTTP is upgraded, with a one-load fallback page if the site has no HTTPS. Loopback (`localhost`) is left alone.
 - Tracking parameters (`utm_*`, `fbclid`, `gclid` and others) are removed from every navigation.
 - Ads and trackers are blocked inside WebKit's networking by content rules compiled from filter lists (uBlock Origin's, EasyList, EasyPrivacy, Peter Lowe's, URLhaus, AdGuard cookie notices), fetched daily without cookies.
+- The lists' scriptlets (`+js(…)`) run from Browser's own library of uBlock Origin's scriptlets, only on the sites a rule names: this is what takes YouTube's ads out.
 - Location, notifications, MIDI, USB, serial, HID, Bluetooth and sensors are always denied; camera and microphone ask every time and the answer isn't kept.
 - Downloads open the save panel and keep macOS's quarantine flag; about://downloads lists them.
 - Bangs (`!w`, `!gh`, `!yt` and about 300 more) resolve from a table inside the app.
@@ -66,7 +67,7 @@ The UI self-test only works in debug builds:
 build/Browser.app/Contents/MacOS/Browser -browserStore /tmp/browser-test -browserSelfTest YES
 ```
 
-It logs PASS/FAIL per check, ends with a count and quits, exiting non-zero if any check failed. Every page it loads comes from a web server inside the test, on this Mac, so it needs no internet; each step waits for what it expects rather than a set time, and works with Browser in the background. `-browserStore` uses a separate data folder; `-browserShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). `-browserProbe <url> -browserProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS.
+It logs PASS/FAIL per check, ends with a count and quits, exiting non-zero if any check failed. Every page it loads comes from a web server inside the test, on this Mac, so it needs no internet; each step waits for what it expects rather than a set time, and works with Browser in the background. `-browserStore` uses a separate data folder; `-browserShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). `-browserProbe <url> -browserProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS. With `-browserProbeScript <js>` it writes what that expression gives in the page instead, once the filter lists are compiled (for checking YouTube's ads are gone).
 
 ## Screenshot
 

@@ -154,6 +154,7 @@ enum SelfTest {
                 await shot("history", browser)
             }),
             ("wipe and Persist", { await wipeAndPersist(browser, one) }),
+            ("same-site links", { await sameSite(browser, one, two) }),
             ("Persist jar deleted", {
                 // The tab only ever held here, so the test's own hold doesn't keep it.
                 weak var closed: Tab?
@@ -442,11 +443,13 @@ enum SelfTest {
                 check("a blank tab shows the new tab page", browser.newTabPageShown, "")
                 await shot("newtab", browser)
                 Preferences.shared.settings.newTabPage = .blank
+                await expect("the Blank new tab page frosts the desktop through the window", { !window.isOpaque })
                 await shot("frosted", browser)
                 Preferences.shared.settings.newTabPage = .image
                 let tab = browser.selected!
                 await go(tab, one) { tab.load(one) }
                 check("a page replaces the new tab page", !browser.newTabPageShown, "")
+                check("a page shows in an opaque window", window.isOpaque, "")
                 await shot("page", browser)
                 browser.newTab(nil, focus: false)
                 Preferences.shared.settings.fill = true
@@ -462,6 +465,22 @@ enum SelfTest {
                 let tab = await open(one)
                 let fetched = await js(tab, "fetch('/ad-banner.js').then(() => 'loaded', () => 'blocked')", in: .page, awaiting: true) as? String
                 check("a request a list names is blocked", fetched == "blocked", "fetch=\(fetched ?? "no answer")")
+                let scripted = await open(server.url("/scriptlets"))
+                let hidden = await js(scripted, "getComputedStyle(document.querySelector('.sponsor')).display", in: .page) as? String
+                check("a list's hide for a site hides it there", hidden == "none", "display=\(hidden ?? "nil")")
+                let pruned = await js(scripted, "window.pruned", in: .page) as? String
+                check("a list's scriptlet runs before the page's own scripts", pruned == #"{"content":2}"#, "pruned=\(pruned ?? "nil")")
+                let replaced = await js(scripted, "window.replaced", in: .page) as? Int
+                check("a script's text is replaced once, even when the replacement contains what it replaced", replaced == 1,
+                      "replaced=\(replaced.map(String.init) ?? "nil")")
+                await expect("…and in a frame from another site, with that site's rules", {
+                    await js(scripted, "window.framed", in: .page) as? String == "true"
+                })
+                let plain = await open(server.url("/scriptlets", on: server.other))
+                let untouched = await js(plain, "window.pruned", in: .page) as? String
+                let shown = await js(plain, "getComputedStyle(document.querySelector('.sponsor')).display", in: .page) as? String
+                check("…and not on another site", shown == "block", "display=\(shown ?? "nil")")
+                check("a site the rule doesn't name runs it not", untouched == #"{"ads":1,"content":2}"#, "pruned=\(untouched ?? "nil")")
             }),
             ("downloads", {
                 Downloads.autoDismiss = 0.5
@@ -560,6 +579,31 @@ enum SelfTest {
         let reread = await read(reopened)
         check("a Persist tab comes back after quitting with its cookies and storage", jar != nil && saved && reopened.persist && reread == "cookie storage",
               "jar=\(jar != nil) saved=\(saved) after=\(reread)")
+    }
+
+    /// Links within a site keep its identity and web view; another site, or
+    /// coming back to the first, starts a new one.
+    private static func sameSite(_ browser: BrowserWindowController, _ one: URL, _ two: URL) async {
+        let tab = browser.selected!
+        await go(tab, one) { tab.load(one) }
+        await plant(tab)
+        let view = tab.webView
+        await go(tab, two) { follow(tab, two) }
+        let kept = await read(tab)
+        check("a link within the site keeps its cookies, storage and web view", kept == "cookie storage" && tab.webView === view, "after=\(kept)")
+        let elsewhere = server.url("/page/three", on: server.other)
+        await go(tab, elsewhere) { follow(tab, elsewhere) }
+        let there = await read(tab)
+        check("a link to another site starts a new identity", there.isEmpty && tab.webView !== view, "after=\(there)")
+        await go(tab, two) { tab.goBack() }
+        let back = await read(tab)
+        check("Back to the first site doesn't bring its identity back", back.isEmpty, "after=\(back)")
+    }
+
+    /// Clicks a link to `url` in the page.
+    private static func follow(_ tab: Tab, _ url: URL) {
+        let source = "const a = document.createElement('a'); a.href = '\(url.absoluteString)'; document.body.append(a); a.click()"
+        tab.webView.evaluateJavaScript(source, in: nil, in: .page) { _ in }
     }
 
     /// A whitelisted site keeps one jar for all its tabs, until it comes off the list.
@@ -813,15 +857,20 @@ enum SelfTest {
 
     /// `-browserProbe <url> -browserProbeOut <file>`: loads the page, lets it
     /// settle, writes what it shows; then reloads (a wipe) and writes it again.
+    /// `-browserProbeScript <js>`: writes what that expression gives in the
+    /// page's own world instead. The filter lists are compiled first.
     static func probe(_ browser: BrowserWindowController) {
         guard let address = UserDefaults.standard.string(forKey: "browserProbe"), let url = URL(string: address),
               let out = UserDefaults.standard.string(forKey: "browserProbeOut") else { return }
+        let script = UserDefaults.standard.string(forKey: "browserProbeScript")
         Task { @MainActor in
+            await until("the filter lists", seconds: 180) { Scriptlets.shared.rules.count > 0 }
             let tab = browser.newTab(url)
             var report = ""
             for pass in 1 ... 2 {
-                try? await Task.sleep(for: .seconds(35))
-                let text = try? await tab.webView.evaluateJavaScript("document.body.innerText", in: nil, contentWorld: .defaultClient) as? String
+                try? await Task.sleep(for: .seconds(script == nil ? 35 : 12))
+                let text = try? await tab.webView.evaluateJavaScript(script ?? "document.body.innerText", in: nil,
+                                                                     contentWorld: script == nil ? .defaultClient : .page) as? String
                 report += "===== PASS \(pass)\n\(text ?? "(nothing)")\n"
                 try? report.write(toFile: out, atomically: true, encoding: .utf8)
                 if pass == 1 { tab.reload() }

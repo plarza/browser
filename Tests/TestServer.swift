@@ -69,6 +69,20 @@ final class TestServer: @unchecked Sendable {
             return html("Redirect", "<script>addEventListener('load', () => setTimeout(() => location.replace('/page/after'), 50))</script>")
         case "/search":
             return html("Results", "<p>Results for \(request.queryItems?.first?.value ?? "")</p>")
+        case "/scriptlets":
+            // Parses JSON a list prunes on this host, and frames a page from
+            // the other host, which a list's rule for that host reaches.
+            return html("Scriptlets", """
+            <div class=sponsor>an ad</div><script>
+            window.pruned = JSON.stringify(JSON.parse('{"ads":1,"content":2}'));
+            </script><script>window.loops = 1;
+            </script><script>
+            addEventListener('message', event => { window.framed = event.data; });
+            document.write('<iframe src="http://127.0.0.1:' + location.port + '/frame"></iframe>');
+            </script>
+            """)
+        case "/frame":
+            return html("Frame", "<script>var frameAds = false; parent.postMessage(String(frameAds), '*');</script>")
         case "/icon.png": return ("200 OK", "image/png", icon)
         case "/filters.txt": return ("200 OK", "text/plain", filters)
         case "/download": return ("200 OK", "text/plain", Data("browser".utf8))
@@ -84,7 +98,14 @@ final class TestServer: @unchecked Sendable {
         return rep.representation(using: .png, properties: [:])!
     }()
 
-    /// The padding, and one rule a page here can run into.
-    private static let filters = Data(((0 ..< ruleCount - 1).map { "||ad-\($0).invalid^" } + ["/ad-banner.js"]).joined(separator: "\n").utf8)
+    /// The padding, one rule a page here can run into, a hide for one host, and a scriptlet for each host.
+    private static let filters = Data(((0 ..< ruleCount - 1).map { "||ad-\($0).invalid^" } + [
+        "/ad-banner.js",
+        "localhost##.sponsor",
+        "localhost##+js(json-prune, ads)",
+        "127.0.0.1##+js(set, frameAds, true)",
+        // A replacement that still contains what it replaces, as Google's does.
+        "localhost##+js(rpnt, script, window.loops = 1, window.replaced = (window.replaced || 0) + 1; window.loops = 1)",
+    ]).joined(separator: "\n").utf8)
 }
 #endif

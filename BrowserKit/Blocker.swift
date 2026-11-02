@@ -58,7 +58,11 @@ public final class Blocker {
                     install(list)
                 }
             }
-            refresh(force: false)
+            let rules = await Task.detached(operation: { Store.read(ScriptletRules.self, "scriptlets.json") }).value
+            if let rules { Scriptlets.shared.rules = rules }
+            await removeStale(keeping: count)
+            // Lists compiled before Browser ran scriptlets are compiled again now.
+            refresh(force: rules == nil)
         }
         Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { _ in
             Task { @MainActor in Blocker.shared.refresh(force: false) }
@@ -86,9 +90,10 @@ public final class Blocker {
         let urls = Preferences.shared.settings.filterLists.compactMap(URL.init(string:))
         Task {
             defer { refreshing = false }
-            let texts = await Blocker.fetch(urls)
-            guard !texts.isEmpty else { trouble = "Couldn't fetch any filter list."; return }
-            let output = await Task.detached { FilterList.compile(texts) }.value
+            let fetched = await Blocker.fetch(urls)
+            guard !fetched.isEmpty else { trouble = "Couldn't fetch any filter list."; return }
+            let texts = fetched.map(\.text), trusted = fetched.map { Blocker.isTrusted($0.url) }
+            let output = await Task.detached { FilterList.compile(texts, trusted: trusted) }.value
             do {
                 guard let store else { return }
                 let lists = output.lists()
@@ -109,8 +114,10 @@ public final class Blocker {
                 }
                 for list in compiled { install(list) }
                 Store.write(lists.count, "filters-lists.json")
-                ruleCount = output.blocks.count + output.hides.count + output.exceptions.count
-                trouble = texts.count < urls.count ? "\(urls.count - texts.count) of \(urls.count) lists couldn't be fetched." : nil
+                Scriptlets.shared.rules = output.scriptlets
+                await Task.detached { Store.write(output.scriptlets, "scriptlets.json") }.value
+                ruleCount = output.blocks.count + output.hides.count + output.exceptions.count + output.scriptlets.count
+                trouble = fetched.count < urls.count ? "\(urls.count - fetched.count) of \(urls.count) lists couldn't be fetched." : nil
                 Store.write(Date(), "filters-fetched.json")
             } catch {
                 trouble = "Compiling the filter lists failed: \(error.localizedDescription)"
@@ -118,19 +125,42 @@ public final class Blocker {
         }
     }
 
-    static func fetch(_ urls: [URL]) async -> [String] {
+    /// The lists that could be fetched, in the order asked for.
+    static func fetch(_ urls: [URL]) async -> [(url: URL, text: String)] {
         let session = Engine.session(timeout: 30)
         defer { session.finishTasksAndInvalidate() }
-        return await withTaskGroup(of: String?.self) { group in
-            for url in urls {
+        let texts = await withTaskGroup(of: (Int, String?).self) { group in
+            for (i, url) in urls.enumerated() {
                 group.addTask {
                     guard let (data, response) = try? await session.data(from: url),
                           (response as? HTTPURLResponse)?.statusCode == 200
-                    else { return nil }
-                    return String(decoding: data, as: UTF8.self)
+                    else { return (i, nil) }
+                    return (i, String(decoding: data, as: UTF8.self))
                 }
             }
-            return await group.reduce(into: []) { texts, text in if let text { texts.append(text) } }
+            return await group.reduce(into: [Int: String]()) { texts, item in texts[item.0] = item.1 }
+        }
+        return urls.indices.compactMap { i in texts[i].map { (urls[i], $0) } }
+    }
+
+    /// uBlock Origin's own lists, the only ones whose `trusted-` scriptlets
+    /// (which can run any code) uBlock Origin runs, and lists served from
+    /// this Mac itself.
+    static func isTrusted(_ url: URL) -> Bool {
+        url.host?.lowercased() == "ublockorigin.github.io"
+            || url.absoluteString.lowercased().contains("/ublockorigin/uassets/")
+            || Tab.isLoopback(url.host)
+    }
+
+    /// Compiled lists from an older set, or an older name, take up disk.
+    private func removeStale(keeping count: Int) async {
+        guard let store else { return }
+        let ids: [String] = await withCheckedContinuation { done in
+            store.getAvailableContentRuleListIdentifiers { done.resume(returning: $0 ?? []) }
+        }
+        let current = Set([Blocker.baseID] + (0 ..< count).map { "\(Blocker.filtersID)-\($0)" })
+        for id in ids where !current.contains(id) {
+            try? await store.removeContentRuleList(forIdentifier: id)
         }
     }
 

@@ -41,6 +41,11 @@ public enum Engine {
         let type = NSClassFromString("_WKProcessPoolConfiguration") as! NSObject.Type
         let config = type.init()
         config.setValue("UTC", forKey: "timeZoneOverride")
+        // A web process started ahead of time, as Safari keeps one, so a load
+        // into a new identity doesn't wait for one to launch.
+        if config.responds(to: NSSelectorFromString("setPrewarmsProcessesAutomatically:")) {
+            config.setValue(true, forKey: "prewarmsProcessesAutomatically")
+        }
         let pool = (WKProcessPool.self as AnyObject).perform(NSSelectorFromString("alloc"))!.takeUnretainedValue()
         let initialize = NSSelectorFromString("_initWithConfiguration:")
         typealias Initialize = @convention(c) (AnyObject, Selector, AnyObject) -> Unmanaged<WKProcessPool>

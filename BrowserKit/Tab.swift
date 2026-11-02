@@ -27,10 +27,11 @@ public protocol TabDelegate: AnyObject {
     func tab(_ tab: Tab, chooseFiles multiple: Bool, directories: Bool) async -> [URL]?
 }
 
-/// A tab is a sequence of identities. Every navigation, reload, back and
-/// forward included, throws the current identity away and loads into a
-/// new web view with a new one — unless the tab is on Persist, or the page
-/// is on a whitelisted domain, whose jar stays.
+/// A tab is a sequence of identities. Every navigation to another site, and
+/// every reload or typed address, throws the current identity away and
+/// loads into a new web view with a new one — unless the tab is on Persist,
+/// or the page is on a whitelisted domain, whose jar stays. Links, back and
+/// forward within one site keep the identity, and the web view with it.
 @MainActor
 public final class Tab: NSObject {
     public let id = UUID()
@@ -75,8 +76,8 @@ public final class Tab: NSObject {
         }
     }
 
-    /// A carried page's storage is waiting to be written into the kept jar.
-    private var carrying = false
+    /// A carried page's storage, waiting to be written into the kept jar.
+    private var carrying: WKUserScript?
     private var closed = false
 
     /// Cookies from one jar into another, and a script that puts the page's
@@ -258,12 +259,12 @@ public final class Tab: NSObject {
 
     public func goBack() {
         guard canGoBack else { return }
-        navigate(URLRequest(url: entries[index - 1]), direction: .back)
+        navigate(URLRequest(url: entries[index - 1]), direction: .back, sameSite: true)
     }
 
     public func goForward() {
         guard canGoForward else { return }
-        navigate(URLRequest(url: entries[index + 1]), direction: .forward)
+        navigate(URLRequest(url: entries[index + 1]), direction: .forward, sameSite: true)
     }
 
     public func stop() { webView.stopLoading() }
@@ -281,12 +282,19 @@ public final class Tab: NSObject {
         opener?.popups.removeAll { $0 === self }
     }
 
-    /// The identity a load to `host` belongs in.
-    private func identity(for host: String?) -> Identity {
-        if let domain = Whitelist.domain(for: host) { return .whitelisted(domain) }
+    /// The identity a load to `url` belongs in. With `sameSite`, a page on
+    /// the site showing keeps the tab's own identity.
+    private func identity(for url: URL, sameSite: Bool = false) -> Identity {
+        if let domain = Whitelist.domain(for: url.host) { return .whitelisted(domain) }
         if persist { return own }
+        if sameSite, identity === own, keepsIdentity(to: url) { return own }
         own = .fresh()
         return own
+    }
+
+    /// The page showing is on `url`'s site, in this web view.
+    private func keepsIdentity(to url: URL) -> Bool {
+        internalPage == nil && webView.configuration.websiteDataStore === identity.store && Site.same(webView.url, url)
     }
 
     /// The new tab page, as an entry in the tab's own back and forward list:
@@ -315,7 +323,9 @@ public final class Tab: NSObject {
         update(.title) { $0.title = page.capitalized }
     }
 
-    private func navigate(_ request: URLRequest, direction: Direction) {
+    /// `sameSite`: a link, back or forward, which keeps the identity if it
+    /// stays on the site showing; a reload or a typed address never does.
+    private func navigate(_ request: URLRequest, direction: Direction, sameSite: Bool = false) {
         guard var url = request.url else { return }
         visitKind = direction == .reload ? .reload : .link
         if url == Tab.blank {
@@ -352,7 +362,7 @@ public final class Tab: NSObject {
         request.url = url
 
         // A wiped load gets a new identity, so it is never the current one.
-        let target = identity(for: url.host)
+        let target = identity(for: url, sameSite: sameSite)
         if target !== identity, case .kept = target.kind, case .fresh = identity.kind {
             // Persist was just turned on: the tab's cookies and the page's
             // storage go into its kept jar before the load.
@@ -363,7 +373,7 @@ public final class Tab: NSObject {
                 self.replaceWebView(with: target)
                 if let restore {
                     self.webView.configuration.userContentController.addUserScript(restore)
-                    self.carrying = true
+                    self.carrying = restore
                 }
                 self.pendingDirection = direction
                 self.expecting = true
@@ -479,13 +489,14 @@ public final class Tab: NSObject {
             if let domain = Whitelist.domain(for: url.host) {
                 staysPut = identity.kind == .whitelisted(domain)
             } else {
-                staysPut = persist && identity === own
+                staysPut = identity === own && (persist || keepsIdentity(to: url))
             }
+            let direction: Direction = Tab.isUserInitiated(action) || action.navigationType != .other ? .new : .replace
             if staysPut, webView.configuration.websiteDataStore === identity.store, scheme == "https" || Tab.isLoopback(url.host), CleanLink.clean(url) == url {
-                pendingDirection = .new
+                pendingDirection = direction
                 return .allow
             }
-            navigate(action.request, direction: Tab.isUserInitiated(action) || action.navigationType != .other ? .new : .replace)
+            navigate(action.request, direction: direction, sameSite: true)
         }
         return .cancel
     }
@@ -556,6 +567,7 @@ extension Tab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
         Engine.harden(preferences)
         if action.shouldPerformDownload { return (.download, preferences) }
+        Scriptlets.shared.prepare(webView.configuration.userContentController, for: action.request.url)
         guard action.targetFrame?.isMainFrame ?? false else { return (.allow, preferences) }
         return (decide(action), preferences)
     }
@@ -639,12 +651,10 @@ extension Tab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         view.drew()
         Favicons.shared.load(for: self)
-        if carrying {
+        if let restore = carrying {
             // Carried storage goes in once; a site that later clears it stays cleared.
-            carrying = false
-            let content = webView.configuration.userContentController
-            content.removeAllUserScripts()
-            content.addUserScript(Links.userScript)
+            carrying = nil
+            webView.configuration.userContentController.remove(restore)
         }
     }
 
