@@ -48,6 +48,11 @@ final class TestServer: @unchecked Sendable {
                 connection.send(content: Data(head.utf8) + Data(count: 1 << 16), completion: .contentProcessed { _ in })
                 return
             }
+            if target == "/moved" {
+                let head = "HTTP/1.1 301 Moved Permanently\r\nLocation: /page/one\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                connection.send(content: Data(head.utf8), completion: .contentProcessed { _ in connection.cancel() })
+                return
+            }
             let (status, type, body) = Self.respond(to: URLComponents(string: String(target)) ?? URLComponents())
             var head = "HTTP/1.1 \(status)\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n"
             if target.hasPrefix("/download") { head += "Content-Disposition: attachment; filename=\"browser-test.txt\"\r\n" }
@@ -85,6 +90,36 @@ final class TestServer: @unchecked Sendable {
             return html("Frame", "<script>var frameAds = false; parent.postMessage(String(frameAds), '*');</script>")
         case "/picture":
             return html("Picture", "<img src=/icon.png style='position:fixed;inset:0;width:100vw;height:100vh'>")
+        case "/test.user.js":
+            // Runs on this server's pages (any port), with a @require and a
+            // @resource beside it, and fetches from the other host.
+            return ("200 OK", "text/javascript; charset=utf-8", Data("""
+            // ==UserScript==
+            // @name        Self Test
+            // @namespace   browser.selftest
+            // @version     1.0
+            // @match       http://localhost/page/*
+            // @require     /require.js
+            // @resource    note /note.txt
+            // @grant       GM_getValue
+            // @grant       GM_setValue
+            // @grant       GM_getResourceText
+            // @grant       GM.xmlHttpRequest
+            // @grant       GM_registerMenuCommand
+            // ==/UserScript==
+            const runs = GM_getValue('runs', 0);
+            GM_setValue('runs', runs + 1);
+            document.documentElement.dataset.userscript = 'ran ' + runs + ' ' + requiredValue + ' ' + GM_getResourceText('note');
+            GM.xmlHttpRequest({url: 'http://127.0.0.1:' + location.port + '/page/Cross-Origin'})
+              .then(r => { document.documentElement.dataset.xhr = r.status === 200 && r.responseText.includes('Cross Origin') ? 'ok' : 'bad ' + r.status; });
+            GM_registerMenuCommand('Mark', () => { document.documentElement.dataset.menu = 'clicked'; });
+
+            """.utf8))
+        case "/big": return ("200 OK", "text/plain", Data(repeating: UInt8(ascii: "x"), count: 300_000))
+        case "/require.js": return ("200 OK", "text/javascript", Data("var requiredValue = 'required';".utf8))
+        case "/note.txt": return ("200 OK", "text/plain", Data("note-text".utf8))
+        case "/update.user.js":
+            return ("200 OK", "text/javascript", Data("// ==UserScript==\n// @name Updater\n// @version 2.0\n// @grant none\n// ==/UserScript==\n".utf8))
         case "/icon.png": return ("200 OK", "image/png", icon)
         case "/filters.txt": return ("200 OK", "text/plain", filters)
         case "/download": return ("200 OK", "text/plain", Data("browser".utf8))

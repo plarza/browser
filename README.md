@@ -37,7 +37,8 @@ Browser uses the system WebKit, with normal JavaScript and WebAssembly JIT compi
 - Favicons are read from the page through WebKit's isolated script world, fetched without cookies, and kept on disk only for sites in History.
 - History keeps addresses, titles, visit counts, last-visit times and frecency in SQLite, plus which suggestion you picked for what you typed, for address-bar completion and `about://history`.
 - Safari web extensions from apps in Applications turn on in Settings and run on WebKit's extension engine; their own storage is kept.
-- No telemetry and no update checks. The only request Browser makes by itself is the daily filter-list fetch.
+- Userscripts written for Violentmonkey run built in, with its GM_* and GM.* APIs. Opening a `.user.js` link or file offers Install; `about://userscripts` lists them, each with a switch, beside a code editor.
+- No telemetry and no update checks for Browser itself. The only requests Browser makes by itself are the daily filter-list fetch and, at the same time, installed userscripts' update checks.
 - No proxy or Tor: use a VPN. Browser does not enable WebKit's iCloud Private Relay policy.
 
 Keyboard shortcuts are at `about://help` (⇧⌘/).

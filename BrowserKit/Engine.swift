@@ -55,13 +55,17 @@ public enum Engine {
     /// For Browser's own requests (filter lists, icons): no cookies, no
     /// cache, Safari's user agent, nothing that ties one request to the next.
     static func session(timeout: TimeInterval, headers: [String: String] = [:]) -> URLSession {
+        URLSession(configuration: sessionConfiguration(timeout: timeout, headers: headers))
+    }
+
+    static func sessionConfiguration(timeout: TimeInterval, headers: [String: String] = [:]) -> URLSessionConfiguration {
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieAcceptPolicy = .never
         config.httpShouldSetCookies = false
         config.urlCache = nil
         config.timeoutIntervalForRequest = timeout
         config.httpAdditionalHeaders = headers.merging(["User-Agent": userAgent]) { a, _ in a }
-        return URLSession(configuration: config)
+        return config
     }
 
     /// A configuration for a page in `identity`. Everything a page can

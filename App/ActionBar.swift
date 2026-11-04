@@ -3,10 +3,16 @@ import BrowserKit
 import WebKit
 
 /// Extensions' buttons, beside the traffic lights: as many as fit, left to
-/// right, and the rest in a menu behind the button at the far right.
+/// right, and the rest in a menu behind the button at the far right. After
+/// them, while any userscript is installed, the userscripts' button.
 @MainActor
 final class ActionBar: NSView {
     var onClick: (WKWebExtension.Action, NSView) -> Void = { _, _ in }
+    var onScripts: (NSView) -> Void = { _ in }
+    /// The userscripts' menu: what runs on this page, and their commands.
+    let scripts = NSButton()
+    private let scriptsBadge = NSTextField(labelWithString: "")
+    private(set) var running = 0
     weak var anchor: NSView?
     private var actions: [WKWebExtension.Action] = []
     private var buttons: [NSButton] = []
@@ -23,6 +29,16 @@ final class ActionBar: NSView {
         more.target = self
         more.action = #selector(showMore)
         addSubview(more)
+        scripts.image = NSImage(systemSymbolName: "curlybraces", accessibilityDescription: "Userscripts")
+        scripts.isBordered = false
+        scripts.bezelStyle = .accessoryBarAction
+        scripts.contentTintColor = .secondaryLabelColor
+        scripts.toolTip = "Userscripts"
+        scripts.target = self
+        scripts.action = #selector(showScripts)
+        scripts.isHidden = true
+        ActionBar.style(scriptsBadge, in: scripts)
+        addSubview(scripts)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -40,16 +56,7 @@ final class ActionBar: NSView {
                 button.target = self
                 button.action = #selector(clicked(_:))
                 button.addGestureRecognizer(NSPanGestureRecognizer(target: self, action: #selector(dragged(_:))))
-                let badge = NSTextField(labelWithString: "")
-                badge.font = .systemFont(ofSize: 8, weight: .bold)
-                badge.textColor = .white
-                badge.wantsLayer = true
-                badge.layer?.backgroundColor = NSColor.systemRed.cgColor
-                badge.layer?.cornerRadius = 4
-                badge.translatesAutoresizingMaskIntoConstraints = false
-                button.addSubview(badge)
-                badge.trailingAnchor.constraint(equalTo: button.trailingAnchor).isActive = true
-                badge.topAnchor.constraint(equalTo: button.topAnchor).isActive = true
+                ActionBar.style(NSTextField(labelWithString: ""), in: button)
                 addSubview(button)
                 return button
             }
@@ -67,6 +74,30 @@ final class ActionBar: NSView {
         needsLayout = true
     }
 
+    private static func style(_ badge: NSTextField, in button: NSButton) {
+        badge.font = .systemFont(ofSize: 8, weight: .bold)
+        badge.textColor = .white
+        badge.wantsLayer = true
+        badge.layer?.backgroundColor = NSColor.systemRed.cgColor
+        badge.layer?.cornerRadius = 4
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        button.addSubview(badge)
+        badge.trailingAnchor.constraint(equalTo: button.trailingAnchor).isActive = true
+        badge.topAnchor.constraint(equalTo: button.topAnchor).isActive = true
+    }
+
+    /// `running`: how many scripts ran on the page showing.
+    func setScripts(shown: Bool, running: Int) {
+        scripts.isHidden = !shown
+        self.running = running
+        scriptsBadge.stringValue = running > 0 ? "\(running)" : ""
+        scriptsBadge.isHidden = running == 0
+        scripts.contentTintColor = running > 0 ? .labelColor : .secondaryLabelColor
+        needsLayout = true
+    }
+
+    @objc private func showScripts() { onScripts(scripts) }
+
     private func icon(_ action: WKWebExtension.Action) -> NSImage {
         let image = (action.icon(for: NSSize(width: 16, height: 16))
             ?? NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil)!).copy() as! NSImage
@@ -76,7 +107,7 @@ final class ActionBar: NSView {
 
     /// How many fit; with any left over, the last place is the menu's.
     private var shown: Int {
-        let fit = Int(bounds.width / Self.step)
+        let fit = Int(bounds.width / Self.step) - (scripts.isHidden ? 0 : 1)
         return buttons.count <= fit ? buttons.count : max(0, fit - 1)
     }
 
@@ -89,6 +120,7 @@ final class ActionBar: NSView {
         }
         more.isHidden = count == buttons.count
         more.frame = NSRect(x: bounds.width - 24, y: (bounds.height - 24) / 2, width: 24, height: 24)
+        scripts.frame = NSRect(x: CGFloat(count) * Self.step, y: (bounds.height - 24) / 2, width: 24, height: 24)
     }
 
     @objc private func dragged(_ gesture: NSPanGestureRecognizer) {

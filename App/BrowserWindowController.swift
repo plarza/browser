@@ -19,10 +19,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     let sidebar = Surface()
     let address = AddressField()
     let tabList = TabListView()
-    private let actionBar = ActionBar()
+    let actionBar = ActionBar()
     let content = Surface()
     private let progress = ProgressLine()
     private let findBar = FindBar()
+    /// Over a .user.js file: Install.
+    let installBar = InstallBar()
+    /// The script the install bar offers, and the page it was read from.
+    var offer: Offer?
+    var reading: URL?
     private let divider = SidebarDivider()
     private var sidebarWidth: NSLayoutConstraint!
     private var sidebarLeading: NSLayoutConstraint!
@@ -36,7 +41,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
     /// Browser's own pages, native, where the web view would be.
     let pageHost = NSHostingView(rootView: AnyView(EmptyView()))
     private(set) var hostedPage: String?
-    private var watching: Set<AnyCancellable> = []
+    var watching: Set<AnyCancellable> = []
     private static let widths: ClosedRange<CGFloat> = 200 ... 420
     private var width: CGFloat = {
         let saved = CGFloat(UserDefaults.standard.double(forKey: "sidebarWidth"))
@@ -70,6 +75,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         watchMouseButtons()
         watchHelpKey()
         watchDownloads()
+        watchUserscripts()
     }
 
     private func watchNewTabPage() {
@@ -90,6 +96,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         pageHost.isHidden = true
         content.addPinned(pageHost, below: progress)
         content.addPinned(stage, below: pageHost)
+        // Over the page, under the progress line.
+        installBar.translatesAutoresizingMaskIntoConstraints = false
+        installBar.isHidden = true
+        installBar.onButton = { [weak self] in self?.installOffered() }
+        content.addSubview(installBar, positioned: .below, relativeTo: progress)
+        NSLayoutConstraint.activate([
+            installBar.topAnchor.constraint(equalTo: content.topAnchor),
+            installBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            installBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            installBar.heightAnchor.constraint(equalToConstant: InstallBar.height),
+        ])
         shade.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(shade, positioned: .below, relativeTo: progress)
         NSLayoutConstraint.activate([
@@ -397,6 +414,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         }
 
         actionBar.onClick = { [weak self] action, button in self?.perform(action, from: button) }
+        actionBar.onScripts = { [weak self] button in self?.showScriptsMenu(from: button) }
 
         for view in [sidebar, content, divider, address, actionBar, tabList, progress, findBar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -573,6 +591,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
         if !address.isEditing { address.show(tab.url) }
         progress.set(tab.isLoading ? tab.progress : 1)
         window?.title = tab.title.isEmpty ? "Browser" : tab.title
+        updateInstallBar()
+        updateScriptsButton()
     }
 
     // MARK: Address
@@ -629,6 +649,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSMen
 
     /// ⌘,: about://settings.
     @objc func showSettings(_ sender: Any?) { showInternal(InternalPage.address("settings")) }
+
+    /// about://userscripts.
+    @objc func showUserscripts(_ sender: Any?) { showInternal(InternalPage.address("userscripts")) }
 
     /// One of Browser's own pages: the tab already showing it, else a new tab,
     /// or this one if it's blank.
@@ -781,6 +804,19 @@ extension BrowserWindowController: TabDelegate {
         newTab(url, after: tab, select: false)
     }
 
+    func tab(_ tab: Tab, openScriptTab url: URL, active: Bool) -> Tab? {
+        newTab(url, after: tab, select: active, focus: false)
+    }
+
+    func tabWantsFocus(_ tab: Tab) {
+        select(tab)
+        #if DEBUG
+        if SelfTest.enabled { return }
+        #endif
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+
     func tab(_ tab: Tab, didOpenPopup popup: Tab) {
         if let i = tabs.firstIndex(where: { $0 === tab }) { tabs.insert(popup, at: i + 1) } else { tabs.append(popup) }
         popup.delegate = self
@@ -871,10 +907,170 @@ extension BrowserWindowController: ExtensionHost {
 /// it is offered (⌘S, ⌘L…) and hands back only some of them.
 final class BrowserWindow: NSWindow {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // ⌘S saves the userscript being edited; anywhere else it hides the sidebar.
+        if event.type == .keyDown, let editor = firstResponder as? CodeTextView,
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .function]) == .command,
+           event.charactersIgnoringModifiers == "s" {
+            editor.onSave?()
+            return true
+        }
         if event.type == .keyDown, event.modifierFlags.contains(.command),
            NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
             return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+}
+
+// MARK: Userscripts
+
+extension BrowserWindowController {
+    /// A script someone opened, read from the page showing it.
+    struct Offer {
+        let webView: WKWebView
+        let url: URL
+        let source: String?
+        let meta: UserscriptMeta?
+        let error: String?
+    }
+
+    func watchUserscripts() {
+        NotificationCenter.default.publisher(for: Userscripts.pageChanged)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] note in
+                MainActor.assumeIsolated {
+                    guard let self, (note.object as? WKWebView) === self.selected?.webView else { return }
+                    self.updateScriptsButton()
+                }
+            }
+            .store(in: &watching)
+        Userscripts.shared.$scripts
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.updateScriptsButton()
+                    self?.showOffer()
+                }
+            }
+            .store(in: &watching)
+    }
+
+    func updateScriptsButton() {
+        let page = selected?.internalPage == nil ? selected?.webView : nil
+        let running = Userscripts.shared.scripts(on: page).filter(\.running).count
+        actionBar.setScripts(shown: !Userscripts.shared.scripts.isEmpty, running: running)
+    }
+
+    /// The tab shows a `.user.js` file as text: read it, and offer it.
+    func updateInstallBar() {
+        guard let tab = selected, tab.internalPage == nil, !tab.isLoading, let url = tab.url,
+              url.path.lowercased().hasSuffix(".user.js")
+        else {
+            if let offer, offer.webView === selected?.webView { inset(offer.webView, false); self.offer = nil }
+            installBar.isHidden = true
+            return
+        }
+        let webView = tab.webView
+        if let offer, offer.webView === webView, offer.url == url { return showOffer() }
+        installBar.isHidden = true
+        guard reading != url else { return }
+        reading = url
+        Task {
+            let read = "document.contentType.startsWith('text/html') ? null : (document.body ? document.body.textContent : null)"
+            let text = try? await webView.evaluateJavaScript(read, in: nil, contentWorld: .defaultClient) as? String
+            reading = nil
+            guard webView.url == url else { return }
+            let meta = text.flatMap(UserscriptMeta.parse)
+            let error = meta.flatMap { meta in text.flatMap { Userscripts.syntaxError($0, meta) } }
+            offer = Offer(webView: webView, url: url, source: meta == nil ? nil : text, meta: meta, error: error)
+            showOffer()
+        }
+    }
+
+    func showOffer() {
+        guard let offer, offer.webView === selected?.webView, selected?.internalPage == nil,
+              let source = offer.source, let meta = offer.meta
+        else { installBar.isHidden = true; return }
+        let existing = Userscripts.shared.installed(like: source)
+        let detail = offer.error ?? [meta.version, "Runs on " + meta.sites].filter { !$0.isEmpty }.joined(separator: " · ")
+        let title = meta.name.isEmpty ? "Untitled script" : meta.name
+        if existing?.source == source {
+            installBar.show(title: title, detail: "Installed · " + detail, button: "Open Userscripts", enabled: true, prominent: false)
+        } else if let existing {
+            let newer = UserscriptMeta.newer(meta.version, than: existing.meta.version)
+            installBar.show(title: title, detail: detail, button: newer ? "Update" : "Reinstall",
+                            enabled: offer.error == nil && !meta.name.isEmpty, prominent: true)
+        } else {
+            installBar.show(title: title, detail: detail, button: "Install", enabled: offer.error == nil && !meta.name.isEmpty, prominent: true)
+        }
+        installBar.isHidden = false
+        inset(offer.webView, true)
+    }
+
+    /// The page scrolls under the bar instead of starting behind it.
+    private func inset(_ webView: WKWebView, _ on: Bool) {
+        webView.obscuredContentInsets = NSEdgeInsets(top: on ? InstallBar.height : 0, left: 0, bottom: 0, right: 0)
+    }
+
+    func installOffered() {
+        guard let offer, let source = offer.source else { return }
+        if let existing = Userscripts.shared.installed(like: source), existing.source == source {
+            UserscriptsModel.shared.selected = existing.id
+            return showUserscripts(nil)
+        }
+        installBar.button.isEnabled = false
+        installBar.button.title = "Installing…"
+        Task {
+            do {
+                let script = try await Userscripts.shared.install(source, from: offer.url)
+                UserscriptsModel.shared.selected = script.id
+                showOffer()
+            } catch {
+                installBar.show(title: offer.meta?.name ?? "", detail: error.localizedDescription, button: "Try Again", enabled: true, prominent: true)
+            }
+        }
+    }
+
+    /// The userscripts' button: the scripts for this page, on or off, and
+    /// the commands of those running.
+    func showScriptsMenu(from button: NSView) {
+        let menu = NSMenu()
+        let page = selected?.internalPage == nil ? selected?.webView : nil
+        let items = Userscripts.shared.scripts(on: page)
+        if items.isEmpty {
+            menu.addItem(.sectionHeader(title: "No userscripts on this page"))
+        } else {
+            menu.addItem(.sectionHeader(title: "Userscripts on \(page?.url?.host ?? "this page")"))
+            for item in items {
+                let toggle = NSMenuItem(title: item.script.name, action: #selector(toggleScript(_:)), keyEquivalent: "")
+                toggle.state = item.script.enabled ? .on : .off
+                toggle.representedObject = item.script.id
+                toggle.target = self
+                toggle.toolTip = item.script.enabled ? "Turn off. The page keeps it until it loads again." : "Turn on from the next load."
+                menu.addItem(toggle)
+                for command in item.commands {
+                    let run = NSMenuItem(title: command.caption, action: #selector(runScriptCommand(_:)), keyEquivalent: "")
+                    run.indentationLevel = 1
+                    run.representedObject = command
+                    run.target = self
+                    menu.addItem(run)
+                }
+            }
+        }
+        menu.addItem(.separator())
+        let open = NSMenuItem(title: "Open Userscripts", action: #selector(showUserscripts(_:)), keyEquivalent: "")
+        open.target = self
+        menu.addItem(open)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+    }
+
+    @objc func toggleScript(_ item: NSMenuItem) {
+        guard let id = item.representedObject as? String, let script = Userscripts.shared.script(id) else { return }
+        Userscripts.shared.setEnabled(id, !script.enabled)
+    }
+
+    @objc func runScriptCommand(_ item: NSMenuItem) {
+        guard let command = item.representedObject as? Userscripts.MenuCommand, let webView = selected?.webView else { return }
+        Userscripts.shared.perform(command, in: webView)
     }
 }

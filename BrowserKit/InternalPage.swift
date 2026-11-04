@@ -1,11 +1,11 @@
 import Foundation
 
-/// Browser's own pages: about://history, about://downloads, about://settings
-/// and about://help.
+/// Browser's own pages: about://history, about://downloads, about://settings,
+/// about://userscripts and about://help.
 /// They are native views the shell shows in the tab; the tab only keeps
 /// their address, for the field and for back and forward.
 public enum InternalPage {
-    public static let pages = ["history", "downloads", "settings", "help"]
+    public static let pages = ["history", "downloads", "settings", "userscripts", "help"]
 
     /// The page an about: address names, if it is one of Browser's.
     public static func page(_ url: URL?) -> String? {

@@ -25,6 +25,19 @@ public protocol TabDelegate: AnyObject {
     func tab(_ tab: Tab, runConfirm message: String) async -> Bool
     func tab(_ tab: Tab, runPrompt message: String, defaultText: String?) async -> String?
     func tab(_ tab: Tab, chooseFiles multiple: Bool, directories: Bool) async -> [URL]?
+    /// A userscript's GM_openInTab: a new tab, in front when `active`.
+    func tab(_ tab: Tab, openScriptTab url: URL, active: Bool) -> Tab?
+    /// A userscript granted `window.focus` asked for its tab.
+    func tabWantsFocus(_ tab: Tab)
+}
+
+public extension TabDelegate {
+    func tabWantsFocus(_ tab: Tab) {}
+
+    func tab(_ tab: Tab, openScriptTab url: URL, active: Bool) -> Tab? {
+        self.tab(tab, openInNewTab: url)
+        return nil
+    }
 }
 
 /// A tab is a sequence of identities. Every navigation to another site, and
@@ -272,7 +285,11 @@ public final class Tab: NSObject {
 
     public func stop() { webView.stopLoading() }
 
+    /// Posted with the tab as it closes.
+    public static let didClose = Notification.Name("BrowserTabDidClose")
+
     public func close() {
+        defer { NotificationCenter.default.post(name: Tab.didClose, object: self) }
         closed = true
         if case .kept(let id) = own.kind, opener == nil { retired.append(id) }
         identity = .fresh()
@@ -583,6 +600,8 @@ extension Tab: WKNavigationDelegate {
         Engine.harden(preferences)
         if action.shouldPerformDownload { return (.download, preferences) }
         Scriptlets.shared.prepare(webView.configuration.userContentController, for: action.request.url)
+        Userscripts.shared.prepare(webView.configuration.userContentController, for: action.request.url,
+                                   mainFrame: action.targetFrame?.isMainFrame ?? true)
         guard action.targetFrame?.isMainFrame ?? false else { return (.allow, preferences) }
         return (decide(action), preferences)
     }
@@ -604,6 +623,7 @@ extension Tab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         provisional = false
         view.committed()
+        Userscripts.shared.pageChanged(webView)
         httpAllowed = nil
         if let url = webView.url {
             if Extensions.shared.context(for: url) != nil || url.isFileURL { recordEntry(url) }

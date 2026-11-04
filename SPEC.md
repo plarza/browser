@@ -70,6 +70,7 @@ Browser uses Safari's user agent and WebKit's existing privacy protections. Fing
 - **Open tabs:** URLs, and for a Persist tab the id of its jar. They come back on the next launch: a Persist tab in its jar, every other tab in a fresh session. Until first shown, a reopened tab is titled from History, so no title is written anywhere else; a page not in History shows its host.
 - **Whitelist jars**, as described under Whitelist.
 - **Extension data.** Extensions' own storage, such as the Bitwarden vault, is kept.
+- **Userscripts:** each script's source, the @require and @resource files it fetched when installed, its switch, and the values it stored with GM_setValue.
 - Settings.
 - **Favicons** are read from the page's own `<link rel=icon>` through WebKit's isolated client world (invisible to the page) and fetched with no cookies. An icon is kept on disk, under a hashed name, only for a site already in History or on the whitelist, so it records nothing those don't. Removing a site from History removes its icon; clearing History clears them all. A kept icon is never fetched again.
 - **Downloads:** each file's name, where it was saved, its size and the site it came from, for about://downloads, until Clear Downloads.
@@ -81,6 +82,20 @@ Browser uses Safari's user agent and WebKit's existing privacy protections. Fing
 - Extension content scripts can change pages in ways that are visible, so turning an extension on is a fingerprinting trade-off the user chooses to make. Enabled extensions can access Browser’s ephemeral tabs within their requested site permissions.
 - Extension buttons can be dragged into a new order, which is saved. Popups fit their contents, with an opaque background unless the extension supplies its own.
 
+## Userscripts
+
+- Browser runs userscripts itself, written for Violentmonkey: its metadata block (`@match`, `@include` with globs, `.tld` and `/regular expressions/`, `@exclude`, `@exclude-match`, `@require`, `@resource`, `@grant`, `@run-at` start, body, end and idle, `@noframes`, `@inject-into`, `@top-level-await`, `@updateURL`, `@downloadURL`), and its APIs in both spellings, `GM_*` and `GM.*`: values (one at a time and many, with change listeners that hear other tabs), resources, `addStyle`, `addElement`, `xmlHttpRequest`, `download`, `openInTab` (with `close()` and `onclose`), `registerMenuCommand`, `notification` (with `onclick`, `ondone`, `image`, `tag`, `timeout` and `remove()`, as macOS notifications Browser asks permission for the first time a script sends one), `setClipboard`, `log`, the `window.close` and `window.focus` grants (the script's own `window`, which closes or brings forward its tab, the page's own staying as it was), `GM_info` (which says Violentmonkey) and `unsafeWindow`. A script with no @match or @include runs everywhere, as in Violentmonkey.
+- **@unwrap** scripts run as written, at the page's top level, with no GM APIs: what they declare is the page's. Since such a script can't check the address itself, its copy for the top frame is decided again at every top-frame navigation; in frames it runs in a function of its own.
+- **Where they run.** As with the scriptlets, the scripts for an address are worked out in the app as each frame's navigation is decided, and only those go into the page, before any of its scripts; a script then waits for its @run-at. A site no script names runs none. A script runs in the page's world (Violentmonkey's page mode), or in a world of Browser's own with `@inject-into content`. Each is a function of its own: what it declares stays out of the page.
+- **The bridge.** The GM APIs reach the app through one message handler, there only where a script runs. Every message carries a secret made at launch that only the scripts hold, where the page's code can't reach it; a message without it does nothing. A script gets only the APIs it @grants, and the app checks the grant again.
+- **Requests.** `GM_xmlhttpRequest` goes from the app, so it isn't held to CORS, with Safari's user agent and the tab's own cookies (none with `anonymous`); cookies it is sent go back into the tab's jar. Its events come as they happen: readyState 2 with the headers, then progress as the body arrives (at most every 50 ms), then the load; `redirect` (`follow`, `manual`, `error`) is honoured. It is HTTPS-only, as every load is, except to this Mac.
+- **Downloads.** `GM_download` goes through Browser's own downloads (the save panel, about://downloads), suggesting the name the script gives, with `onprogress`, `onload`, `onerror`, `onabort` and `abort()`.
+- **Installing.** A `.user.js` file the tab shows as text, from a link or a path, gets a bar along the top of the page with the script's name, version and sites and Install (Update or Reinstall when a script with the same @name and @namespace is installed; it keeps that one's values and switch). Installing fetches its @require and @resource files, so it never fetches them as it runs. A script JavaScriptCore can't parse isn't installed or saved, and says why.
+- **about://userscripts** (Browser › Userscripts): the scripts down the left, each with its name, its sites and a switch; the one picked on the right, as code, with JavaScript's colours and the find bar. ⌘S saves while the editor has the keyboard (elsewhere ⌘S still hides the sidebar). New, Revert and Remove (which asks). **Import…** takes Violentmonkey's backup (its exported .zip: each script, its switch, whether it updates, and its values, in either of Violentmonkey's value formats) or .user.js files; each script's @require and @resource files are fetched again. A change reaches a page at its next load: nothing reloads, since a reload wipes.
+- **The userscripts' button** sits after the extensions' buttons while any script is installed, with the number that ran on the page showing. Its menu lists the scripts for that page, on or off, with a checkmark to switch each, and the menu commands of those running.
+- **Updates.** Once a day, with the filter lists, each script not edited in Browser checks its @updateURL, @downloadURL or where it came from, and installs itself again when @version went up.
+- Scripts run on ephemeral tabs as on any other, and their values survive the wipe and quitting: a script that writes values can carry something from one identity to the next. Turning on a script is the user's choice, as with extensions.
+
 ## Mouse and trackpad
 
 - The mouse's back and forward buttons, and two-finger swipes, go through Browser's own back and forward lists, the same as ⌘[ and ⌘]. As in Safari, a swipe back slides the page off to the right with the fingers, a picture of the page before coming out from under it; forward slides the page after in over it. Pictures of the last few pages are kept in memory only, never on disk. A swipe belongs to the tab it started in: changing tabs, or a second swipe starting, ends it in place, and it follows the fingers off the page so its end is never lost. A closed tab's pictures go with it.
@@ -90,7 +105,7 @@ Browser uses Safari's user agent and WebKit's existing privacy protections. Fing
 
 - Every download opens the save panel at `~/Downloads`. Cancelling one asks first, then deletes the partial file and takes it off the sidebar; about://downloads lists it as Cancelled. Files keep their quarantine flag.
 - This session's downloads sit at the foot of the sidebar in the tabs' row style, newest first, each row's background filling as it downloads, its total size on the right. Hovering a download in progress turns the size into an x that cancels it; a finished one has a minus that takes it off, and goes by itself after a minute. Clicking a finished one shows it in Finder.
-- Browser's own pages (about://history, downloads, settings, help) show the logo in grey as their icon.
+- Browser's own pages (about://history, downloads, settings, userscripts, help) show the logo in grey as their icon.
 - **about://downloads** (⌘J) lists every download until it is cleared.
 
 ## Settings (the whole list)
@@ -113,7 +128,7 @@ Listed at about://help (⇧⌘/), read from the menus. In every dialog, Return c
 - **Source.** The repository is `aza/browser` on `git.aza.network` (Forgejo), mirrored publicly to `github.com/plarza/browser` by a Forgejo push mirror on every push (an SSH deploy key, so Forgejo holds no GitHub token); push to Forgejo only. A `forgejo-runner` in host mode runs on this Mac with the label `macos-arm64`.
 - **Releases.** Pushing a tag builds the app, signs it with the Developer ID, notarizes them, and uploads the DMG to Forgejo Releases.
 - **Updates** are manual: install the new DMG from the release. Browser never checks for updates itself.
-- **Telemetry.** None. The only request Browser makes on its own is the daily filter-list fetch.
+- **Telemetry.** None. The only requests Browser makes on its own are the daily filter-list fetch and, with it, installed userscripts' update checks.
 
 Appearance in Settings offers Light, Dark and System. System is the default and follows macOS, including changes while Browser is open. Browser’s internal pages use the grey logo glyph with no background.
 

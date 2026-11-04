@@ -63,12 +63,28 @@ public final class Downloads: NSObject, WKDownloadDelegate {
         return self
     }
 
+    /// What a userscript's GM_download hears: progress, then how it ended.
+    typealias Report = (_ state: Item.State, _ received: Int64, _ expected: Int64) -> Void
+    private var names: [ObjectIdentifier: String] = [:]
+    private var reports: [ObjectIdentifier: Report] = [:]
+
+    /// A userscript's download: `name` is what the save panel suggests.
+    func adopt(_ download: WKDownload, for tab: Tab, name: String?, report: @escaping Report) -> WKDownloadDelegate {
+        let key = ObjectIdentifier(download)
+        names[key] = name
+        reports[key] = report
+        return adopt(download, for: tab)
+    }
+
     public func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String) async -> URL? {
         let key = ObjectIdentifier(download)
         let tab = owners[key]
         owners[key] = nil
-        let name = Downloads.safeName(suggestedFilename)
-        guard let tab, let delegate = tab.delegate, let file = await delegate.tab(tab, saveDownload: name) else { return nil }
+        let name = Downloads.safeName(names.removeValue(forKey: key) ?? suggestedFilename)
+        guard let tab, let delegate = tab.delegate, let file = await delegate.tab(tab, saveDownload: name) else {
+            reports.removeValue(forKey: key)?(.cancelled, 0, -1)
+            return nil
+        }
         // The save panel already asked about replacing; WebKit won't write over a file.
         try? FileManager.default.removeItem(at: file)
         let item = Item(name: file.lastPathComponent, file: file, site: download.originalRequest?.url?.host ?? tab.url?.host ?? "",
@@ -83,6 +99,7 @@ public final class Downloads: NSObject, WKDownloadDelegate {
                 item.received = done
                 if total > 0 { item.expected = total }
                 self?.changed(save: false)
+                self?.reports[key]?(.active, item.received, item.expected)
             }
         }
         changed()
@@ -101,7 +118,10 @@ public final class Downloads: NSObject, WKDownloadDelegate {
         let key = ObjectIdentifier(download)
         owners[key] = nil
         watching[key] = nil
-        guard let item = pending.removeValue(forKey: key) else { return }
+        names[key] = nil
+        let report = reports.removeValue(forKey: key)
+        guard let item = pending.removeValue(forKey: key) else { report?(state, 0, -1); return }
+        defer { report?(state, item.received, item.expected) }
         item.state = state
         item.download = nil
         // Off the sidebar a minute later; still in about://downloads.

@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SelfTest.prepare()
         #endif
         Blocker.shared.start()
+        Userscripts.shared.start()
         // Opens history.db in the background before the first keystroke needs it.
         _ = History.shared
         browser = BrowserWindowController()
@@ -50,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         browser?.saveTabs()
+        Userscripts.shared.flush()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

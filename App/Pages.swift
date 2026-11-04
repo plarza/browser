@@ -3,7 +3,7 @@ import BrowserKit
 import SwiftUI
 
 /// Browser's own pages, as native views in the tab: about://settings,
-/// about://history, about://downloads and about://help.
+/// about://history, about://downloads, about://userscripts and about://help.
 @MainActor
 enum Pages {
     static func view(_ page: String, open: @escaping (URL) -> Void) -> AnyView {
@@ -11,6 +11,7 @@ enum Pages {
         case "settings": AnyView(SettingsPage())
         case "help": AnyView(HelpPage())
         case "downloads": AnyView(DownloadsPage())
+        case "userscripts": AnyView(UserscriptsPage())
         default: AnyView(HistoryPage(open: open))
         }
     }
@@ -420,6 +421,7 @@ struct HelpPage: View {
         ("History", "about://history", "⌘H"),
         ("Downloads", "about://downloads", "⌘J"),
         ("Settings", "about://settings", "⌘,"),
+        ("Userscripts", "about://userscripts", ""),
         ("Help", "about://help", "⇧⌘/"),
     ]
 
@@ -428,7 +430,7 @@ struct HelpPage: View {
         let text: String
         var body: some View {
             HStack(spacing: 4) {
-                ForEach(text.components(separatedBy: " or "), id: \.self) { keys in
+                ForEach(text.isEmpty ? [] : text.components(separatedBy: " or "), id: \.self) { keys in
                     Text(keys)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)

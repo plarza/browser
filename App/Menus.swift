@@ -11,6 +11,7 @@ enum Menus {
             item("About Browser", #selector(AppDelegate.showAbout(_:)), "", target: app),
             .separator(),
             item("Settings…", #selector(AppDelegate.showSettings(_:)), ",", target: app),
+            item("Userscripts", #selector(BrowserWindowController.showUserscripts(_:)), ""),
             .separator(),
             item("Hide Browser", #selector(NSApplication.hide(_:)), ""),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), ""),
