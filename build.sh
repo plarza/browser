@@ -11,6 +11,8 @@ STEP="${2:-app}"
 APP="build/Browser.app"
 VERSION="$(cat VERSION)"
 BUILD="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
+# There before SwiftPM looks: the package excludes it by name.
+mkdir -p build
 swift build -c "$CONFIG" --product Browser
 BIN="$(swift build -c "$CONFIG" --show-bin-path)/Browser"
 
