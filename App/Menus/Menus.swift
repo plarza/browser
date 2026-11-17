@@ -93,9 +93,13 @@ enum Menus {
     private static func otherTabKeys() -> [NSMenuItem] {
         let down = String(Character(UnicodeScalar(NSDownArrowFunctionKey)!))
         let up = String(Character(UnicodeScalar(NSUpArrowFunctionKey)!))
+        // Shift turns Tab into another character, back-tab, and that is what
+        // the key sends: written as Tab with Shift, the item never matches
+        // ⌃⇧Tab, and takes plain ⌃Tab for itself.
+        let backTab = String(Character(UnicodeScalar(NSBackTabCharacter)!))
         let keys: [(String, NSEvent.ModifierFlags, Bool)] = [
             (up, [.command, .shift], false), (down, [.command, .shift], true),
-            ("\t", [.control, .shift], false), ("\t", .control, true),
+            (backTab, [.control, .shift], false), ("\t", .control, true),
         ]
         return keys.map { key, modifiers, next in
             let extra = item(next ? "Next Tab" : "Previous Tab",
