@@ -110,7 +110,7 @@ Browser uses Safari's user agent and WebKit's existing privacy protections. Fing
 
 ## Settings (the whole list)
 
-Settings is a page, **about://settings** (⌘,), with: where new tabs open (below the current tab, at the top, or at the bottom); what a blank tab shows (a picture, the default or one chosen in Finder; a colour; or blank, the desktop frosted through the window), and whether that fills the whole window behind a frosted sidebar, with notched sliders for the sidebar's blur and transparency;
+Settings is a page, **about://settings** (⌘,), with: where new tabs open (below the current tab, at the top, or at the bottom); what a blank tab shows (a picture, the default or one chosen in Finder; a colour; or blank, the desktop frosted through the window), and whether that fills the whole window behind a frosted sidebar, with sliders for the sidebar's blur and transparency that apply as they move;
 
 1. Search engine (URL template)
 2. Cookie whitelist (domains)
