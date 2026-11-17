@@ -28,7 +28,7 @@ public struct BackForwardList: Equatable, Sendable {
     }
 
     /// The new tab page, as an entry: a tab that began blank goes back to it.
-    static let blank = URL(string: "about:newtab")!
+    public static let blank = URL(string: "about:newtab")!
 
     /// Leaving a blank tab: it stays behind as the first entry.
     mutating func beginBlank() {
