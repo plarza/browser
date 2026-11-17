@@ -5,10 +5,13 @@ Browser is a macOS browser with isolated tab identities and system WebKit privac
 ## Shape
 
 ```
-BrowserKit/     Swift framework: tabs, sessions, wipe, blocking, bangs, policy.
-             Every rule below lives here or in the system WebKit configuration. Its API has no
-             switches that weaken them.
-App/         thin AppKit shell: window, vertical tabs, address field, settings
+BrowserKit/  Swift framework, shared by the Mac and the iPhone: tabs, sessions, wipe, blocking,
+             bangs, policy. Every rule below lives here or in the system WebKit configuration.
+             Its API has no switches that weaken them. It also holds the tabs themselves (which
+             are open, which is showing, what closing and reopening do), so a shell only draws.
+App/         the Mac's thin AppKit shell: window, vertical tabs, address field, settings
+iOS/         the iPhone's shell (see iPhone)
+Tests/       the end-to-end self-test, compiled into the Mac's debug builds
 release/     build, sign, notarize, publish to Forgejo, update feed
 ```
 

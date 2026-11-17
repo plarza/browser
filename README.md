@@ -91,7 +91,8 @@ MIT, in `LICENSE`.
 
 | Folder | Contents |
 |---|---|
-| `BrowserKit/` | Tabs, identities, blocker, bangs, history, extensions |
+| `BrowserKit/` | Shared by both apps: tabs, identities, blocker, bangs, history, extensions, userscripts |
 | `App/` | The Mac's shell: window, sidebar, page area, menus, Browser's own pages |
+| `iOS/` | The iPhone's shell: bar, pages, address sheet, tab grid |
 | `Tests/` | End-to-end self-test (cases by area in `Tests/Cases`), its local site, and the debug tooling |
 | `release/` | Info.plist, entitlements, icon, notarization, runner setup |
