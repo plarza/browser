@@ -41,7 +41,12 @@ public final class Browser {
             tabs.append(tab)
             Extensions.shared.didOpen(tab)
         }
-        Task { await Identity.removeOrphans(keeping: Set(session.tabs.compactMap(\.jar))) }
+        // Jars nothing refers to are deleted, but only when what refers to
+        // them could be read: launched while the device is locked, Browser
+        // can't read its own files, and every jar would look like an orphan.
+        if Store.isReadable("settings.json"), Store.isReadable("tabs.json") {
+            Task { await Identity.removeOrphans(keeping: Set(session.tabs.compactMap(\.jar))) }
+        }
         if !tabs.isEmpty {
             select(tabs[min(max(session.selected, 0), tabs.count - 1)])
         } else if Browser.keepsATab {

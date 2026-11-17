@@ -20,6 +20,13 @@ public enum Store {
         return directory.appending(path: name)
     }
 
+    /// False only when the file is there and can't be read, as a protected
+    /// file can't while the device is locked.
+    static func isReadable(_ name: String) -> Bool {
+        let file = url(name)
+        return !FileManager.default.fileExists(atPath: file.path) || (try? Data(contentsOf: file)) != nil
+    }
+
     static func read<Value: Decodable>(_ type: Value.Type = Value.self, _ name: String) -> Value? {
         guard let data = try? Data(contentsOf: url(name)) else { return nil }
         return try? JSONDecoder().decode(type, from: data)
