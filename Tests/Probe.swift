@@ -6,13 +6,15 @@ import BrowserKit
 /// the page, lets it settle, writes what it shows; then reloads (a wipe)
 /// and writes it again. `-browserProbeScript <js>`: writes what that
 /// expression gives in the page's own world instead. The filter lists are
-/// compiled first.
+/// compiled first, and Browser quits when it is done.
 @MainActor
 enum Probe {
+    /// The page to probe, if Browser was launched to probe one.
+    static var address: String? { UserDefaults.standard.string(forKey: "browserProbe") }
+
     static func run(_ shell: BrowserWindowController) {
         let defaults = UserDefaults.standard
-        guard let address = defaults.string(forKey: "browserProbe"), let url = URL(string: address),
-              let out = defaults.string(forKey: "browserProbeOut") else { return }
+        guard let address, let url = URL(string: address), let out = defaults.string(forKey: "browserProbeOut") else { return }
         let script = defaults.string(forKey: "browserProbeScript")
         Task {
             await Tooling.until("the filter lists", seconds: 180) { Blocker.shared.ruleCount > 0 && !Blocker.shared.isRefreshing }
@@ -27,6 +29,7 @@ enum Probe {
                 if pass == 1 { tab.reload() }
             }
             NSLog("Browser probe: done")
+            exit(EXIT_SUCCESS)
         }
     }
 }

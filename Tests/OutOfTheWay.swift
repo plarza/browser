@@ -1,13 +1,13 @@
 #if DEBUG
 import AppKit
 
-/// Debug builds only: `-browserSelfTest YES` runs Browser out of the way of
-/// whoever is using this Mac: no Dock icon, never in front, its window all
-/// but transparent and clicks going through it. It still draws, as a window
-/// someone could see.
+/// Debug builds only: the self-test and the probe run Browser out of the
+/// way of whoever is using this Mac: no Dock icon, never in front, its
+/// window all but transparent and clicks going through it. It still draws,
+/// as a window someone could see.
 @MainActor
 enum OutOfTheWay {
-    static var enabled: Bool { UserDefaults.standard.bool(forKey: "browserSelfTest") }
+    static var enabled: Bool { SelfTest.enabled || Probe.address != nil }
 
     /// The window behind whatever is in front, without taking focus.
     static func place(_ shell: BrowserWindowController) {

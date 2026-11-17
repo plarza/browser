@@ -46,7 +46,7 @@ final class SelfTest {
 
     // MARK: Launch
 
-    static var enabled: Bool { OutOfTheWay.enabled }
+    static var enabled: Bool { UserDefaults.standard.bool(forKey: "browserSelfTest") }
     private static var server: TestServer?
 
     /// Before anything starts: the local site, and settings pointing at it,
