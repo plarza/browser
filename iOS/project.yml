@@ -58,6 +58,9 @@ targets:
               - UISceneConfigurationName: Browser
                 UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Portrait only: App Store Connect refuses the upload without this,
+        # taking every app for one that might share an iPad's screen.
+        UIRequiresFullScreen: true
         # ProMotion: animations at up to 120 Hz, not capped at 60.
         CADisableMinimumFrameDurationOnPhone: true
         NSCameraUsageDescription: A website asked for the camera. Browser asks you each time.
