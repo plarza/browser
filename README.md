@@ -69,15 +69,27 @@ The UI self-test only works in debug builds:
 build/Browser.app/Contents/MacOS/Browser -browserStore /tmp/browser-test -browserSelfTest YES
 ```
 
-It logs PASS/FAIL per check, ends with a count and quits, exiting non-zero if any check failed. Every page it loads comes from a web server inside the test, on this Mac, so it needs no internet; each step waits for what it expects rather than a set time. It runs out of the way: no Dock icon, never in front, its window all but transparent and clicks going through it. `-browserSelfTestOnly <case>` runs one case by name. `-browserStore` uses a separate data folder; `-browserShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). `-browserProbe <url> -browserProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS. With `-browserProbeScript <js>` it writes what that expression gives in the page instead, once the filter lists are compiled (for checking YouTube's ads are gone).
+It logs PASS/FAIL per check, ends with a count (`Browser self-test: done, N passed, M failed`) and quits, exiting non-zero if any check failed. It refuses to run in anything but a debug build. Every page it loads comes from a web server inside the test, on this Mac, so it needs no internet; each step waits for what it expects rather than a set time. It runs out of the way: no Dock icon, never in front, its window all but transparent and clicks going through it. `-browserSelfTestOnly <case>` runs one case by name (`"tab list"`, `"wipe and Persist"`; an unknown name lists them all). `-browserStore` uses a separate data folder.
+
+The test is in `Tests/`: `SelfTest.swift` runs the cases and counts the checks, `Events.swift` sends keys and the mouse through AppKit's own dispatch, `Pages.swift` loads pages and runs script in them, `TestServer.swift` and `TestSite.swift` are the local site, and the cases are in `Tests/Cases`, a file for each area (the address field, the sidebar, identities, the page area, Browser's own pages, blocking, downloads, userscripts, extensions).
+
+`-browserShots <folder>` has the app draw its own window into PNGs at each step (nothing is captured from the screen). The pictures are the window server's own picture of Browser's window; where macOS hasn't given the process leave to record the screen, Browser draws its window's layers itself, which shows everything but the system's glass and frost. `-browserProbe <url> -browserProbeOut <file>` writes a page's text before and after a wipe; it's used for CreepJS. With `-browserProbeScript <js>` it writes what that expression gives in the page instead, once the filter lists are compiled (for checking YouTube's ads are gone). The probe runs out of the way like the self-test, and quits when it is done. These are in `Tests/Shots.swift`, `Tests/Screenshot.swift` and `Tests/Probe.swift`.
 
 ## Screenshot
 
-`release/screenshot.sh` redraws `release/screenshot.webp` (quality 80) from a debug build: the tabs listed in the script load from the internet into a throwaway data folder, and the new tab page is in front. The settings at the top of the script choose the tabs, the Persist tab, light or dark, and Fill.
+`release/screenshot.sh` redraws `release/screenshot.webp` (quality 80) from a debug build: the tabs listed in the script load from the internet into a throwaway data folder, and the new tab page is in front. The settings at the top of the script choose the tabs, the Persist tab, light or dark, and Fill. Run it from a terminal that macOS lets record the screen: without that the picture is the one Browser draws itself, with no glass.
 
 ## iPhone
 
-The iPhone app is being rebuilt from SPEC.md's iPhone section; `iOS/` is gone until then.
+The iPhone app is in `iOS/`, on the same BrowserKit; SPEC.md's iPhone section says what it does. Building it needs Xcode and `xcodegen` (`brew install xcodegen`): the Xcode project and Info.plist are made from `iOS/project.yml` each time, and aren't checked in.
+
+```bash
+iOS/build.sh               # debug build for the simulator
+xcrun simctl install booted build/ios/Build/Products/Debug-iphonesimulator/Browser.app
+xcrun simctl launch booted network.aza.browser
+```
+
+`iOS/build.sh device` installs a debug build on a connected iPhone. `iOS/build.sh testflight` archives a Release build and uploads it to TestFlight for internal testers, with the App Store Connect key in `ASC_KEY_ID` and `ASC_ISSUER_ID` (the key at `~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8`). Browser uses WebKit's private API, so TestFlight is as far as it goes: it is never sent to the App Store.
 
 ## Licence
 
@@ -87,7 +99,8 @@ MIT, in `LICENSE`.
 
 | Folder | Contents |
 |---|---|
-| `BrowserKit/` | Tabs, identities, blocker, bangs, history, extensions |
-| `App/` | Window, sidebar, settings |
-| `Tests/` | End-to-end app self-test |
+| `BrowserKit/` | Shared by both apps: tabs, identities, blocker, bangs, history, extensions, userscripts |
+| `App/` | The Mac's shell: window, sidebar, page area, menus, Browser's own pages |
+| `iOS/` | The iPhone's shell: bar, pages, address sheet, tab grid |
+| `Tests/` | End-to-end self-test (cases by area in `Tests/Cases`), its local site, and the debug tooling |
 | `release/` | Info.plist, entitlements, icon, notarization, runner setup |

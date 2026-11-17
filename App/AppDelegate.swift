@@ -1,66 +1,67 @@
 import AppKit
 import BrowserKit
-import Combine
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var appearanceWatcher: AnyCancellable?
-    private(set) var browser: BrowserWindowController!
+    /// The one window and everything in it.
+    private(set) var shell: BrowserWindowController?
+    private var appearance: Observer?
+    /// Links and files another app sent before the window was up.
+    private var waiting: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        appearanceWatcher = Preferences.shared.$settings
-            .map(\.appearance)
-            .removeDuplicates()
-            .sink { appearance in
-                NSApp.appearance = switch appearance {
-                case .system: nil
-                case .light: NSAppearance(named: .aqua)
-                case .dark: NSAppearance(named: .darkAqua)
-                }
+        // Light, Dark, or macOS's own, which the app then follows as it changes.
+        appearance = Observer {
+            NSApp.appearance = switch Preferences.shared.settings.appearance {
+            case .system: nil
+            case .light: NSAppearance(named: .aqua)
+            case .dark: NSAppearance(named: .darkAqua)
             }
+        }
         #if DEBUG
-        SelfTest.prepare()
+        Tooling.prepare()
         #endif
         Blocker.shared.start()
         Userscripts.shared.start()
         // Opens history.db in the background before the first keystroke needs it.
         _ = History.shared
-        browser = BrowserWindowController()
-        NSApp.mainMenu = Menus.build(target: self, browser: browser)
-        Extensions.shared.host = browser
+        let shell = BrowserWindowController()
+        self.shell = shell
+        NSApp.mainMenu = Menus.build(app: self, commands: shell.commands)
         Extensions.shared.windowOpened()
         Extensions.shared.start()
         #if DEBUG
-        SelfTest.run(browser)
-        SelfTest.probe(browser)
+        SelfTest.start(shell)
+        Probe.run(shell)
         #endif
-        browser.restore()
+        shell.browser.restore()
+        waiting.forEach(shell.open)
+        waiting = []
         #if DEBUG
-        SelfTest.screenshot(browser)
-        // The self-test runs behind whatever is in front, and never takes focus.
-        if SelfTest.enabled {
-            browser.window?.orderBack(nil)
+        Screenshot.run(shell)
+        // Tooling runs behind whatever is in front, and never takes focus.
+        if OutOfTheWay.enabled {
+            OutOfTheWay.place(shell)
             return
         }
         #endif
-        browser.showWindow(nil)
+        shell.showWindow(nil)
         NSApp.activate()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationWillTerminate(_ notification: Notification) {
-        browser?.saveTabs()
+        shell?.browser.save()
         Userscripts.shared.flush()
     }
 
+    /// Links, and the pages Finder opens with Browser, from other apps.
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls where url.scheme == "http" || url.scheme == "https" {
-            browser?.open(url)
+        for url in urls where url.scheme == "http" || url.scheme == "https" || url.isFileURL {
+            if let shell { shell.open(url) } else { waiting.append(url) }
         }
     }
-
-    @objc func showSettings(_ sender: Any?) { browser?.showSettings(sender) }
 
     @objc func showAbout(_ sender: Any?) {
         NSApp.orderFrontStandardAboutPanel(options: [

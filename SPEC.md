@@ -5,10 +5,13 @@ Browser is a macOS browser with isolated tab identities and system WebKit privac
 ## Shape
 
 ```
-BrowserKit/     Swift framework: tabs, sessions, wipe, blocking, bangs, policy.
-             Every rule below lives here or in the system WebKit configuration. Its API has no
-             switches that weaken them.
-App/         thin AppKit shell: window, vertical tabs, address field, settings
+BrowserKit/  Swift framework, shared by the Mac and the iPhone: tabs, sessions, wipe, blocking,
+             bangs, policy. Every rule below lives here or in the system WebKit configuration.
+             Its API has no switches that weaken them. It also holds the tabs themselves (which
+             are open, which is showing, what closing and reopening do), so a shell only draws.
+App/         the Mac's thin AppKit shell: window, vertical tabs, address field, settings
+iOS/         the iPhone's shell (see iPhone)
+Tests/       the end-to-end self-test, compiled into the Mac's debug builds
 release/     build, sign, notarize, publish to Forgejo, update feed
 ```
 
@@ -110,7 +113,7 @@ Browser uses Safari's user agent and WebKit's existing privacy protections. Fing
 
 ## Settings (the whole list)
 
-Settings is a page, **about://settings** (⌘,), with: where new tabs open (below the current tab, at the top, or at the bottom); what a blank tab shows (a picture, the default or one chosen in Finder; a colour; or blank, the desktop frosted through the window), and whether that fills the whole window behind a frosted sidebar, with notched sliders for the sidebar's blur and transparency;
+Settings is a page, **about://settings** (⌘,), with: where new tabs open (below the current tab, at the top, or at the bottom); what a blank tab shows (a picture, the default or one chosen in Finder; a colour; or blank, the desktop frosted through the window), and whether that fills the whole window behind a frosted sidebar, with sliders for the sidebar's blur and transparency that apply as they move;
 
 1. Search engine (URL template)
 2. Cookie whitelist (domains)
@@ -138,7 +141,7 @@ System WebKit does not give Browser control over fingerprint noise lifetimes. We
 
 ## iPhone
 
-There is no iPhone app in the repository: it is to be built from this section, as `iOS/`, on top of BrowserKit, which already compiles for iOS (UIKit where AppKit differs). Every Tabs, Whitelist, Network, Permissions, Address and History rule above holds. What follows is what differs from the Mac, and what was learned building the last one.
+The iPhone app is `iOS/`, a shell of its own on top of BrowserKit, which compiles for iOS (UIKit where AppKit differs). Every Tabs, Whitelist, Network, Permissions, Address and History rule above holds. What follows is what differs from the Mac, and what was learned building it.
 
 ### The app
 
@@ -150,7 +153,7 @@ There is no iPhone app in the repository: it is to be built from this section, a
 - Only the system's WebKit runs on iOS outside the EU and Japan. Safari extensions belong to other apps and are out of reach, so there are none. Browser uses WebKit's private API, so it is never sent to the App Store; it goes out through TestFlight, to internal testers only.
 - `iOS/build.sh` builds for the simulator; `device` installs on a connected iPhone; `testflight` archives a Release build with a build number higher than the last (the UTC time, `YYYYMMDDHHMM`) and uploads it with the App Store Connect key in `ASC_KEY_ID` and `ASC_ISSUER_ID` (the key at `~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8`).
 - Before WebKit starts a process, the app sets `AppleLanguages` to `en-US` and `AppleLocale` to `en_US` in its own defaults, so every web process reports en-US. BrowserKit's configuration already sets UTC.
-- Open tabs are saved whenever the app leaves the foreground, and come back at launch as on the Mac. http and https links from other apps open in a new tab.
+- Open tabs are saved whenever the app leaves the foreground, and come back at launch as on the Mac. http and https links from other apps open in a new tab. iOS sends such links only to the default browser, which an app can be only with Apple's default-browser entitlement (`com.apple.developer.web-browser`); Browser doesn't have it, so until it does, none arrive.
 
 ### Look
 
@@ -206,6 +209,7 @@ The point is Safari's smoothness: nothing stutters, nothing flashes, nothing pop
 - WebKit moves a page's scroll position when it sees its own view scaled. The live page is never scaled: a picture of it (`snapshotView(afterScreenUpdates: false)` is exact and costs nothing) does the shrinking. Sliding sideways is fine.
 - WebKit keeps a page's place and drawing only while its view is in the window. Keep every shown tab's web view in the window, hidden when it isn't the selected one. A page shown again can take a moment to draw, so it shows its picture until then.
 - A page that loaded while hidden starts at offset 0, under the clock, and WebKit can move it back to 0 just after it shows. Until a finger moves it, put its top back below the clock.
+- Telling WebKit what the clock and the bar cover (`obscuredContentInsets`) starts a page below the clock but doesn't keep it there: scrolled back to the top, or let go after a pull down, it comes to rest at 0, under the clock. Give the scroll view the same insets as well (`contentInset`, with `contentInsetAdjustmentBehavior` at `.never`); the page's end then scrolls clear of the bar by the same means. A page shorter than the screen pulls down to reload only with `alwaysBounceVertical`.
 - `drawHierarchy` costs several milliseconds on the main thread. Take pictures for the grid, the stack and swipes when nothing moves (a page coming to rest, finishing loading, or coming on screen), never as a move starts. Keep them in memory only: each tab's current page, and the last few others of its back and forward list.
 - A wipe replaces the web view; a link within the site keeps it. `Tab.view` (BrowserKit's `PageView`) already keeps the old page up until the next one draws; show `tab.view`, not `tab.webView`. Each new web view arrives through `tab(_:didReplace:)` before it loads: give it its insets, pull to reload and find then.
 - A view controller's view hosted inside SwiftUI without being a child view controller gets no margins and no safe area. A bottom search field ignores safe area padding.
