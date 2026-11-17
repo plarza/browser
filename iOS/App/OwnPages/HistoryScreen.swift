@@ -18,11 +18,12 @@ struct HistoryScreen: View {
                     HStack(spacing: 12) {
                         SiteIcon(url: URL(string: visit.url)).frame(width: 20, height: 20)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(visit.title.isEmpty ? History.bare(visit.url) : visit.title).lineLimit(1).foregroundStyle(.primary)
-                            Text(History.bare(visit.url)).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                            Text(visit.title.isEmpty ? Look.address(visit.url) : visit.title).lineLimit(1)
+                            Text(Look.address(visit.url)).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
                 }
+                .tint(.primary)
             }
             .onDelete { rows in
                 for row in rows { History.shared.remove(visits[row].url) }

@@ -193,12 +193,9 @@ private struct FilterListStatus: View {
         VStack(alignment: .leading, spacing: 2) {
             if blocker.isRefreshing {
                 Text("Updating…")
-            } else if blocker.ruleCount > 0 {
-                if let fetched = blocker.lastFetched {
-                    Text("\(blocker.ruleCount.formatted()) rules, fetched \(fetched.formatted(.relative(presentation: .named)))")
-                } else {
-                    Text("\(blocker.ruleCount.formatted()) rules")
-                }
+            } else if let fetched = blocker.lastFetched {
+                let when = fetched.formatted(.relative(presentation: .named))
+                Text(blocker.ruleCount > 0 ? "\(blocker.ruleCount.formatted()) rules, fetched \(when)" : "Fetched \(when)")
             }
             if let trouble = blocker.trouble {
                 Text(trouble).foregroundStyle(.red)

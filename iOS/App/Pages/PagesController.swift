@@ -158,9 +158,10 @@ final class PagesController: UIViewController {
                 UIView.animate(withDuration: 0.15, delay: 0, options: .curveEaseOut) { cover.alpha = 0 } completion: { _ in cover.removeFromSuperview() }
             }
         case .site:
-            // A tab with no picture yet is only now loading: its icon and
-            // host stay up until the page draws.
-            guard tab.page == nil, tab.isLoading else { return }
+            // A tab with no picture yet is only now loading, or (a Persist
+            // tab back from the last launch) about to: its icon and host
+            // stay up until the page draws.
+            guard tab.page == nil, tab.isLoading || tab.backForward.index < 0 else { return }
             let waiting = Picture(frame: page.bounds)
             waiting.show(standing)
             tab.view.hold(waiting)
@@ -229,6 +230,8 @@ final class PagesController: UIViewController {
         webView.isFindInteractionEnabled = true
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.scrollView.keyboardDismissMode = .interactive
+        // A page shorter than the screen can still be pulled down to reload.
+        webView.scrollView.alwaysBounceVertical = true
         let refresh = UIRefreshControl()
         refresh.addAction(UIAction { [weak self, weak refresh, weak webView] _ in
             guard let self, let refresh, let webView else { return }

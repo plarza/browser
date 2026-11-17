@@ -22,7 +22,7 @@ struct AddressSheet: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(completion?.pages ?? [], id: \.url) { page in
-                            AddressRow(title: page.title.isEmpty ? History.bare(page.url) : page.title, detail: History.bare(page.url)) {
+                            AddressRow(title: page.title.isEmpty ? Look.address(page.url) : page.title, detail: Look.address(page.url)) {
                                 SiteIcon(url: URL(string: page.url))
                             } action: {
                                 History.shared.picked(page.url, after: typed)

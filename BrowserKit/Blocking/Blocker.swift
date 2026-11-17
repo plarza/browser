@@ -29,6 +29,9 @@ public final class Blocker {
 
     private init() {
         lastFetched = Store.read(Date.self, "filters-fetched.json")
+        // The lists in force were compiled by an earlier launch, which
+        // left their count beside them.
+        ruleCount = Store.read(Int.self, "filters-rules.json") ?? 0
     }
 
     /// Every tab's content controller comes from here, so every tab gets
@@ -84,6 +87,7 @@ public final class Blocker {
             lastFetched = now
             Store.write(now, "filters-fetched.json")
             Store.write(Blocker.format, "filters-format.json")
+            Store.write(compiled.ruleCount, "filters-rules.json")
         } catch {
             trouble = "Compiling the filter lists failed: \(error.localizedDescription)"
         }

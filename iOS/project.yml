@@ -34,6 +34,8 @@ targets:
       - target: BrowserKit
     sources:
       - path: App
+      # The logo, by name, for BrowserKit: its own pages' icon.
+      - path: Assets.xcassets
       - path: ../release/Browser.icon
         buildPhase: resources
       - path: ../release/morning.webp

@@ -26,6 +26,13 @@ enum Look {
         view.window?.screen.value(forKey: "_displayCornerRadius") as? CGFloat ?? 44
     }
 
+    /// An address as a list shows it under a page's title: without its
+    /// scheme and `www.`, and without the slash that ends a bare site.
+    static func address(_ url: String) -> String {
+        let bare = History.bare(url)
+        return bare.hasSuffix("/") && !bare.dropLast().contains("/") ? String(bare.dropLast()) : bare
+    }
+
     /// A site's name as the address bar shows it: without `www.`.
     static func site(_ host: String?) -> String {
         guard let host else { return "" }

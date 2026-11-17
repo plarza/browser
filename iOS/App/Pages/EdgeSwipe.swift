@@ -141,8 +141,8 @@ final class EdgeSwipe: NSObject, UIGestureRecognizerDelegate {
         swipe.target.removeFromSuperview()
         guard finished, swipe.tab === browser.selected else { return }
         if swipe.back { swipe.tab.goBack() } else { swipe.tab.goForward() }
-        // Held once the tab is on its way: a wipe has put its new web view
-        // in by now, so the picture goes on top of the page being left.
+        // Held only where a page is on its way: Browser's own pages and
+        // the new tab page are there at once, with nothing to wait for.
         if swipe.tab.page == nil, !swipe.tab.isBlank { swipe.tab.view.hold(swipe.target) }
         pages.update()
     }

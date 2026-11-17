@@ -69,7 +69,7 @@ public final class Downloads: NSObject, WKDownloadDelegate {
     private override init() {
         super.init()
         items = (Store.read([Saved].self, Downloads.file) ?? []).compactMap { saved in
-            guard let file = URL(string: saved.file) else { return nil }
+            guard let file = Downloads.place(saved.file) else { return nil }
             // One that was still coming down when Browser stopped never finished.
             return Item(name: saved.name, file: file, site: saved.site, state: saved.state == .active ? .failed : saved.state,
                         received: saved.size, expected: saved.size)
@@ -216,8 +216,32 @@ public final class Downloads: NSObject, WKDownloadDelegate {
 
     private func save() {
         Store.write(items.filter { $0.state != .active }.map {
-            Saved(name: $0.name, file: $0.file.absoluteString, site: $0.site, state: $0.state, size: $0.received)
+            Saved(name: $0.name, file: Downloads.kept($0.file), site: $0.site, state: $0.state, size: $0.received)
         }, Downloads.file)
+    }
+
+    /// A file's place as downloads.json keeps it. The iPhone app's own
+    /// folder moves whenever the app is updated, so a file inside it is
+    /// kept by its place within, and found from wherever the folder is now.
+    private static func kept(_ file: URL) -> String {
+        #if os(iOS)
+        let home = NSHomeDirectory() + "/"
+        if file.isFileURL, file.path.hasPrefix(home) { return "~/" + file.path.dropFirst(home.count) }
+        #endif
+        return file.absoluteString
+    }
+
+    private static func place(_ kept: String) -> URL? {
+        #if os(iOS)
+        if kept.hasPrefix("~/") { return URL(fileURLWithPath: NSHomeDirectory() + kept.dropFirst()) }
+        // One kept whole, by a Browser from before this: its place within
+        // the folder still holds.
+        if let whole = URL(string: kept), whole.isFileURL,
+           let folder = whole.path.range(of: "/Containers/Data/Application/[^/]+/", options: .regularExpression) {
+            return URL(fileURLWithPath: NSHomeDirectory() + "/" + whole.path[folder.upperBound...])
+        }
+        #endif
+        return URL(string: kept)
     }
 
     /// A name a site suggests, made safe to save under: nothing that reads

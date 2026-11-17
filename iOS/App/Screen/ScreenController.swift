@@ -128,11 +128,13 @@ final class ScreenController: UIViewController, ScreenActions {
     /// page shows now, stands in for it, bound for its card.
     private func leavePage() {
         guard isHome else { return }
+        // The copy first: it is exact only while the page is still home.
+        let copy = pages.standIn()
         isHome = false
         let tab = browser.selected
         if let tab { grid.scroll(to: tab) }
         shrunk.card = tab.flatMap { grid.picture(of: $0, in: behind) }
-        shrunk.standIn(with: pages.standIn())
+        shrunk.standIn(with: copy)
         shrunk.place(opening.move.shown)
         grid.away = tab?.id
         pages.view.alpha = 0

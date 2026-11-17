@@ -57,13 +57,14 @@ private struct DownloadRow: View {
     var body: some View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.name).lineLimit(1).truncationMode(.middle).foregroundStyle(.primary)
+                Text(item.name).lineLimit(1).truncationMode(.middle)
                 Text(status).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
                 if item.state == .active {
                     ProgressView(value: item.fraction)
                 }
             }
         }
+        .tint(.primary)
     }
 
     private var status: String {

@@ -81,7 +81,15 @@ The test is in `Tests/`: `SelfTest.swift` runs the cases and counts the checks, 
 
 ## iPhone
 
-The iPhone app is being rebuilt from SPEC.md's iPhone section; `iOS/` is gone until then.
+The iPhone app is in `iOS/`, on the same BrowserKit; SPEC.md's iPhone section says what it does. Building it needs Xcode and `xcodegen` (`brew install xcodegen`): the Xcode project and Info.plist are made from `iOS/project.yml` each time, and aren't checked in.
+
+```bash
+iOS/build.sh               # debug build for the simulator
+xcrun simctl install booted build/ios/Build/Products/Debug-iphonesimulator/Browser.app
+xcrun simctl launch booted network.aza.browser
+```
+
+`iOS/build.sh device` installs a debug build on a connected iPhone. `iOS/build.sh testflight` archives a Release build and uploads it to TestFlight for internal testers, with the App Store Connect key in `ASC_KEY_ID` and `ASC_ISSUER_ID` (the key at `~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8`). Browser uses WebKit's private API, so TestFlight is as far as it goes: it is never sent to the App Store.
 
 ## Licence
 

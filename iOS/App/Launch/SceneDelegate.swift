@@ -35,16 +35,20 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         for link in contexts.map(\.url) where SceneDelegate.isWeb(link) { screen?.open(link) }
     }
 
-    /// BrowserKit saves the open tabs as they change, a moment after each
-    /// change. Leaving the foreground, the app stays awake for that moment,
-    /// so the last change is on disk before it is suspended.
+    /// The open tabs are saved whenever the app leaves the foreground: it
+    /// may never run again. Stepping aside for the app switcher counts,
+    /// since that is where an app is swiped away.
+    func sceneWillResignActive(_ scene: UIScene) {
+        keep()
+    }
+
     func sceneDidEnterBackground(_ scene: UIScene) {
-        let awake = UIApplication.shared.beginBackgroundTask()
-        Task {
-            await Task.yield()
-            Userscripts.shared.flush()
-            UIApplication.shared.endBackgroundTask(awake)
-        }
+        keep()
+    }
+
+    private func keep() {
+        screen?.browser.save()
+        Userscripts.shared.flush()
     }
 
     private static func isWeb(_ link: URL) -> Bool {
