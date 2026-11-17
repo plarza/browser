@@ -48,10 +48,14 @@ public final class Browser {
             newTab()
         }
         // From here on the open tabs are saved whenever they change.
-        saver = Observer { [weak self] in
-            guard let self else { return }
-            Session.save(tabs, selected: selected)
-        }
+        saver = Observer { [weak self] in self?.save() }
+    }
+
+    /// Saves the open tabs now. They are saved a moment after each change
+    /// anyway; a shell about to quit or leave the foreground calls this so
+    /// the last change isn't lost.
+    public func save() {
+        Session.save(tabs, selected: selected)
     }
 
     // MARK: Tabs
