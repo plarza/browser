@@ -30,6 +30,9 @@ public final class PageView: PlatformView {
             clear()
             return
         }
+        // A swipe's picture is already held over the page: that stays, and
+        // the page under it has nothing left to show.
+        guard leftBehind.isEmpty else { return old.removeFromSuperview() }
         old.pauseAllMediaPlayback(completionHandler: nil)
         leftBehind.append(old)
     }
