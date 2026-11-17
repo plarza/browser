@@ -7,8 +7,11 @@ import WebKit
 /// popups.
 extension BrowserWindowController: Shell {
     func tab(_ tab: Tab, didReplace old: WKWebView?) {
-        // The page showing keeps the keyboard across a wipe.
-        if tab === browser.selected, tab.webView.window === window { window?.makeFirstResponder(tab.webView) }
+        // The page showing keeps the keyboard across a wipe. Someone typing
+        // in the address field keeps it instead: the page wiped itself, or
+        // Return is on its way to hand the keyboard over (see `go`).
+        guard tab === browser.selected, tab.webView.window === window, !sidebar.addressField.isEditing else { return }
+        window?.makeFirstResponder(tab.webView)
     }
 
     /// Closing a Persist tab deletes its jar, logins and all, so a person

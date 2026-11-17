@@ -13,9 +13,7 @@ struct SettingsPage: View {
                     .labelsHidden()
                 HStack {
                     ForEach(SearchEngine.all) { engine in
-                        Button {
-                            preferences.settings.searchTemplate = engine.template
-                        } label: {
+                        Button(action: engine.choose) {
                             Label {
                                 Text(engine.name)
                             } icon: {
@@ -146,6 +144,9 @@ struct SettingsPage: View {
 }
 
 extension SearchEngine {
+    /// The engine becomes the one the address field searches with.
+    @MainActor func choose() { Preferences.shared.settings.searchTemplate = template }
+
     /// The engine's picture, which ships with Browser.
     var image: NSImage? {
         Bundle.main.url(forResource: icon, withExtension: nil, subdirectory: "Engines").flatMap(NSImage.init(contentsOf:))

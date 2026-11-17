@@ -7,13 +7,15 @@ import AppKit
 enum Tooling {
     /// Before anything starts. The self-test and the screenshot delete data
     /// stores, and WebKit keeps those per app, not per `-browserStore`: only
-    /// a debug build's own app id keeps the real Browser's cookies out of reach.
+    /// a debug build's own app id keeps the real Browser's cookies out of
+    /// reach. Then the self-test's own site, if it is to run.
     static func prepare() {
         guard OutOfTheWay.enabled || Screenshot.file != nil else { return }
         guard Bundle.main.bundleIdentifier?.hasSuffix(".debug") == true else {
             NSLog("Browser tooling: refusing to run as \(Bundle.main.bundleIdentifier ?? "?"); build with ./build.sh debug")
             exit(EXIT_FAILURE)
         }
+        SelfTest.prepare()
     }
 
     /// Waits until `condition` holds, checking every 10 ms, for at most

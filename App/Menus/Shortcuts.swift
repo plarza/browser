@@ -56,7 +56,7 @@ struct Shortcut: Hashable {
             key = base
         }
         let names: [String: String] = [
-            "\t": "⇥", "\r": "↩", " ": "Space",
+            "\t": "⇥", String(Character(UnicodeScalar(NSBackTabCharacter)!)): "⇥", "\r": "↩", " ": "Space",
             String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)): "↑", String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)): "↓",
             String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!)): "←", String(Character(UnicodeScalar(NSRightArrowFunctionKey)!)): "→",
         ]

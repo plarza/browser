@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Extensions.shared.windowOpened()
         Extensions.shared.start()
         #if DEBUG
+        SelfTest.start(shell)
         Probe.run(shell)
         #endif
         shell.browser.restore()
